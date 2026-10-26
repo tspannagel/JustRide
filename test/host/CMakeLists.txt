@@ -25,9 +25,12 @@ include_directories(
     ${C}/workout/include
     ${C}/metrics/include
     ${C}/vshift/include
+    ${C}/ride/include
+    ${C}/recorder/include
 )
 
 jr_test(proto_ftms ${C}/proto_ftms/proto_ftms.c)
 jr_test(workout ${C}/workout/zwo.c ${C}/workout/workout.c)
 jr_test(metrics ${C}/metrics/metrics.c)
 jr_test(vshift ${C}/vshift/vshift.c)
+jr_test(ride ${C}/ride/ride.c ${C}/workout/workout.c ${C}/metrics/metrics.c ${C}/vshift/vshift.c)
