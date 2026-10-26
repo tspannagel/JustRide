@@ -12,3 +12,8 @@ void web_stop(void);
 bool web_running(void);
 // One-line status for the UI
 void web_status(char *buf, size_t size);
+
+// Firmware updates are refused unless someone at the device allowed them
+// within the last 5 minutes (physical presence instead of a password).
+void web_allow_ota(void);
+bool web_ota_allowed(void);

@@ -19,6 +19,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mdns.h"
 
@@ -29,6 +30,7 @@ static const char *TAG = "web";
 #define STA_TIMEOUT_US (15 * 1000000)
 #define MAX_WORKOUT_BYTES (256 * 1024)
 #define CHUNK 4096
+#define OTA_WINDOW_US (5 * 60 * 1000000LL)
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
@@ -36,6 +38,8 @@ static esp_timer_handle_t s_fallback;
 static bool s_running, s_is_ap, s_got_ip, s_sntp;
 static char s_ip[16];
 static char s_ap_pass[65];
+static int64_t s_ota_until;
+static SemaphoreHandle_t s_lock;  // web_start/web_stop come from the UI and the control task
 
 // ---- Files ----------------------------------------------------------------------
 
@@ -247,6 +251,10 @@ static void restart_task(void *arg)
 // firmware doesn't mark itself valid after a successful start.
 static esp_err_t h_ota(httpd_req_t *req)
 {
+    if (!web_ota_allowed()) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "Tap 'Allow firmware update' on the device first (valid 5 minutes)");
+    }
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part || req->content_len == 0 || req->content_len > part->size) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad image size");
@@ -388,11 +396,14 @@ void web_init(void)
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
     esp_timer_create_args_t t = {.callback = fallback_cb, .name = "wifi_fb"};
     esp_timer_create(&t, &s_fallback);
+    s_lock = xSemaphoreCreateMutex();
 }
 
 void web_start(const settings_t *s)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (s_running) {
+        xSemaphoreGive(s_lock);
         return;
     }
     s_running = true;
@@ -419,14 +430,18 @@ void web_start(const settings_t *s)
         mdns_hostname_set(HOSTNAME);
         mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
     }
+    xSemaphoreGive(s_lock);
 }
 
 void web_stop(void)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (!s_running) {
+        xSemaphoreGive(s_lock);
         return;
     }
     s_running = false;
+    s_ota_until = 0;
     esp_timer_stop(s_fallback);
     if (s_http) {
         httpd_stop(s_http);
@@ -438,8 +453,13 @@ void web_stop(void)
         s_sntp = false;
     }
     esp_wifi_stop();
+    xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "Wi-Fi off");
 }
+
+void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
+
+bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
 

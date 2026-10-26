@@ -1,5 +1,6 @@
 #include "ble_mgr.h"
 
+#include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
 #include "esp_timer.h"

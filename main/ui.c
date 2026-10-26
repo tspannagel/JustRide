@@ -27,7 +27,7 @@ static lv_obj_t *scr_home, *scr_workouts, *scr_settings, *scr_wifi, *scr_ride, *
 static lv_obj_t *home_status;
 static lv_obj_t *wo_list, *wo_msg;
 static lv_obj_t *set_ftp, *set_erg;
-static lv_obj_t *wifi_status, *wifi_btn_label;
+static lv_obj_t *wifi_status, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
 static lv_obj_t *r_time, *r_info, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats, *r_paused;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
 static lv_obj_t *sum_text;
@@ -70,6 +70,15 @@ static lv_obj_t *row(lv_obj_t *parent)
 static void fmt_time(char *buf, size_t n, uint32_t s)
 {
     snprintf(buf, n, "%u:%02u:%02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+}
+
+static void show(lv_obj_t *o, bool on)
+{
+    if (on) {
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void go(lv_obj_t *scr) { lv_screen_load(scr); }
@@ -209,6 +218,14 @@ static void update_wifi(void)
     web_status(buf, sizeof(buf));
     lv_label_set_text(wifi_status, buf);
     lv_label_set_text(wifi_btn_label, web_running() ? "Turn off" : "Turn on");
+    show(wifi_ota_btn, web_running());
+    lv_label_set_text(wifi_ota_label, web_ota_allowed() ? "Update allowed (5 min)" : "Allow firmware update");
+}
+
+static void on_allow_ota(lv_event_t *e)
+{
+    web_allow_ota();
+    update_wifi();
 }
 
 static void on_wifi_toggle(lv_event_t *e)
@@ -235,6 +252,8 @@ static void build_wifi(void)
     wifi_status = label(scr_wifi, &lv_font_montserrat_20, "");
     lv_obj_t *b = button(row(scr_wifi), "", 220, 80, on_wifi_toggle, NULL);
     wifi_btn_label = lv_obj_get_child(b, 0);
+    wifi_ota_btn = button(row(scr_wifi), "", 320, 70, on_allow_ota, NULL);
+    wifi_ota_label = lv_obj_get_child(wifi_ota_btn, 0);
     label(scr_wifi, &lv_font_montserrat_16, "Wi-Fi turns off automatically when a ride starts.");
 }
 
@@ -282,15 +301,6 @@ static void build_ride(void)
     lv_obj_align(r_paused, LV_ALIGN_CENTER, 0, -40);
     lv_obj_set_style_bg_opa(r_paused, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(r_paused, lv_palette_main(LV_PALETTE_ORANGE), 0);
-}
-
-static void show(lv_obj_t *o, bool on)
-{
-    if (on) {
-        lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
-    }
 }
 
 static void update_ride(const ride_view_t *v)
