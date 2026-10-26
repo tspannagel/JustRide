@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "evbus.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
@@ -43,7 +42,7 @@ static link_t s_links[MAX_LINKS];
 static uint8_t s_own_addr_type;
 static bool s_connecting;
 static int s_fails;
-static esp_timer_handle_t s_rescan;
+static struct ble_npl_callout s_rescan;  // runs on the host task, like every other callback here
 
 static int gap_event(struct ble_gap_event *ev, void *arg);
 static void subscribe_next(link_t *l);
@@ -140,13 +139,12 @@ static void start_scan(void)
     }
 }
 
-static void rescan_cb(void *arg) { start_scan(); }
+static void rescan_cb(struct ble_npl_event *ev) { start_scan(); }
 
 static void schedule_rescan(void)
 {
     int delay_s = s_fails < 5 ? 1 << s_fails : BACKOFF_MAX_S;
-    esp_timer_stop(s_rescan);
-    esp_timer_start_once(s_rescan, (uint64_t)delay_s * 1000000);
+    ble_npl_callout_reset(&s_rescan, ble_npl_time_ms_to_ticks32((uint32_t)delay_s * 1000));
 }
 
 bool ble_adv_has_uuid16(const struct ble_hs_adv_fields *f, uint16_t uuid)
@@ -232,7 +230,9 @@ static int on_dsc(uint16_t conn, const struct ble_gatt_error *err, uint16_t chr_
     }
     uint8_t flags = l->drv->chrs[l->sub_idx].flags;
     uint8_t v[2] = {flags & BLE_CHR_INDICATE ? 0x02 : 0x01, 0x00};
-    ble_gattc_write_flat(conn, l->cccd, v, sizeof(v), on_cccd_written, NULL);
+    if (ble_gattc_write_flat(conn, l->cccd, v, sizeof(v), on_cccd_written, NULL) != 0) {
+        fail_link(l, "subscribe");
+    }
     return 0;
 }
 
@@ -315,7 +315,9 @@ static int on_svc(uint16_t conn, const struct ble_gatt_error *err, const struct 
         fail_link(l, "service not found");
         return 0;
     }
-    ble_gattc_disc_all_chrs(conn, l->svc_start, l->svc_end, on_chr, NULL);
+    if (ble_gattc_disc_all_chrs(conn, l->svc_start, l->svc_end, on_chr, NULL) != 0) {
+        fail_link(l, "characteristic discovery");
+    }
     return 0;
 }
 
@@ -352,7 +354,10 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ble_gap_conn_find(l->conn, &desc) == 0) {
             l->addr = desc.peer_id_addr;
         }
-        ble_gattc_disc_svc_by_uuid(l->conn, &drv->service.u, on_svc, NULL);
+        // A procedure that fails to start never calls back: drop the link, or this role stays blocked
+        if (ble_gattc_disc_svc_by_uuid(l->conn, &drv->service.u, on_svc, NULL) != 0) {
+            fail_link(l, "service discovery");
+        }
         break;
     }
 
@@ -451,9 +456,8 @@ void ble_mgr_start(const ble_drv_t *const *drivers, int n)
 {
     s_drv = drivers;
     s_n_drv = n;
-    esp_timer_create_args_t t = {.callback = rescan_cb, .name = "ble_rescan"};
-    ESP_ERROR_CHECK(esp_timer_create(&t, &s_rescan));
     ESP_ERROR_CHECK(nimble_port_init());
+    ble_npl_callout_init(&s_rescan, nimble_port_get_dflt_eventq(), rescan_cb, NULL);
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.reset_cb = on_reset;
     nimble_port_freertos_init(host_task);
