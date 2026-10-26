@@ -5,11 +5,29 @@ project(justride_host_tests C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-add_compile_options(-Wall -Wextra -Werror)
+add_compile_options(-Wall -Wextra -Werror -fsanitize=address,undefined -g)
+add_link_options(-fsanitize=address,undefined)
 enable_testing()
 
-set(COMPONENTS ${CMAKE_CURRENT_SOURCE_DIR}/../../components)
+set(C ${CMAKE_CURRENT_SOURCE_DIR}/../../components)
+add_compile_definitions(TOOLS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools")
+include_directories(${C}/evbus/include)
 
-add_executable(test_proto_ftms test_proto_ftms.c ${COMPONENTS}/proto_ftms/proto_ftms.c)
-target_include_directories(test_proto_ftms PRIVATE ${COMPONENTS}/proto_ftms/include)
-add_test(NAME proto_ftms COMMAND test_proto_ftms)
+# jr_test(<name> <sources...>): test_<name>.c plus the component sources
+function(jr_test name)
+    add_executable(test_${name} test_${name}.c ${ARGN})
+    target_link_libraries(test_${name} m)
+    add_test(NAME ${name} COMMAND test_${name})
+endfunction()
+
+include_directories(
+    ${C}/proto_ftms/include
+    ${C}/workout/include
+    ${C}/metrics/include
+    ${C}/vshift/include
+)
+
+jr_test(proto_ftms ${C}/proto_ftms/proto_ftms.c)
+jr_test(workout ${C}/workout/zwo.c ${C}/workout/workout.c)
+jr_test(metrics ${C}/metrics/metrics.c)
+jr_test(vshift ${C}/vshift/vshift.c)

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workout_file>
+    <name>Endurance 60</name>
+    <workout>
+        <Warmup Duration="300" PowerLow="0.50" PowerHigh="0.68"/>
+        <SteadyState Duration="3000" Power="0.68" Cadence="88">
+            <textevent timeoffset="10" message="Settle in"/>
+        </SteadyState>
+        <!-- a comment with <SteadyState Duration="99" Power="9"/> inside -->
+        <FreeRide Duration="300" FlatRoad="1"/>
+    </workout>
+</workout_file>
