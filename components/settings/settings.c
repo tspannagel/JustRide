@@ -76,8 +76,7 @@ static void load_gears(gear_table_t *g)
     const cJSON *arr = cJSON_GetObjectItem(root, "ratios");
     bool ok = cJSON_IsArray(arr) && cJSON_GetArraySize(arr) >= 2 && cJSON_GetArraySize(arr) <= VSHIFT_MAX_GEARS;
     const cJSON *it;
-    cJSON_ArrayForEach(it, ok ? arr : NULL)
-    {
+    for (it = ok ? arr->child : NULL; it; it = it->next) {
         double r = cJSON_IsNumber(it) ? it->valuedouble : 0;
         uint16_t r100 = (uint16_t)(r * 100 + 0.5);
         if (r < 0.3 || r > 8.0 || (t.n > 0 && r100 <= t.ratio100[t.n - 1])) {

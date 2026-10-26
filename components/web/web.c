@@ -38,7 +38,7 @@ static httpd_handle_t s_http;
 static esp_timer_handle_t s_fallback;
 static bool s_running, s_is_ap, s_got_ip, s_sntp;
 static char s_ip[16];
-static char s_ap_pass[65];
+static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
 static SemaphoreHandle_t s_lock;  // web_start/web_stop come from the UI and the control task
 static char s_buf[CHUNK];         // shared by all handlers: the server runs one handler at a time
@@ -265,7 +265,7 @@ static esp_err_t h_api_rides(httpd_req_t *req)
         if (stat(path, &st) != 0) {
             continue;
         }
-        snprintf(item, sizeof(item), "%s{\"name\":\"%s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
+        snprintf(item, sizeof(item), "%s{\"name\":\"%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
                  (long)st.st_size, (long)st.st_mtime);
         httpd_resp_sendstr_chunk(req, item);
         first = false;
@@ -504,7 +504,7 @@ void web_start(const settings_t *s)
 
     if (s->wifi_ssid[0]) {
         wifi_config_t sta = {0};
-        snprintf((char *)sta.sta.ssid, sizeof(sta.sta.ssid), "%s", s->wifi_ssid);
+        memcpy(sta.sta.ssid, s->wifi_ssid, strlen(s->wifi_ssid));  // a 32-byte SSID has no NUL
         snprintf((char *)sta.sta.password, sizeof(sta.sta.password), "%s", s->wifi_pass);
         esp_wifi_set_mode(WIFI_MODE_STA);
         esp_wifi_set_config(WIFI_IF_STA, &sta);

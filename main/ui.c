@@ -132,10 +132,11 @@ static void open_workouts(lv_event_t *e)
     struct dirent *de;
     while (d && n < MAX_LIST && (de = readdir(d))) {
         size_t len = strlen(de->d_name);
-        if (de->d_name[0] == '.' || len < 5 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
+        // Longer names would be cut off in s_paths (and are refused by the upload page too)
+        if (de->d_name[0] == '.' || len < 5 || len > 60 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
             continue;
         }
-        snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%s", de->d_name);
+        snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%.60s", de->d_name);
         lv_obj_t *b = lv_list_add_button(wo_list, NULL, de->d_name);
         lv_obj_add_event_cb(b, on_workout, LV_EVENT_CLICKED, s_paths[n]);
         n++;

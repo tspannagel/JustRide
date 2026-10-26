@@ -246,7 +246,7 @@ Wi-Fi turns off automatically when you start a ride.
 | `crr` | 0.004 | 0.001–0.02 | Rolling resistance sent to the trainer in free ride |
 | `cw` | 0.51 | 0.1–2.0 | Wind resistance coefficient (kg/m) in free ride |
 | `wifi_ssid`, `wifi_password` | empty | | Your home Wi-Fi |
-| `ap_password` | random | ≥ 8 chars | Password of the device's own hotspot |
+| `ap_password` | random | 8–63 chars | Password of the device's own hotspot |
 
 Invalid or out-of-range values are ignored and the default is used. If the file is not valid JSON (a missing quote or comma), the device uses defaults for everything, logs `settings.json is not valid JSON` and leaves your file unchanged so you can fix it.
 
