@@ -115,9 +115,10 @@ static esp_err_t exio_init(void)
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c, &dev, &s_exio), TAG, "add TCA9554");
     s_exio_lock = xSemaphoreCreateMutex();
 
-    // Output register first, then direction, so no pin glitches high.
-    // All outputs low: backlight off, resets asserted, SD CS low, buzzer off.
-    s_exio_out = 0x00;
+    // Output register first, then direction, so no pin glitches.
+    // Backlight off, resets asserted, buzzer off. SD CS high (deselected): the
+    // ST7701 init that follows clocks GPIO 1/2, which are also the card's SCK/MOSI.
+    s_exio_out = 1u << BSP_EXIO_SD_CS;
     ESP_RETURN_ON_ERROR(exio_write(TCA9554_REG_OUTPUT, s_exio_out), TAG, "TCA9554 output");
     ESP_RETURN_ON_ERROR(exio_write(TCA9554_REG_CONFIG, TCA9554_CONFIG), TAG, "TCA9554 config");
     ESP_LOGI(TAG, "TCA9554 at 0x%02x", addr);
@@ -334,7 +335,9 @@ static esp_err_t sd_init(void)
     };
     ESP_RETURN_ON_ERROR(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO), TAG, "SD SPI bus");
 
-    // CS is EXIO3, held low by exio_init(); the SPI driver gets no CS pin.
+    // CS is EXIO3, selected (low) from here on, after the pins became the SPI
+    // bus; the SPI driver gets no CS pin.
+    ESP_RETURN_ON_ERROR(bsp_exio_set(BSP_EXIO_SD_CS, 0), TAG, "SD CS");
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI2_HOST;
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();

@@ -48,7 +48,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - SW6106 light-load register fix (Waveshare FAQ). Not implemented: register unknown, TODO in `bsp.c`.
 - ST7701 init sequence: `bsp.c` uses the `esp_lcd_st7701` default; swap in Waveshare's table if colours/gamma are off.
 - RGB timings (porches, 16 MHz PCLK) in `bsp.c` are generic ST7701 values; raise PCLK towards 21 MHz once stable.
-- SD with no SPI CS pin (EXIO3 held low) mounts reliably.
+- SD with no SPI CS pin (EXIO3 high during ST7701 init, low from SD bus start) mounts reliably.
 - Zwift Ride (code written before any capture): advert match (company 0x094A / UUID 0xFC82), "RideOn" handshake accepted, keypad message id 0x23, button bit table in `proto_zap.h`, active-low polarity, whether a keep-alive is needed. Use `zap dump on`.
 - KICKR Core firmware exposes FTMS (expected yes) and the Indoor Bike Data flags it uses.
 - First `idf.py build`: fix compile errors (see Status).
