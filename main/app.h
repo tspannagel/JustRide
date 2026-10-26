@@ -10,6 +10,7 @@
 typedef struct {
     bool trainer;
     bool hr;
+    bool controller;
     bool clock_ok;
     bool sd_ok;
 } app_status_t;

@@ -7,6 +7,7 @@
 #include "diag.h"
 #include "drv_ftms.h"
 #include "drv_hr.h"
+#include "drv_zap.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "evbus.h"
@@ -16,7 +17,7 @@
 
 static const char *TAG = "main";
 
-static const ble_drv_t *const s_drivers[] = {&drv_ftms, &drv_hr};
+static const ble_drv_t *const s_drivers[] = {&drv_ftms, &drv_hr, &drv_zap};
 
 static void nvs_init(void)
 {

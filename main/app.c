@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "input_map.h"
 #include "recorder.h"
 #include "web.h"
 
@@ -30,6 +31,7 @@ static ride_view_t s_view;
 static app_status_t s_status;
 static settings_t s_settings;
 static workout_t s_wo;
+static input_map_t s_input;
 static uint8_t s_beeps_left;
 static uint32_t s_next_beep_ms;
 
@@ -62,6 +64,22 @@ static void start_ride(const workout_t *wo)
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
 
+static void do_action(uint8_t a)
+{
+    if (a == ACT_START_FREE) {
+        start_ride(NULL);
+    } else if (a == ACT_START_WORKOUT) {
+        start_ride(&s_wo);
+    } else {
+        uint8_t before = s_ride.state;
+        ride_action(&s_ride, a);
+        if (before != RIDE_DONE && s_ride.state == RIDE_DONE) {
+            recorder_finish();
+            s_beeps_left = 1;
+        }
+    }
+}
+
 static void handle(const evt_t *e)
 {
     switch (e->type) {
@@ -73,22 +91,20 @@ static void handle(const evt_t *e)
             s_status.trainer = e->device.kind == DEV_CONNECTED;
         } else if (e->device.role == SRC_HR) {
             s_status.hr = e->device.kind == DEV_CONNECTED;
+        } else if (e->device.role == SRC_CONTROLLER) {
+            s_status.controller = e->device.kind == DEV_CONNECTED;
         }
         break;
     case EVT_ACTION:
-        if (e->action == ACT_START_FREE) {
-            start_ride(NULL);
-        } else if (e->action == ACT_START_WORKOUT) {
-            start_ride(&s_wo);
-        } else {
-            uint8_t before = s_ride.state;
-            ride_action(&s_ride, e->action);
-            if (before != RIDE_DONE && s_ride.state == RIDE_DONE) {
-                recorder_finish();
-                s_beeps_left = 1;
-            }
+        do_action(e->action);
+        break;
+    case EVT_INPUT: {
+        int a = input_map(&s_input, &e->input, now_ms(), s_ride.state);
+        if (a >= 0) {
+            do_action((uint8_t)a);
         }
         break;
+    }
     default:
         break;
     }

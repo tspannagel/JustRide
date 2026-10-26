@@ -22,11 +22,14 @@ static void on_notify(uint16_t conn, int idx, const uint8_t *d, uint16_t len)
     evbus_post(&e);
 }
 
+static bool matches(const struct ble_hs_adv_fields *adv) { return ble_adv_has_uuid16(adv, 0x180D); }
+
 const ble_drv_t drv_hr = {
     .name = "hr",
     .role = SRC_HR,
-    .service16 = 0x180D,
-    .chrs = {{0x2A37, BLE_CHR_NOTIFY | BLE_CHR_REQUIRED}},
+    .matches = matches,
+    .service = {.u16 = BLE_UUID16_INIT(0x180D)},
+    .chrs = {{{.u16 = BLE_UUID16_INIT(0x2A37)}, BLE_CHR_NOTIFY | BLE_CHR_REQUIRED}},
     .n_chrs = 1,
     .on_ready = on_ready,
     .on_notify = on_notify,

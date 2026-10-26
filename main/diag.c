@@ -2,7 +2,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "bsp.h"
+#include "drv_zap.h"
 #include "esp_console.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
@@ -93,6 +95,16 @@ static int cmd_buzz(int argc, char **argv)
     return 0;
 }
 
+static int cmd_zap(int argc, char **argv)
+{
+    if (argc == 3 && strcmp(argv[1], "dump") == 0) {
+        drv_zap_dump(strcmp(argv[2], "on") == 0);
+        return 0;
+    }
+    printf("usage: zap dump on|off\n");
+    return 1;
+}
+
 static int cmd_mem(int argc, char **argv)
 {
     printf("internal free %u, PSRAM free %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -108,6 +120,7 @@ void diag_start(void)
         {.command = "sd", .help = "SD write/read speed test (1 MB)", .func = cmd_sd},
         {.command = "buzz", .help = "Beep for 100 ms", .func = cmd_buzz},
         {.command = "mem", .help = "Free heap and PSRAM", .func = cmd_mem},
+        {.command = "zap", .help = "Log Zwift Ride packets as hex", .hint = "dump on|off", .func = cmd_zap},
     };
 
     esp_console_repl_t *repl;

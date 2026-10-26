@@ -8,6 +8,7 @@ typedef enum {
     SRC_NONE = 0,
     SRC_TRAINER,
     SRC_HR,
+    SRC_CONTROLLER,  // Zwift Ride
 } source_t;
 
 typedef struct {

@@ -106,8 +106,9 @@ static void build_home(void)
 
 static void update_home(const ride_view_t *v, const app_status_t *st)
 {
-    lv_label_set_text_fmt(home_status, "Trainer: %s\nHeart rate: %s%s%s",
+    lv_label_set_text_fmt(home_status, "Trainer: %s\nHeart rate: %s\nZwift Ride: %s%s%s",
                           st->trainer ? "connected" : "searching...", st->hr ? "connected" : "-",
+                          st->controller ? "connected" : "-",
                           st->sd_ok ? "" : "\nNo SD card: rides are not saved",
                           st->clock_ok ? "" : "\nClock not set: turn on Wi-Fi once");
 }
@@ -206,7 +207,7 @@ static void build_settings(void)
     set_erg = label(r, &lv_font_montserrat_28, "");
     button(r, "+50", 80, 70, on_erg, (void *)50);
     r = row(scr_settings);
-    button(r, "Forget trainer + HR", 300, 70, on_forget, NULL);
+    button(r, "Forget paired devices", 300, 70, on_forget, NULL);
     label(scr_settings, &lv_font_montserrat_16, esp_app_get_description()->version);
 }
 

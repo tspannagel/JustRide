@@ -23,14 +23,17 @@ static void on_ready(uint16_t conn);
 static void on_notify(uint16_t conn, int idx, const uint8_t *d, uint16_t len);
 static void on_disconnect(uint16_t conn);
 
+static bool matches(const struct ble_hs_adv_fields *adv) { return ble_adv_has_uuid16(adv, 0x1826); }
+
 const ble_drv_t drv_ftms = {
     .name = "trainer",
     .role = SRC_TRAINER,
-    .service16 = 0x1826,
+    .matches = matches,
+    .service = {.u16 = BLE_UUID16_INIT(0x1826)},
     .chrs = {
-        {0x2AD2, BLE_CHR_NOTIFY | BLE_CHR_REQUIRED},
-        {0x2AD9, BLE_CHR_INDICATE | BLE_CHR_REQUIRED},
-        {0x2ADA, BLE_CHR_NOTIFY},
+        {{.u16 = BLE_UUID16_INIT(0x2AD2)}, BLE_CHR_NOTIFY | BLE_CHR_REQUIRED},
+        {{.u16 = BLE_UUID16_INIT(0x2AD9)}, BLE_CHR_INDICATE | BLE_CHR_REQUIRED},
+        {{.u16 = BLE_UUID16_INIT(0x2ADA)}, BLE_CHR_NOTIFY},
     },
     .n_chrs = 3,
     .on_ready = on_ready,

@@ -30,6 +30,7 @@ typedef struct {
     uint16_t val[BLE_MAX_CHRS];
     uint16_t def[BLE_MAX_CHRS];
     uint16_t end[BLE_MAX_CHRS];
+    uint8_t props[BLE_MAX_CHRS];
     uint16_t all_def[MAX_ALL_CHRS];  // every characteristic declaration, to bound descriptor search
     int n_all;
     int sub_idx;      // characteristic being subscribed
@@ -148,7 +149,7 @@ static void schedule_rescan(void)
     esp_timer_start_once(s_rescan, (uint64_t)delay_s * 1000000);
 }
 
-static bool adv_has_service(const struct ble_hs_adv_fields *f, uint16_t uuid)
+bool ble_adv_has_uuid16(const struct ble_hs_adv_fields *f, uint16_t uuid)
 {
     for (int i = 0; i < f->num_uuids16; i++) {
         if (ble_uuid_u16(&f->uuids16[i].u) == uuid) {
@@ -156,6 +157,11 @@ static bool adv_has_service(const struct ble_hs_adv_fields *f, uint16_t uuid)
         }
     }
     return false;
+}
+
+bool ble_adv_has_company(const struct ble_hs_adv_fields *f, uint16_t company)
+{
+    return f->mfg_data && f->mfg_data_len >= 2 && (f->mfg_data[0] | f->mfg_data[1] << 8) == company;
 }
 
 static void on_disc(const struct ble_gap_disc_desc *d)
@@ -167,7 +173,7 @@ static void on_disc(const struct ble_gap_disc_desc *d)
     for (int i = 0; i < s_n_drv; i++) {
         const ble_drv_t *drv = s_drv[i];
         ble_addr_t want;
-        if (link_by_role(drv->role) || !adv_has_service(&f, drv->service16)) {
+        if (link_by_role(drv->role) || !drv->matches(&f)) {
             continue;
         }
         if (saved_addr(drv->role, &want) && ble_addr_cmp(&want, &d->addr) != 0) {
@@ -263,12 +269,11 @@ static int on_chr(uint16_t conn, const struct ble_gatt_error *err, const struct 
         if (l->n_all < MAX_ALL_CHRS) {
             l->all_def[l->n_all++] = chr->def_handle;
         }
-        if (chr->uuid.u.type == BLE_UUID_TYPE_16) {
-            for (int i = 0; i < l->drv->n_chrs; i++) {
-                if (l->drv->chrs[i].uuid16 == ble_uuid_u16(&chr->uuid.u)) {
-                    l->val[i] = chr->val_handle;
-                    l->def[i] = chr->def_handle;
-                }
+        for (int i = 0; i < l->drv->n_chrs; i++) {
+            if (ble_uuid_cmp(&chr->uuid.u, &l->drv->chrs[i].uuid.u) == 0) {
+                l->val[i] = chr->val_handle;
+                l->def[i] = chr->def_handle;
+                l->props[i] = chr->properties;
             }
         }
         return 0;
@@ -347,7 +352,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ble_gap_conn_find(l->conn, &desc) == 0) {
             l->addr = desc.peer_id_addr;
         }
-        ble_gattc_disc_svc_by_uuid(l->conn, BLE_UUID16_DECLARE(drv->service16), on_svc, NULL);
+        ble_gattc_disc_svc_by_uuid(l->conn, &drv->service.u, on_svc, NULL);
         break;
     }
 
@@ -401,8 +406,11 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
 int ble_mgr_write(uint16_t conn, const ble_drv_t *drv, int chr_idx, const void *data, uint16_t len)
 {
     link_t *l = link_by_conn(conn);
-    if (!l || !l->ready || l->drv != drv) {
+    if (!l || !l->ready || l->drv != drv || !l->val[chr_idx]) {
         return BLE_HS_ENOTCONN;
+    }
+    if (!(l->props[chr_idx] & BLE_GATT_CHR_PROP_WRITE)) {
+        return ble_gattc_write_no_rsp_flat(conn, l->val[chr_idx], data, len);
     }
     return ble_gattc_write_flat(conn, l->val[chr_idx], data, len, NULL, NULL);
 }
