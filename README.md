@@ -1,20 +1,27 @@
 # JustRide
 
-Standalone ESP32-S3 head unit for a Wahoo KICKR Core. See `CLAUDE.md` for the project overview and `HANDOVER.md` for status.
+Standalone ESP32-S3 head unit for a Wahoo KICKR Core: free rides with virtual gears, ERG workouts from `.zwo` files, FIT/CSV recording on microSD and a browser statistics app served by the device. No cloud.
 
-## Firmware (ESP-IDF ≥ 5.3)
+- **Manual (setup and operation):** [docs/manual.md](docs/manual.md)
+- Project overview and rules: [CLAUDE.md](CLAUDE.md) · status: [HANDOVER.md](HANDOVER.md) · plan: `docs/plan.html`
 
-One-time setup: install ESP-IDF following Espressif's "Get Started" guide for macOS, then in each new terminal run `. $IDF_PATH/export.sh` (or `get_idf`).
+## Build (ESP-IDF ≥ 5.3)
 
 ```sh
+. ~/esp/esp-idf/export.sh
 idf.py set-target esp32s3   # first time only
 idf.py build
 idf.py -p /dev/cu.usbmodem* flash monitor
 ```
 
-Use a plain 5 V USB supply or the computer's USB port; never a fast charger.
+Power: plain 5 V USB supply or the computer's USB port, never a fast charger.
 
-On the USB console (`jr>` prompt): `help`, `i2c`, `pattern [0|1|2]`, `sd`, `buzz`, `mem`.
+## SD card
+
+```sh
+tools/vendor_stats.sh                  # once: pinned DuckDB-WASM + uPlot into www/stats/vendor
+tools/sd_deploy.sh /Volumes/<card>     # statistics app + sample workouts
+```
 
 ## Host tests
 
@@ -25,8 +32,10 @@ cmake -S test/host -B test/host/build && cmake --build test/host/build && ctest 
 ## Layout
 
 ```
-main/                  app_main + diag console
-components/bsp_s3lcd4  board bring-up: I2C, TCA9554, ST7701/RGB panel, SD
-components/proto_ftms  pure FTMS codec (host-tested)
-test/host/             host unit tests
+main/          app_main, control task, LVGL UI, diag console
+components/    bsp_s3lcd4, evbus, ble_mgr, drv_ftms, drv_hr, proto_ftms,
+               workout, vshift, metrics, ride, recorder, settings, web
+www/stats/     statistics app
+test/host/     host unit tests for the pure components
+tools/         sample workouts, vendoring and SD scripts
 ```
