@@ -48,10 +48,11 @@ coverage/
 
 # ---------------------------------------------------------------------------
 # Statistics app (www/stats)
-# DuckDB-WASM and uPlot are vendored on purpose: do NOT ignore www/stats/vendor.
+# vendor/ (DuckDB-WASM 34 MB, uPlot) is produced by tools/vendor_stats.sh from
+# pinned versions and copied to the SD card; it is not committed.
 # ---------------------------------------------------------------------------
 node_modules/
-www/stats/dist/
+www/stats/vendor/
 *.duckdb
 *.duckdb.wal
 

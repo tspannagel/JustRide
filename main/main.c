@@ -52,10 +52,10 @@ void app_main(void)
     bsp_backlight(true);
 
     evbus_init();
+    drv_ftms_init();  // before app_start: the control task feeds its mailbox
     app_start();
     ui_start();
     web_init();
-    drv_ftms_init();
     ble_mgr_start(s_drivers, sizeof(s_drivers) / sizeof(s_drivers[0]));
 
     // We got this far: keep this firmware (cancels OTA rollback)
