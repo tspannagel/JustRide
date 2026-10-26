@@ -1,0 +1,1093 @@
+<title>KICKR Head Unit Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: engineering spec sheet — sticky section index on wide screens, one reading column, wide figures scroll in their own frames */
+:root{
+  --bg:#F3F5F6; --surface:#FFFFFF; --ink:#16212B; --muted:#5A6772; --line:#D2DAE0; --chip:#E8EDF1;
+  --accent:#1E5CCB; --accent-soft:#E2EBFA; --warn:#A6500C; --warn-soft:#FBEADB; --ok:#1C7448; --ok-soft:#DFF1E7; --bad:#B3261E; --bad-soft:#FBE3E1;
+  --scr-bg:#0E1418; --scr-ink:#E9F0F4; --scr-mut:#8495A1; --scr-acc:#FFB547; --scr-blue:#69A2FF; --scr-grid:#23303A;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#10161B; --surface:#172028; --ink:#E5ECF0; --muted:#93A2AD; --line:#2A3742; --chip:#1F2B35;
+  --accent:#73A0FF; --accent-soft:#1B2B47; --warn:#F2A363; --warn-soft:#3A2616; --ok:#63C996; --ok-soft:#15322A; --bad:#FF8A80; --bad-soft:#3B1C1A;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10161B; --surface:#172028; --ink:#E5ECF0; --muted:#93A2AD; --line:#2A3742; --chip:#1F2B35;
+  --accent:#73A0FF; --accent-soft:#1B2B47; --warn:#F2A363; --warn-soft:#3A2616; --ok:#63C996; --ok-soft:#15322A; --bad:#FF8A80; --bad-soft:#3B1C1A;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15.5px;line-height:1.6}
+.wrap{max-width:1180px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:200px minmax(0,1fr);gap:48px}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr);gap:24px}.toc{display:none}}
+.toc{position:sticky;top:calc(24px + env(safe-area-inset-top,0px));align-self:start;font-size:13px}
+.toc b{display:block;font-family:var(--f-display);font-stretch:80%;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-size:11.5px;margin-bottom:8px}
+.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px;counter-reset:t}
+.toc a{color:var(--ink);text-decoration:none;display:block;padding:3px 8px;border-radius:4px;counter-increment:t}
+.toc a::before{content:counter(t,decimal-leading-zero);font-family:var(--f-mono);font-size:11px;color:var(--muted);margin-right:8px}
+.toc a:hover,.toc a:focus-visible{background:var(--chip);outline:none}
+main{min-width:0}
+
+header.hero{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:8px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--f-display);font-stretch:78%;font-weight:800;font-size:clamp(2.2rem,5vw,3.6rem);line-height:1;margin:.25em 0 .3em;text-wrap:balance;letter-spacing:-.01em}
+.lede{max-width:68ch;color:var(--muted);font-size:1.05rem;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.tag{font-family:var(--f-mono);font-size:12px;background:var(--chip);border-radius:3px;padding:2px 8px}
+
+section{padding-top:44px}
+h2{font-family:var(--f-display);font-stretch:82%;font-weight:750;font-size:1.75rem;line-height:1.15;margin:0 0 6px;display:flex;gap:12px;align-items:baseline;text-wrap:balance}
+h2 .n{font-family:var(--f-mono);font-size:.8rem;font-weight:500;color:var(--accent);letter-spacing:.04em}
+h3{font-family:var(--f-display);font-stretch:88%;font-weight:700;font-size:1.15rem;margin:28px 0 8px}
+p,li{max-width:72ch}
+p{margin:0 0 12px}
+ul,ol{padding-left:1.2em;margin:0 0 12px}
+li{margin:3px 0}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--chip);padding:1px 5px;border-radius:3px}
+a{color:var(--accent)}
+.sub{color:var(--muted);margin-bottom:16px}
+
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:6px;margin:18px 0;overflow:hidden}
+.fig .cap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.fig .cap b{color:var(--ink);font-family:var(--f-display);font-stretch:85%;font-size:14px;letter-spacing:.01em}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.fig svg{display:block;width:100%;height:auto}
+.fig .scroll svg{min-width:860px}
+.fig pre.mermaid{margin:0;padding:16px;background:transparent;min-width:640px;text-align:center}
+
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface);margin:14px 0}
+.tbl table{min-width:640px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-display);font-stretch:85%;font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--chip)}
+tr:last-child td{border-bottom:none}
+td.mono,td .mono{white-space:nowrap}
+
+.pill{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)}
+.p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-bad{background:var(--bad-soft);color:var(--bad)}
+.p-info{background:var(--accent-soft);color:var(--accent)}
+
+.callout{border-left:3px solid var(--warn);background:var(--warn-soft);padding:10px 14px;border-radius:0 6px 6px 0;margin:14px 0;max-width:72ch}
+.callout.info{border-color:var(--accent);background:var(--accent-soft)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:14px 0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;min-width:0}
+.panel h4{margin:0 0 6px;font-family:var(--f-display);font-stretch:88%;font-size:1rem}
+.panel p,.panel li{font-size:14px}
+pre.code{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;overflow-x:auto;font-family:var(--f-mono);font-size:12.5px;line-height:1.55;margin:14px 0}
+pre.code .c{color:var(--muted)}
+
+/* SVG drawing tokens */
+.s-box{fill:var(--surface);stroke:var(--ink);stroke-width:1.3}
+.s-hi{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2}
+.s-band{fill:var(--chip);stroke:none}
+.s-bus{fill:var(--accent);stroke:none}
+.s-w{fill:none;stroke:var(--ink);stroke-width:1.4}
+.s-dash{stroke-dasharray:6 4}
+.s-pwr{fill:none;stroke:var(--warn);stroke-width:2}
+.s-b{fill:none;stroke:var(--accent);stroke-width:3}
+.s-dot{fill:var(--ink)}
+.s-t{fill:var(--ink);font-family:var(--f-body);font-size:12px}
+.s-tb{fill:var(--ink);font-family:var(--f-display);font-weight:700;font-size:13.5px;letter-spacing:.01em}
+.s-tm{fill:var(--muted);font-family:var(--f-body);font-size:11.5px}
+.s-mono{fill:var(--muted);font-family:var(--f-mono);font-size:10.5px}
+.s-net{fill:var(--accent);font-family:var(--f-mono);font-size:11px;font-weight:500}
+.s-npw{fill:var(--warn);font-family:var(--f-mono);font-size:11px;font-weight:500}
+.s-lab{fill:var(--muted);font-family:var(--f-display);font-weight:700;font-size:11.5px;letter-spacing:.08em}
+.s-onbus{fill:var(--surface);font-family:var(--f-mono);font-size:12px;font-weight:500}
+
+/* Device screen mock (deliberately the same in both themes: it is a picture of the LCD) */
+.screen{width:100%;max-width:400px;aspect-ratio:1/1;background:var(--scr-bg);color:var(--scr-ink);border-radius:10px;border:10px solid #2A2F33;padding:10px 12px;display:grid;grid-template-rows:auto auto 1fr auto;gap:8px;font-family:var(--f-display);font-variant-numeric:tabular-nums;box-shadow:0 0 0 1px var(--line)}
+.scr-top{display:flex;justify-content:space-between;font-size:12px;color:var(--scr-mut);font-stretch:85%;gap:8px}
+.scr-top b{color:var(--scr-ink);font-weight:700}
+.scr-mid{display:grid;grid-template-columns:1.35fr 1fr;gap:8px;min-height:0}
+.scr-pw{display:flex;flex-direction:column;align-items:center;border-bottom:1px solid var(--scr-grid);padding-bottom:8px}
+.scr-pw .v{font-size:clamp(3.4rem,14vw,5.2rem);font-weight:800;font-stretch:75%;line-height:.9}
+.scr-pw .v small{font-size:.35em;color:var(--scr-mut);font-weight:600;margin-left:4px}
+.scr-pw .t{font-size:12px;color:var(--scr-mut)}
+.scr-pw .t b{color:var(--scr-acc)}
+.scr-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;align-content:center;padding:0 6px}
+.scr-tiles div{font-size:10.5px;color:var(--scr-mut);text-transform:uppercase;letter-spacing:.06em;font-stretch:85%}
+.scr-tiles div span{display:block;font-size:clamp(1.6rem,6vw,2.2rem);color:var(--scr-ink);font-weight:750;letter-spacing:0;font-stretch:80%;line-height:1.05;text-transform:none}
+.scr-tiles div span.g{color:var(--scr-blue)}
+.scr-prof{display:flex;align-items:flex-end;gap:2px;height:38px;position:relative;border-top:1px solid var(--scr-grid);padding-top:4px}
+.scr-prof i{display:block;flex:1;background:#3B4C59;border-radius:1px}
+.scr-prof i.d{background:var(--scr-acc)}
+.scr-prof i.now{background:var(--scr-acc);outline:2px solid var(--scr-ink);outline-offset:1px}
+
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+section[id]{scroll-margin-top:16px}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Sections">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#goals">Goals &amp; scope</a></li>
+    <li><a href="#context">System context</a></li>
+    <li><a href="#hardware">Hardware</a></li>
+    <li><a href="#schematic">Board &amp; pins</a></li>
+    <li><a href="#protocols">Interfaces &amp; protocols</a></li>
+    <li><a href="#controllers">Controller support</a></li>
+    <li><a href="#software">Software architecture</a></li>
+    <li><a href="#flows">Key flows</a></li>
+    <li><a href="#shifting">Virtual shifting</a></li>
+    <li><a href="#data">Data &amp; storage</a></li>
+    <li><a href="#stats">Statistics (DuckDB)</a></li>
+    <li><a href="#ui">Display UI</a></li>
+    <li><a href="#plan">Milestones</a></li>
+    <li><a href="#risks">Risks &amp; open questions</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">Planning document · rev 0.1 · 26 Oct 2026</div>
+  <h1>KICKR Head Unit</h1>
+  <p class="lede">An ESP32-S3 box on the handlebar that controls a Wahoo KICKR Core over Bluetooth, reads every Zwift controller, runs structured workouts from a microSD card, and shows power, cadence, speed and heart rate on a 4&Prime; square touchscreen. No cloud, no 3D world, no subscription.</p>
+  <div class="meta">
+    <span class="tag">Waveshare ESP32-S3-Touch-LCD-4</span><span class="tag">BLE FTMS</span><span class="tag">Zwift ZAP protocol</span><span class="tag">ESP-IDF + NimBLE + LVGL</span><span class="tag">.zwo in · .fit + .csv out</span><span class="tag">DuckDB-WASM stats</span>
+  </div>
+</header>
+
+<section id="goals">
+  <h2><span class="n">01</span>Goals &amp; scope</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h4>Must have (v1)</h4>
+      <ul>
+        <li>Connect to KICKR Core via FTMS; read power, cadence, speed.</li>
+        <li>ERG workouts from <code>.zwo</code> files on microSD, scaled to the rider's FTP.</li>
+        <li>Free ride in SIM mode with a flat or set grade.</li>
+        <li>All Zwift controllers as input: Click v1, Click v2, Play, Ride.</li>
+        <li>Virtual shifting (24-gear table) driven by the controllers.</li>
+        <li>Record every ride to a <code>.fit</code> file locally.</li>
+        <li>4&Prime; 480×480 touchscreen dashboard; navigable entirely from the controllers.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>Nice to have (v2+)</h4>
+      <ul>
+        <li>BLE heart-rate strap; external power meter for power match.</li>
+        <li>Wi-Fi file manager: upload workouts, download rides, OTA updates.</li>
+        <li>Statistics app in the browser (DuckDB-WASM), served by the unit itself.</li>
+        <li>Auto upload to intervals.icu (API key, no OAuth).</li>
+        <li>Elite Sterzo, generic BLE HID remotes.</li>
+        <li>Fan speed by power or heart rate through a smart plug (the board has no free GPIO for a fan header).</li>
+        <li>Re-broadcast as an FTMS peripheral so a watch can record too.</li>
+      </ul>
+      <h4 style="margin-top:12px">Out of scope</h4>
+      <ul><li>3D world, multiplayer, ANT+ (needs extra radio and licensing).</li></ul>
+    </div>
+  </div>
+</section>
+
+<section id="context">
+  <h2><span class="n">02</span>System context</h2>
+  <p class="sub">The head unit is a BLE central with up to six links at once, plus optional Wi-Fi for file transfer.</p>
+  <div class="fig">
+    <div class="cap"><b>Who talks to whom</b><span>solid = v1 · dashed = optional</span></div>
+    <div class="scroll">
+<svg viewBox="0 0 1000 340" role="img" aria-label="System context: KICKR Core, Zwift controllers, heart-rate strap and Elite Sterzo connect over Bluetooth to the head unit; the head unit optionally connects over Wi-Fi to a browser and to intervals.icu.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="s-dot" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <text class="s-lab" x="20" y="12">ON THE BIKE · BLUETOOTH</text>
+  <rect class="s-box" x="20" y="22" width="230" height="56" rx="4"/>
+  <text class="s-tb" x="34" y="45">Wahoo KICKR Core</text>
+  <text class="s-tm" x="34" y="64">FTMS 0x1826 · data + control</text>
+  <rect class="s-box" x="20" y="102" width="230" height="56" rx="4"/>
+  <text class="s-tb" x="34" y="125">Zwift Ride / Play / Click</text>
+  <text class="s-tm" x="34" y="144">ZAP · button + paddle state</text>
+  <rect class="s-box" x="20" y="182" width="230" height="56" rx="4"/>
+  <text class="s-tb" x="34" y="205">Heart-rate strap</text>
+  <text class="s-tm" x="34" y="224">0x180D · optional</text>
+  <rect class="s-box" x="20" y="262" width="230" height="56" rx="4"/>
+  <text class="s-tb" x="34" y="285">Elite Sterzo</text>
+  <text class="s-tm" x="34" y="304">steering · optional</text>
+
+  <polyline class="s-w" points="250,50 300,50 300,120 398,120" marker-start="url(#ah)" marker-end="url(#ah)"/>
+  <polyline class="s-w" points="250,130 320,130 320,150 398,150" marker-end="url(#ah)"/>
+  <polyline class="s-w s-dash" points="250,210 340,210 340,180 398,180" marker-end="url(#ah)"/>
+  <polyline class="s-w s-dash" points="250,290 360,290 360,210 398,210" marker-end="url(#ah)"/>
+
+  <rect class="s-hi" x="400" y="100" width="220" height="130" rx="8"/>
+  <text class="s-tb" x="510" y="135" text-anchor="middle">Head unit</text>
+  <text class="s-t" x="510" y="158" text-anchor="middle">ESP32-S3 · BLE central</text>
+  <text class="s-t" x="510" y="176" text-anchor="middle">4" 480×480 touch LCD</text>
+  <text class="s-t" x="510" y="194" text-anchor="middle">microSD: .zwo in, .fit out</text>
+  <text class="s-mono" x="510" y="216" text-anchor="middle">up to 6 BLE links</text>
+
+  <polyline class="s-w s-dash" points="620,140 690,140 690,100 758,100" marker-end="url(#ah)"/>
+  <polyline class="s-w s-dash" points="620,200 690,200 690,240 758,240" marker-end="url(#ah)"/>
+  <text class="s-mono" x="628" y="132">Wi-Fi</text>
+  <text class="s-mono" x="628" y="192">HTTPS</text>
+
+  <text class="s-lab" x="760" y="62">OFF THE BIKE · OPTIONAL</text>
+  <rect class="s-box" x="760" y="72" width="220" height="56" rx="4"/>
+  <text class="s-tb" x="774" y="95">Browser (phone / laptop)</text>
+  <text class="s-tm" x="774" y="114">files · stats app · OTA</text>
+  <rect class="s-box" x="760" y="212" width="220" height="56" rx="4"/>
+  <text class="s-tb" x="774" y="235">intervals.icu</text>
+  <text class="s-tm" x="774" y="254">auto upload via API key</text>
+</svg>
+    </div>
+  </div>
+</section>
+
+<section id="hardware">
+  <h2><span class="n">03</span>Hardware</h2>
+  <p class="sub">One ready-made board, no soldering. Everything the plan needs is on it except the power supply and a case.</p>
+  <div class="grid2">
+    <div class="panel">
+      <h4>Waveshare ESP32-S3-Touch-LCD-4 (V3)</h4>
+      <ul>
+        <li>ESP32-S3-N16R8: 16 MB flash, 8 MB octal PSRAM, BLE 5, Wi-Fi</li>
+        <li>4&Prime; IPS, 480×480 square, ST7701 on a 16-bit RGB bus</li>
+        <li>GT911 capacitive touch, 5 points</li>
+        <li>microSD slot (SPI)</li>
+        <li>Onboard buzzer</li>
+        <li>PCF85063 RTC with rechargeable backup cell connector</li>
+        <li>SW6106 battery chip, PH2.0 connector for a 3.7 V LiPo</li>
+        <li>USB-C for power, flashing and logs</li>
+        <li>RS485, CAN and 7–36 V terminal: present, unused here</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>What this means for the design</h4>
+      <ul>
+        <li>No free GPIOs: the panel, SD card and buses use them all. Extras like a fan run through Wi-Fi or Bluetooth instead of wires.</li>
+        <li>Backlight, LCD reset, touch reset, SD chip select and buzzer sit behind a TCA9554 I/O expander on I2C.</li>
+        <li>The display needs full frame buffers in PSRAM, which affects how LVGL and Wi-Fi are configured (see board bring-up).</li>
+        <li>Navigation is touch plus the Zwift controllers; there are no hardware nav buttons.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Shopping list</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Item</th><th>Purpose</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Waveshare ESP32-S3-Touch-LCD-4, V3</td><td>The whole head unit</td><td>Check the version printed on the board</td></tr>
+      <tr><td>microSD card, 8–32 GB</td><td>Workouts, rides, stats app</td><td>SDHC, FAT32; a name brand avoids SPI-mode compatibility problems</td></tr>
+      <tr><td>Rechargeable RTC backup cell</td><td>Keeps the clock while unplugged</td><td>Waveshare says it must be rechargeable; check the type and connector in the wiki before ordering</td></tr>
+      <tr><td>Plain 5 V / 2 A USB-A power supply</td><td>Power at the trainer</td><td>No fast charging (see power rules)</td></tr>
+      <tr><td>USB-A to USB-C cable, 2 m</td><td>Power and flashing</td><td>Data-capable, so you can flash with it too</td></tr>
+      <tr><td>3D-printed case and mount</td><td>Sweat protection, mounting</td><td>Bar mount or tablet-style stand in front of the trainer</td></tr>
+      <tr><td><i>Optional:</i> 3.7 V LiPo, PH2.0 2-pin plug</td><td>Cordless use</td><td>Check plug polarity before connecting; JST-style LiPos are often wired the other way round</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Power rules (any board)</h3>
+  <div class="callout">
+    <b>Use a plain 5 V USB supply with a USB-A to USB-C cable. Don't use laptop or phone fast chargers.</b> Waveshare's wiki for this board reports fast-charge sources (up to 20 V) burning out protection parts. In theory a board that never negotiates higher voltage only gets 5 V, but a €5 plain supply removes the risk entirely.
+  </div>
+  <div class="callout">
+    <b>The SW6106 battery chip can switch the board off at light load.</b> The wiki describes a fix by writing I2C registers. The firmware applies it at boot, and the board-support module re-applies it if the chip reports a reset.
+  </div>
+
+  <h3>Power budget (estimates)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Load</th><th>Typical</th><th>Peak</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>ESP32-S3, BLE active, Wi-Fi off</td><td>~90 mA</td><td>~180 mA</td><td>Riding mode</td></tr>
+      <tr><td>ESP32-S3, BLE + Wi-Fi</td><td>~130 mA</td><td>~350 mA</td><td>Stats app, file transfer, OTA</td></tr>
+      <tr><td>4&Prime; panel and backlight, RGB refresh</td><td>~120 mA</td><td>~180 mA</td><td>Includes PSRAM traffic for refresh</td></tr>
+      <tr><td>microSD, buzzer, touch, RTC</td><td>~10 mA</td><td>~120 mA</td><td>Short bursts</td></tr>
+      <tr><td><b>Total at 5 V</b></td><td><b>~250–300 mA</b></td><td><b>~700 mA</b></td><td>A 2 A supply leaves plenty of margin</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="schematic">
+  <h2><span class="n">04</span>Board diagram &amp; pin map</h2>
+  <p class="sub">How the parts on the Waveshare board connect, as far as the firmware needs to know. Taken from Waveshare's wiki; parts of its pin table contradict each other, so the V3 schematic PDF is the final reference.</p>
+  <div class="fig">
+    <div class="cap"><b>ESP32-S3-Touch-LCD-4 · block diagram</b><span><span style="color:var(--warn)">orange</span> = power · <span style="color:var(--accent)">blue</span> = bus · dashed = unused</span></div>
+    <div class="scroll">
+<svg viewBox="0 0 1000 560" role="img" aria-label="Block diagram: power from USB-C, terminal or LiPo feeds the ESP32-S3, which drives the 4-inch ST7701 panel over an RGB bus, the microSD card over SPI, and touch, RTC, IO expander and battery chip over I2C. RS485 and CAN are unused.">
+  <defs>
+    <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="s-dot" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <!-- power -->
+  <rect class="s-box" x="20" y="25" width="280" height="130" rx="4"/>
+  <text class="s-lab" x="34" y="45">POWER</text>
+  <text class="s-t" x="34" y="66">USB-C 5 V · plain supply only</text>
+  <text class="s-t" x="34" y="85">or 7–36 V terminal → XL1509 buck</text>
+  <text class="s-t" x="34" y="104">or 3.7 V LiPo on PH2.0</text>
+  <text class="s-t" x="34" y="123">SW6106 charger / power path</text>
+  <text class="s-tm" x="34" y="143">USB D− 19 · D+ 20 to U1</text>
+  <polyline class="s-pwr" points="300,70 490,70 490,170"/>
+  <text class="s-npw" x="318" y="62">3V3 / GND</text>
+  <polyline class="s-w" points="300,135 340,135 340,200 380,200"/>
+  <text class="s-mono" x="300" y="190">USB</text>
+
+  <!-- I2C devices -->
+  <rect class="s-box" x="20" y="225" width="280" height="140" rx="4"/>
+  <text class="s-lab" x="34" y="245">I2C · SDA 15 · SCL 7 · 400 kHz</text>
+  <text class="s-t" x="34" y="268">GT911 touch · INT 16</text>
+  <text class="s-t" x="34" y="288">PCF85063 RTC · INT via EXIO6</text>
+  <text class="s-t" x="34" y="308">TCA9554 I/O expander</text>
+  <text class="s-t" x="34" y="328">SW6106 battery chip</text>
+  <text class="s-tm" x="34" y="350">wiki also names 8/9 for the expander: verify</text>
+  <line class="s-b" x1="300" y1="300" x2="380" y2="300"/>
+  <text class="s-net" x="316" y="292">I2C</text>
+
+  <!-- expander outputs -->
+  <line class="s-w" x1="160" y1="365" x2="160" y2="395"/>
+  <rect class="s-box" x="20" y="395" width="280" height="140" rx="4"/>
+  <text class="s-lab" x="34" y="415">TCA9554 OUTPUTS</text>
+  <text class="s-t" x="34" y="438">EXIO0 touch reset · EXIO1 backlight</text>
+  <text class="s-t" x="34" y="458">EXIO2 LCD reset · EXIO3 SD chip select</text>
+  <text class="s-t" x="34" y="478">EXIO5 buzzer · EXIO6 RTC interrupt</text>
+  <text class="s-tm" x="34" y="498">EXIO4 "BLC", EXIO7 "DO1": check schematic</text>
+  <text class="s-tm" x="34" y="518">on/off only: no PWM through the expander</text>
+
+  <!-- MCU -->
+  <rect class="s-hi" x="380" y="170" width="220" height="240" rx="6"/>
+  <text class="s-lab" x="396" y="193" style="fill:var(--accent)">U1</text>
+  <text class="s-tb" x="396" y="250">ESP32-S3-N16R8</text>
+  <text class="s-t" x="396" y="272">16 MB flash</text>
+  <text class="s-t" x="396" y="290">8 MB octal PSRAM</text>
+  <text class="s-t" x="396" y="308">BLE 5 · Wi-Fi 2.4 GHz</text>
+  <text class="s-mono" x="396" y="345">frame buffers in PSRAM</text>
+  <text class="s-mono" x="396" y="362">no free GPIO</text>
+  <text class="s-mono" x="396" y="379">BOOT button on IO0</text>
+
+  <!-- LCD -->
+  <polyline class="s-b" points="600,200 650,200 650,100 700,100"/>
+  <text class="s-net" x="606" y="192">RGB 16-bit</text>
+  <rect class="s-box" x="700" y="25" width="280" height="150" rx="4"/>
+  <text class="s-lab" x="714" y="45">4" IPS 480×480 · ST7701</text>
+  <text class="s-t" x="714" y="68">R1 46 · R2 3 · R3 8 · R4 18 · R5 17</text>
+  <text class="s-t" x="714" y="87">G0 14 · G1 13 · G2 12 · G3 11 · G4 10 · G5 9</text>
+  <text class="s-t" x="714" y="106">B1 5 · B2 45 · B3 48 · B4 47 · B5 21</text>
+  <text class="s-t" x="714" y="125">HSYNC 38 · VSYNC 39 · DE 40 · PCLK 41</text>
+  <text class="s-t" x="714" y="144">Init: 3-wire SPI · SDA 1 · SCL 2 · CS 42</text>
+  <text class="s-tm" x="714" y="163">reset and backlight via expander</text>
+
+  <!-- SD -->
+  <line class="s-b" x1="600" y1="285" x2="700" y2="285"/>
+  <text class="s-net" x="622" y="277">SPI</text>
+  <rect class="s-box" x="700" y="225" width="280" height="115" rx="4"/>
+  <text class="s-lab" x="714" y="245">MICROSD · SPI</text>
+  <text class="s-t" x="714" y="268">MOSI 1 · SCK 2 · MISO 4</text>
+  <text class="s-t" x="714" y="288">CS via expander EXIO3</text>
+  <text class="s-t" x="714" y="308">1 and 2 shared with LCD init</text>
+  <text class="s-tm" x="714" y="328">realistic 1–2 MB/s</text>
+
+  <!-- unused -->
+  <polyline class="s-w s-dash" points="600,380 650,380 650,445 700,445"/>
+  <rect class="s-box" x="700" y="390" width="280" height="110" rx="4" style="stroke-dasharray:6 4"/>
+  <text class="s-lab" x="714" y="410">10-PIN TERMINAL · UNUSED</text>
+  <text class="s-t" x="714" y="433">RS485 (SP3485) · RX 43 · TX 44</text>
+  <text class="s-t" x="714" y="453">CAN (TJA1051) · RX 0 · TX 6</text>
+  <text class="s-t" x="714" y="473">7–36 V input</text>
+  <text class="s-tm" x="714" y="491">could carry a fan relay later via RS485</text>
+
+  <!-- buzzer -->
+  <text class="s-tm" x="490" y="440" text-anchor="middle">Onboard buzzer · enabled through EXIO5</text>
+</svg>
+    </div>
+  </div>
+
+  <h3>Pin map</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Function</th><th>GPIO / pin</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>LCD red R1–R5</td><td class="mono">46, 3, 8, 18, 17</td><td>RGB565, 16-bit bus</td></tr>
+      <tr><td>LCD green G0–G5</td><td class="mono">14, 13, 12, 11, 10, 9</td><td></td></tr>
+      <tr><td>LCD blue B1–B5</td><td class="mono">5, 45, 48, 47, 21</td><td></td></tr>
+      <tr><td>LCD HSYNC / VSYNC / DE / PCLK</td><td class="mono">38 / 39 / 40 / 41</td><td>Waveshare's benchmark uses a 21 MHz pixel clock</td></tr>
+      <tr><td>ST7701 init SPI: SDA / SCL / CS</td><td class="mono">1 / 2 / 42</td><td>Used once at boot to configure the panel</td></tr>
+      <tr><td>SD MOSI / SCK / MISO</td><td class="mono">1 / 2 / 4</td><td>Shares 1 and 2 with LCD init; CS on EXIO3</td></tr>
+      <tr><td>I2C SDA / SCL</td><td class="mono">15 / 7</td><td>Touch, RTC, expander, battery chip; verify expander bus in schematic</td></tr>
+      <tr><td>Touch interrupt</td><td class="mono">16</td><td>Touch reset on EXIO0</td></tr>
+      <tr><td>USB D− / D+</td><td class="mono">19 / 20</td><td>Flashing, logs</td></tr>
+      <tr><td>RS485 RX / TX</td><td class="mono">43 / 44</td><td>Unused</td></tr>
+      <tr><td>CAN RX / TX</td><td class="mono">0 / 6</td><td>Unused; GPIO0 is also BOOT</td></tr>
+      <tr><td>Expander EXIO0–7</td><td class="mono">TCA9554</td><td>Touch reset, backlight, LCD reset, SD CS, BLC, buzzer, RTC INT, DO1</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Board bring-up order</h3>
+  <p>The shared pins make the order at boot matter. The board-support module does this once, before any other task starts.</p>
+<pre class="code">1. I2C on SDA 15 / SCL 7  →  probe TCA9554, GT911, PCF85063, SW6106
+2. SW6106: write the light-load register fix so the board stays on
+3. TCA9554: backlight off, pulse LCD reset (EXIO2) and touch reset (EXIO0)
+4. ST7701 init over 3-wire SPI on GPIO 1 / 2 / 42, then CS 42 high for good
+5. Start the RGB panel (esp_lcd_panel_rgb), two 480×480 RGB565 frame buffers in PSRAM
+6. Re-configure GPIO 1 / 2 / 4 as the SD SPI bus, CS via EXIO3, mount FATFS
+7. Backlight on (EXIO1), start LVGL, then BLE, then the control loop
+<span class="c">// RGB + PSRAM tips: PSRAM at 80 MHz octal, bounce buffers on,
+// CONFIG_SPIRAM_FETCH_INSTRUCTIONS / RODATA on, keep Wi-Fi off while riding</span></pre>
+</section>
+
+
+<section id="protocols">
+  <h2><span class="n">05</span>Interfaces &amp; protocols</h2>
+
+  <h3>Physical interfaces</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Interface</th><th>Speed</th><th>Connects</th></tr></thead>
+    <tbody>
+      <tr><td>RGB parallel, 16-bit</td><td>~16–21 MHz pixel clock, frame buffers in PSRAM</td><td>LCD</td></tr>
+      <tr><td>3-wire SPI</td><td>boot only</td><td>ST7701 panel configuration</td></tr>
+      <tr><td>I2C</td><td>400 kHz</td><td>Touch, RTC, I/O expander, battery chip</td></tr>
+      <tr><td>SPI (SD)</td><td>up to 20 MHz, realistic 1–2 MB/s</td><td>microSD (FAT32)</td></tr>
+      <tr><td>USB 1.1 FS</td><td>12 Mbit/s</td><td>Flash, console, optional USB mass storage for the SD card</td></tr>
+      <tr><td>BLE 5.0</td><td>1M PHY, up to 6 links</td><td>Trainer, controllers, sensors</td></tr>
+      <tr><td>Wi-Fi 802.11n</td><td>2.4 GHz, STA or soft-AP</td><td>File manager, OTA, uploads (off while riding)</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Trainer · Bluetooth FTMS</h3>
+  <p>Primary path for the KICKR Core. Use FTMS rather than the Cycling Power profile: the KICKR Core sends its estimated cadence only through FTMS.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Service / characteristic</th><th>UUID</th><th>Props</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td><b>Fitness Machine</b></td><td class="mono">0x1826</td><td>—</td><td>Scan filter</td></tr>
+      <tr><td>Fitness Machine Feature</td><td class="mono">0x2ACC</td><td>read</td><td>Check supported targets (power, sim, resistance)</td></tr>
+      <tr><td>Indoor Bike Data</td><td class="mono">0x2AD2</td><td>notify</td><td>Speed, cadence, power (flag-dependent layout)</td></tr>
+      <tr><td>Supported Power Range</td><td class="mono">0x2AD8</td><td>read</td><td>Clamp ERG targets</td></tr>
+      <tr><td>Supported Resistance Range</td><td class="mono">0x2AD6</td><td>read</td><td>Resistance mode scaling</td></tr>
+      <tr><td>Fitness Machine Control Point</td><td class="mono">0x2AD9</td><td>write, indicate</td><td>Commands below</td></tr>
+      <tr><td>Fitness Machine Status</td><td class="mono">0x2ADA</td><td>notify</td><td>Trainer-side changes, spin-down status</td></tr>
+      <tr><td><b>Cycling Power</b> (fallback, read-only)</td><td class="mono">0x1818 / 0x2A63</td><td>notify</td><td>Power if FTMS is unavailable</td></tr>
+      <tr><td><b>Wahoo legacy control</b> (fallback)</td><td class="mono">A026E005-0A7D-4AB3-97FA-F1500F9FEB8B</td><td>write, notify</td><td>Only if old firmware lacks FTMS; verify on your unit</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="tbl"><table>
+    <thead><tr><th>Control point op</th><th>Code</th><th>Parameter</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>Request Control</td><td class="mono">0x00</td><td>—</td><td>Once after connect, required before anything else</td></tr>
+      <tr><td>Reset</td><td class="mono">0x01</td><td>—</td><td>Ride end</td></tr>
+      <tr><td>Set Target Resistance Level</td><td class="mono">0x04</td><td>uint8, 0.1 units</td><td>Resistance mode, free ride without physics</td></tr>
+      <tr><td>Set Target Power</td><td class="mono">0x05</td><td>sint16, W</td><td>ERG segments</td></tr>
+      <tr><td>Start / Resume</td><td class="mono">0x07</td><td>—</td><td>Ride start</td></tr>
+      <tr><td>Stop / Pause</td><td class="mono">0x08</td><td>uint8 (1 stop, 2 pause)</td><td>Pause</td></tr>
+      <tr><td>Set Indoor Bike Simulation</td><td class="mono">0x11</td><td>wind sint16 (0.001 m/s), grade sint16 (0.01 %), Crr uint8 (0.0001), Cw uint8 (0.01 kg/m)</td><td>SIM mode and virtual shifting</td></tr>
+      <tr><td>Spin Down Control</td><td class="mono">0x13</td><td>uint8</td><td>Calibration screen</td></tr>
+      <tr><td>Response</td><td class="mono">0x80</td><td>req op, result (0x01 = success)</td><td>Indicated back for every write; driver waits ≤ 1 s</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Sensors (optional)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Sensor</th><th>Service</th><th>Characteristic</th></tr></thead>
+    <tbody>
+      <tr><td>Heart rate</td><td class="mono">0x180D</td><td class="mono">0x2A37 Heart Rate Measurement (notify)</td></tr>
+      <tr><td>External power meter</td><td class="mono">0x1818</td><td class="mono">0x2A63 Cycling Power Measurement (notify)</td></tr>
+      <tr><td>Cadence sensor</td><td class="mono">0x1816</td><td class="mono">0x2A5B CSC Measurement (notify)</td></tr>
+      <tr><td>BLE HID remote</td><td class="mono">0x1812</td><td class="mono">0x2A4D Report (notify), needs bonding</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Zwift controllers · Zwift Accessory Protocol (ZAP)</h3>
+  <p>All four Zwift controllers share one custom GATT service with three characteristics. After a handshake the controller streams protobuf messages with the button state. The UUIDs and handshake below come from community reverse-engineering; confirm them with nRF Connect on your own devices before writing the driver.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Characteristic</th><th>UUID (per community docs, verify)</th><th>Props</th><th>Use</th></tr></thead>
+    <tbody>
+      <tr><td>Zwift service</td><td class="mono">00000001-19CA-4651-86E5-FA29DCDD09D1</td><td>—</td><td>Scan filter (also check manufacturer data for device type and left/right)</td></tr>
+      <tr><td>Async</td><td class="mono">00000002-19CA-4651-86E5-FA29DCDD09D1</td><td>notify</td><td>Continuous button / analog state</td></tr>
+      <tr><td>SyncRX</td><td class="mono">00000003-19CA-4651-86E5-FA29DCDD09D1</td><td>write</td><td>Host → controller: handshake, keep-alive, haptics</td></tr>
+      <tr><td>SyncTX</td><td class="mono">00000004-19CA-4651-86E5-FA29DCDD09D1</td><td>indicate</td><td>Controller → host: handshake reply, battery</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="panel">
+      <h4>Encrypted variant (Play, Click v1)</h4>
+      <ol>
+        <li>Host writes <code>"RideOn"</code> + its 64-byte P-256 public key.</li>
+        <li>Controller replies <code>"RideOn"</code> + its public key.</li>
+        <li>ECDH shared secret → HKDF-SHA256 → AES-CCM session key.</li>
+        <li>Each Async packet: counter + ciphertext + short tag. Decrypt, then parse protobuf.</li>
+      </ol>
+      <p>mbedTLS in ESP-IDF provides all three primitives with hardware acceleration.</p>
+    </div>
+    <div class="panel">
+      <h4>Plain variant (Ride, Click v2, newer firmware)</h4>
+      <ol>
+        <li>Host writes <code>"RideOn"</code> without a key (or with an "unencrypted" flag).</li>
+        <li>Controller replies <code>"RideOn"</code>.</li>
+        <li>Async packets are plain protobuf, e.g. message ID <code>0x23</code> on the Ride carries a button bitmap plus analog paddle values.</li>
+      </ol>
+      <p>The driver tries plain first and falls back to encrypted on rejection or garbage data.</p>
+    </div>
+  </div>
+</section>
+
+<section id="controllers">
+  <h2><span class="n">06</span>Controller support matrix</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Controller</th><th>Links</th><th>Protocol</th><th>Inputs exposed</th><th>Effort</th><th>Release</th></tr></thead>
+    <tbody>
+      <tr><td><b>Zwift Ride</b></td><td>1</td><td>ZAP plain</td><td>Shift ±, D-pad, A/B/Y/Z, analog paddles (steer, brake)</td><td><span class="pill p-ok">low</span></td><td>M4</td></tr>
+      <tr><td><b>Zwift Click v2</b></td><td>1</td><td>ZAP plain (verify)</td><td>Shift ±, extra buttons</td><td><span class="pill p-ok">low</span></td><td>M4</td></tr>
+      <tr><td><b>Zwift Play</b> (L + R)</td><td>2</td><td>ZAP encrypted</td><td>Shift ±, 4 face buttons per side, steer, brake</td><td><span class="pill p-warn">medium</span></td><td>M5</td></tr>
+      <tr><td><b>Zwift Click v1</b></td><td>1</td><td>ZAP encrypted</td><td>Shift ±</td><td><span class="pill p-warn">medium</span></td><td>M5</td></tr>
+      <tr><td>Elite Sterzo Smart</td><td>1</td><td>Elite custom + challenge</td><td>Steering angle</td><td><span class="pill p-warn">medium</span></td><td>M8</td></tr>
+      <tr><td>BLE HID remotes</td><td>1</td><td>HID over GATT 0x1812</td><td>Keys / media buttons</td><td><span class="pill p-warn">medium</span></td><td>M8</td></tr>
+      <tr><td>Touchscreen + BOOT button</td><td>—</td><td>I2C (GT911) / GPIO0</td><td>Touch, one button</td><td><span class="pill p-ok">low</span></td><td>M1</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Normalized input model</h3>
+  <p>Every controller driver translates its raw state into the same <code>InputEvent</code>. The input mapper turns those into actions depending on the current screen, so the rest of the firmware never knows which controller is attached.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Logical input</th><th>Ride / Play</th><th>Click</th><th>Ride screen action</th><th>Menu action</th></tr></thead>
+    <tbody>
+      <tr><td>SHIFT_UP / SHIFT_DOWN</td><td>Shift buttons</td><td>+ / −</td><td>Virtual gear ±1 (SIM) or target ±5 W (ERG)</td><td>Next / previous item</td></tr>
+      <tr><td>NAV_LEFT / NAV_RIGHT</td><td>D-pad</td><td>—</td><td>Switch data page</td><td>Back / into submenu</td></tr>
+      <tr><td>CONFIRM (A)</td><td>A</td><td>long-press +</td><td>Lap</td><td>Select</td></tr>
+      <tr><td>BACK (B)</td><td>B</td><td>long-press −</td><td>Pause menu</td><td>Back</td></tr>
+      <tr><td>Y / Z</td><td>Y / Z</td><td>—</td><td>Skip interval / ERG on-off</td><td>—</td></tr>
+      <tr><td>STEER (−1…1), BRAKE (0…1)</td><td>Analog paddles</td><td>—</td><td>Unused in v1; brake can pause ERG ramp</td><td>Scroll</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="software">
+  <h2><span class="n">07</span>Software architecture</h2>
+  <p class="sub">Layered firmware on ESP-IDF. Drivers publish normalized events; services subscribe. Nothing above the bus talks to a BLE characteristic directly.</p>
+  <div class="fig">
+    <div class="cap"><b>Firmware modules</b><span>top = closest to the rider</span></div>
+    <div class="scroll">
+<svg viewBox="0 0 1000 680" role="img" aria-label="Layered firmware diagram: UI, services, event bus, device drivers, protocol libraries, platform layer, ESP-IDF and FreeRTOS.">
+  <!-- band backgrounds -->
+  <rect class="s-band" x="0" y="15" width="1000" height="80" rx="4"/>
+  <rect class="s-band" x="0" y="110" width="1000" height="80" rx="4"/>
+  <rect class="s-band" x="0" y="262" width="1000" height="132" rx="4"/>
+  <rect class="s-band" x="0" y="409" width="1000" height="80" rx="4"/>
+  <rect class="s-band" x="0" y="504" width="1000" height="80" rx="4"/>
+  <text class="s-lab" x="14" y="59">UI</text>
+  <text class="s-lab" x="14" y="154">SERVICES</text>
+  <text class="s-lab" x="14" y="233">BUS</text>
+  <text class="s-lab" x="14" y="332">DRIVERS</text>
+  <text class="s-lab" x="14" y="453">PROTOCOL</text>
+  <text class="s-lab" x="14" y="468">LIBS</text>
+  <text class="s-lab" x="14" y="548">PLATFORM</text>
+
+  <!-- UI: 5 boxes from x=120, total width 870, gap 10 => w=166 -->
+  <g>
+    <rect class="s-box" x="120" y="27" width="166" height="56" rx="4"/><text class="s-tb" x="203" y="51" text-anchor="middle">Ride dashboard</text><text class="s-tm" x="203" y="69" text-anchor="middle">LVGL · 20–30 fps</text>
+    <rect class="s-box" x="296" y="27" width="166" height="56" rx="4"/><text class="s-tb" x="379" y="51" text-anchor="middle">Workout library</text><text class="s-tm" x="379" y="69" text-anchor="middle">browse /workouts</text>
+    <rect class="s-box" x="472" y="27" width="166" height="56" rx="4"/><text class="s-tb" x="555" y="51" text-anchor="middle">Pairing</text><text class="s-tm" x="555" y="69" text-anchor="middle">scan · assign roles</text>
+    <rect class="s-box" x="648" y="27" width="166" height="56" rx="4"/><text class="s-tb" x="731" y="51" text-anchor="middle">Summary · settings</text><text class="s-tm" x="731" y="69" text-anchor="middle">NP · IF · TSS · FTP</text>
+    <rect class="s-box" x="824" y="27" width="166" height="56" rx="4"/><text class="s-tb" x="907" y="51" text-anchor="middle">Web UI</text><text class="s-tm" x="907" y="69" text-anchor="middle">files · stats · OTA</text>
+  </g>
+
+  <!-- Services: 6 boxes, w = (870-50)/6 = 136.7 -> 137 -->
+  <g>
+    <rect class="s-box" x="120" y="122" width="137" height="56" rx="4"/><text class="s-tb" x="188" y="146" text-anchor="middle">Ride engine</text><text class="s-tm" x="188" y="164" text-anchor="middle">state machine</text>
+    <rect class="s-box" x="267" y="122" width="137" height="56" rx="4"/><text class="s-tb" x="335" y="146" text-anchor="middle">Workout engine</text><text class="s-tm" x="335" y="164" text-anchor="middle">ZWO → targets</text>
+    <rect class="s-box" x="414" y="122" width="137" height="56" rx="4"/><text class="s-tb" x="482" y="146" text-anchor="middle">Virtual shifting</text><text class="s-tm" x="482" y="164" text-anchor="middle">gears + physics</text>
+    <rect class="s-box" x="561" y="122" width="137" height="56" rx="4"/><text class="s-tb" x="629" y="146" text-anchor="middle">Metrics</text><text class="s-tm" x="629" y="164" text-anchor="middle">avg · zones · laps</text>
+    <rect class="s-box" x="708" y="122" width="137" height="56" rx="4"/><text class="s-tb" x="776" y="146" text-anchor="middle">Recorder</text><text class="s-tm" x="776" y="164" text-anchor="middle">FIT + CSV, journaled</text>
+    <rect class="s-box" x="855" y="122" width="135" height="56" rx="4"/><text class="s-tb" x="922" y="146" text-anchor="middle">Input mapper</text><text class="s-tm" x="922" y="164" text-anchor="middle">buttons → actions</text>
+  </g>
+
+  <!-- connectors services->bus -->
+  <g class="s-w">
+    <line x1="188" y1="178" x2="188" y2="212"/><line x1="335" y1="178" x2="335" y2="212"/><line x1="482" y1="178" x2="482" y2="212"/>
+    <line x1="629" y1="178" x2="629" y2="212"/><line x1="776" y1="178" x2="776" y2="212"/><line x1="922" y1="178" x2="922" y2="212"/>
+  </g>
+
+  <!-- Bus -->
+  <rect class="s-bus" x="120" y="212" width="870" height="36" rx="4"/>
+  <text class="s-onbus" x="555" y="235" text-anchor="middle">Event bus · FreeRTOS queues — MetricsEvt · InputEvt · DeviceEvt · ControlCmd</text>
+
+  <!-- connectors bus->drivers -->
+  <g class="s-w">
+    <line x1="245" y1="248" x2="245" y2="274"/><line x1="600" y1="248" x2="600" y2="274"/><line x1="895" y1="248" x2="895" y2="274"/>
+  </g>
+
+  <!-- Drivers -->
+  <rect class="s-box" x="120" y="274" width="250" height="108" rx="4"/>
+  <text class="s-tb" x="134" y="296">Trainer drivers</text>
+  <text class="s-t" x="134" y="318">FTMS 0x1826 · primary</text>
+  <text class="s-t" x="134" y="338">Wahoo legacy · fallback</text>
+  <text class="s-t" x="134" y="358">Cycling Power · read-only</text>
+  <text class="s-tm" x="134" y="375">interface ITrainer</text>
+
+  <rect class="s-box" x="380" y="274" width="420" height="108" rx="4"/>
+  <text class="s-tb" x="394" y="296">Controller drivers</text>
+  <text class="s-t" x="394" y="318">ZAP encrypted · Play L/R, Click v1</text>
+  <text class="s-t" x="394" y="338">ZAP plain · Ride, Click v2</text>
+  <text class="s-t" x="394" y="358">Elite Sterzo · BLE HID · GPIO buttons · touch</text>
+  <text class="s-tm" x="394" y="375">interface IController → InputEvt</text>
+
+  <rect class="s-box" x="810" y="274" width="180" height="108" rx="4"/>
+  <text class="s-tb" x="824" y="296">Sensor drivers</text>
+  <text class="s-t" x="824" y="318">Heart rate 0x180D</text>
+  <text class="s-t" x="824" y="338">Power meter 0x1818</text>
+  <text class="s-t" x="824" y="358">Cadence 0x1816</text>
+  <text class="s-tm" x="824" y="375">interface ISensor</text>
+
+  <!-- Protocol libs: 5 boxes w=166 -->
+  <g>
+    <rect class="s-box" x="120" y="421" width="166" height="56" rx="4"/><text class="s-tb" x="203" y="445" text-anchor="middle">FTMS codec</text><text class="s-tm" x="203" y="463" text-anchor="middle">flags → fields</text>
+    <rect class="s-box" x="296" y="421" width="166" height="56" rx="4"/><text class="s-tb" x="379" y="445" text-anchor="middle">ZAP codec</text><text class="s-tm" x="379" y="463" text-anchor="middle">nanopb protobuf</text>
+    <rect class="s-box" x="472" y="421" width="166" height="56" rx="4"/><text class="s-tb" x="555" y="445" text-anchor="middle">Crypto</text><text class="s-tm" x="555" y="463" text-anchor="middle">P-256 · HKDF · AES-CCM</text>
+    <rect class="s-box" x="648" y="421" width="166" height="56" rx="4"/><text class="s-tb" x="731" y="445" text-anchor="middle">ZWO parser</text><text class="s-tm" x="731" y="463" text-anchor="middle">streaming XML</text>
+    <rect class="s-box" x="824" y="421" width="166" height="56" rx="4"/><text class="s-tb" x="907" y="445" text-anchor="middle">FIT encoder</text><text class="s-tm" x="907" y="463" text-anchor="middle">FIT SDK · CSV writer</text>
+  </g>
+
+  <!-- Platform: 6 boxes -->
+  <g>
+    <rect class="s-box" x="120" y="516" width="137" height="56" rx="4"/><text class="s-tb" x="188" y="540" text-anchor="middle">NimBLE central</text><text class="s-tm" x="188" y="558" text-anchor="middle">≤ 6 links · bonds</text>
+    <rect class="s-box" x="267" y="516" width="137" height="56" rx="4"/><text class="s-tb" x="335" y="540" text-anchor="middle">Wi-Fi + HTTP</text><text class="s-tm" x="335" y="558" text-anchor="middle">esp_http_server</text>
+    <rect class="s-box" x="414" y="516" width="137" height="56" rx="4"/><text class="s-tb" x="482" y="540" text-anchor="middle">Display + touch</text><text class="s-tm" x="482" y="558" text-anchor="middle">RGB · ST7701 · LVGL 9</text>
+    <rect class="s-box" x="561" y="516" width="137" height="56" rx="4"/><text class="s-tb" x="629" y="540" text-anchor="middle">Storage</text><text class="s-tm" x="629" y="558" text-anchor="middle">SD FATFS · NVS</text>
+    <rect class="s-box" x="708" y="516" width="137" height="56" rx="4"/><text class="s-tb" x="776" y="540" text-anchor="middle">Time</text><text class="s-tm" x="776" y="558" text-anchor="middle">RTC · SNTP</text>
+    <rect class="s-box" x="855" y="516" width="135" height="56" rx="4"/><text class="s-tb" x="922" y="540" text-anchor="middle">Board support</text><text class="s-tm" x="922" y="558" text-anchor="middle">TCA9554 · SW6106</text>
+  </g>
+
+  <!-- RTOS -->
+  <rect class="s-hi" x="0" y="600" width="1000" height="60" rx="4"/>
+  <text class="s-tb" x="500" y="624" text-anchor="middle">ESP-IDF 5.x · FreeRTOS SMP</text>
+  <text class="s-tm" x="500" y="644" text-anchor="middle">core 0: NimBLE host, Wi-Fi · core 1: control loop, LVGL, recorder, storage writer</text>
+</svg>
+    </div>
+  </div>
+
+  <h3>Module responsibilities</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Module</th><th>Owns</th><th>Inputs</th><th>Outputs</th></tr></thead>
+    <tbody>
+      <tr><td><b>BLE manager</b></td><td>Scan, connect, reconnect with back-off, bonding, link roles (trainer / controller / sensor), connection intervals</td><td>Pairing UI, saved device list in NVS</td><td>DeviceEvt (connected, lost, battery)</td></tr>
+      <tr><td><b>Trainer driver</b></td><td>FTMS session, control-point queue with one in-flight command and 1 s timeout, rate limiting (≤ 4 writes/s)</td><td>ControlCmd</td><td>MetricsEvt (power, cadence, speed)</td></tr>
+      <tr><td><b>Controller drivers</b></td><td>Handshake, decryption, protobuf decode, edge detection, long-press, keep-alive</td><td>Raw notifications</td><td>InputEvt</td></tr>
+      <tr><td><b>Ride engine</b></td><td>Ride state machine, elapsed time, auto-pause at 0 cadence, lap marks</td><td>InputEvt, DeviceEvt</td><td>Ride state to all services</td></tr>
+      <tr><td><b>Workout engine</b></td><td>Segment timeline, ramps (interpolated every 1 s), FTP scaling, intensity offset, skip/extend, cadence targets, beeps before transitions</td><td>Loaded ZWO, clock, InputEvt</td><td>ControlCmd (target W or grade), UI state</td></tr>
+      <tr><td><b>Virtual shifting</b></td><td>Gear table, current gear, physics model, rider and bike mass, CdA, Crr</td><td>MetricsEvt, SHIFT events, route grade</td><td>ControlCmd (sim params or target W), virtual speed</td></tr>
+      <tr><td><b>Metrics</b></td><td>3 s / 10 s / 30 s power, lap and ride averages, NP, IF, TSS, kJ, power zones, HR zones</td><td>MetricsEvt</td><td>Derived values for UI and recorder</td></tr>
+      <tr><td><b>Recorder</b></td><td>1 Hz record buffer in PSRAM, flush to SD every 10 s, journal for crash recovery, FIT finalize</td><td>MetricsEvt, ride state, laps</td><td><code>/rides/*.fit</code>, <code>*.csv</code>, summary + best-efforts rows at ride end</td></tr>
+      <tr><td><b>UI</b></td><td>LVGL screens, data pages, partial redraw at 4 Hz for numbers, 30 fps for animations</td><td>Read-only snapshots of state</td><td>InputEvt from touch</td></tr>
+      <tr><td><b>Web server</b></td><td>File list, upload, download, delete, settings JSON, OTA, and the static statistics app with DuckDB-WASM from <code>/www/stats</code>. Only runs when the rider enables Wi-Fi off the bike.</td><td>HTTP</td><td>Files on SD, firmware image</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Tasks and timing</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Task</th><th>Core</th><th>Priority</th><th>Rate</th><th>Stack</th></tr></thead>
+    <tbody>
+      <tr><td>NimBLE host</td><td>0</td><td>high (IDF default)</td><td>event-driven</td><td>IDF default</td></tr>
+      <tr><td>Control loop (ride, workout, shifting)</td><td>1</td><td>10</td><td>4 Hz tick + events</td><td>6 KB</td></tr>
+      <tr><td>Metrics</td><td>1</td><td>9</td><td>per sample</td><td>4 KB</td></tr>
+      <tr><td>LVGL</td><td>1</td><td>5</td><td>5–33 ms timer handler</td><td>8 KB</td></tr>
+      <tr><td>Recorder / SD writer</td><td>1</td><td>4</td><td>1 Hz sample, 0.1 Hz flush</td><td>6 KB</td></tr>
+      <tr><td>Web server (when on)</td><td>0</td><td>3</td><td>on request</td><td>8 KB</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Core interfaces</h3>
+<pre class="code"><span class="c">// Normalized events on the bus</span>
+typedef struct {
+  uint32_t t_ms;          <span class="c">// monotonic</span>
+  int16_t  power_w;       <span class="c">// -1 = unknown</span>
+  uint16_t cadence_rpm10; <span class="c">// rpm × 10</span>
+  uint16_t speed_kmh100;  <span class="c">// trainer speed × 100</span>
+  uint8_t  hr_bpm;        <span class="c">// 0 = none</span>
+  uint8_t  source;        <span class="c">// TRAINER, POWER_METER, HR_STRAP</span>
+} metrics_evt_t;
+
+typedef enum { IN_SHIFT_UP, IN_SHIFT_DOWN, IN_LEFT, IN_RIGHT, IN_UP, IN_DOWN,
+               IN_A, IN_B, IN_Y, IN_Z, IN_STEER, IN_BRAKE } input_id_t;
+typedef enum { PRESS, RELEASE, LONG_PRESS, REPEAT, ANALOG } input_kind_t;
+typedef struct { input_id_t id; input_kind_t kind; int16_t value; uint8_t device; } input_evt_t;
+
+typedef enum { CMD_ERG, CMD_SIM, CMD_RESISTANCE, CMD_START, CMD_PAUSE, CMD_STOP, CMD_SPINDOWN } cmd_kind_t;
+typedef struct { cmd_kind_t kind; int16_t target_w; int16_t grade_c; uint8_t crr; uint8_t cw; uint8_t level; } control_cmd_t;
+
+<span class="c">// Driver contracts</span>
+typedef struct {
+  const char *name;
+  bool (*matches)(const ble_adv_t *adv);       <span class="c">// pick driver from advertisement</span>
+  int  (*on_connect)(ble_link_t *link);         <span class="c">// discover, subscribe, handshake</span>
+  void (*on_notify)(ble_link_t *link, uint16_t chr, const uint8_t *d, size_t n);
+  int  (*send)(ble_link_t *link, const control_cmd_t *cmd); <span class="c">// trainers only</span>
+  void (*on_disconnect)(ble_link_t *link);
+} device_driver_t;</pre>
+</section>
+
+<section id="flows">
+  <h2><span class="n">08</span>Key flows</h2>
+
+  <div class="fig">
+    <div class="cap"><b>Trainer connect and ERG control</b><span>FTMS</span></div>
+    <div class="scroll">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as Head unit
+  participant K as KICKR Core
+  U->>K: Scan (service 0x1826), connect, MTU exchange
+  U->>K: Read 0x2ACC features, 0x2AD8 power range
+  U->>K: Subscribe 0x2AD2 notify, 0x2AD9 indicate, 0x2ADA notify
+  U->>K: 0x2AD9 ← 00 (Request Control)
+  K-->>U: 80 00 01 (success)
+  U->>K: 0x2AD9 ← 07 (Start)
+  K-->>U: 80 07 01
+  loop each workout second
+    Note over U: Workout engine computes target × FTP
+    U->>K: 0x2AD9 ← 05 FA 00 (250 W) only when target changes
+    K-->>U: 80 05 01
+  end
+  K-->>U: 0x2AD2 Indoor Bike Data (speed, cadence, power), about 1–4 Hz
+  Note over U,K: Link lost → keep recording zeros, reconnect, resend Request Control and current target
+</pre>
+    </div>
+  </div>
+
+  <div class="fig">
+    <div class="cap"><b>Zwift controller handshake</b><span>ZAP · per community reverse-engineering</span></div>
+    <div class="scroll">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as Head unit
+  participant C as Zwift controller
+  U->>C: Connect, subscribe Async (notify) and SyncTX (indicate)
+  alt plain (Ride, Click v2)
+    U->>C: SyncRX ← "RideOn"
+    C-->>U: SyncTX → "RideOn" + device info
+  else encrypted (Play, Click v1)
+    U->>C: SyncRX ← "RideOn" + host P-256 public key
+    C-->>U: SyncTX → "RideOn" + device public key
+    Note over U: ECDH → HKDF-SHA256 → AES-CCM key
+  end
+  loop while connected
+    C-->>U: Async → button state (protobuf, decrypt if needed)
+    Note over U: diff with last state → InputEvt PRESS / RELEASE
+    U->>C: SyncRX ← keep-alive every few seconds (verify need)
+  end
+</pre>
+    </div>
+  </div>
+
+  <div class="fig">
+    <div class="cap"><b>Ride state machine</b><span>Ride engine</span></div>
+    <div class="scroll">
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Boot
+  Boot --> Pairing: no saved trainer
+  Boot --> Ready: trainer reconnected
+  Pairing --> Ready: trainer assigned
+  Ready --> Riding: Start (workout or free ride)
+  Riding --> Paused: B / cadence 0 for 3 s
+  Paused --> Riding: pedalling or A
+  Riding --> Reconnecting: trainer link lost
+  Reconnecting --> Riding: link back (resend target)
+  Reconnecting --> Paused: 60 s timeout
+  Paused --> Summary: End ride
+  Riding --> Summary: Workout finished
+  Summary --> Ready: Save FIT
+</pre>
+    </div>
+  </div>
+</section>
+
+<section id="shifting">
+  <h2><span class="n">09</span>Virtual shifting</h2>
+  <p>The KICKR Core has no built-in virtual shifting unless it is the Zwift edition, so the head unit does it. The rider leaves the real chain in one gear (middle of the cassette) and the shift buttons move through a virtual gear table.</p>
+  <div class="grid2">
+    <div class="panel">
+      <h4>Strategy A · grade scaling in SIM (v1)</h4>
+      <p>Send FTMS Simulation with an adjusted grade so a harder virtual gear feels like a steeper road at the same cadence.</p>
+<pre class="code" style="margin:8px 0 0">k = virt_ratio / real_ratio
+grade_cmd ≈ (grade + Crr) × k − Crr
+<span class="c">// small-angle, ignores aero; tune by feel</span>
+<span class="c">// clamp to −10 … +20 %, max 2 writes/s</span></pre>
+      <p style="margin-top:8px">Simple, uses the trainer's own flywheel feel, works on any FTMS trainer. Less exact at the extremes.</p>
+    </div>
+    <div class="panel">
+      <h4>Strategy B · physics to ERG (v2)</h4>
+      <p>Compute virtual speed from cadence × virtual gear × wheel size, then the power that speed needs on the road, and send it as an ERG target at 2–4 Hz.</p>
+<pre class="code" style="margin:8px 0 0">v = rpm/60 × ratio × 2.105 m
+P = v·(m·g·(sinθ + Crr·cosθ)) + ½ρ·CdA·v³
+<span class="c">// smooth P, send Set Target Power</span></pre>
+      <p style="margin-top:8px">Exact and trainer-independent, but ERG lag makes sprints feel delayed.</p>
+    </div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Setting</th><th>Default</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Gear table</td><td>24 gears, ratio 0.75 → 5.5</td><td>Editable <code>/config/gears.json</code></td></tr>
+      <tr><td>Real gear</td><td>34 × 17 (ratio 2.0)</td><td>Rider sets once in settings</td></tr>
+      <tr><td>Rider + bike mass</td><td>80 + 9 kg</td><td></td></tr>
+      <tr><td>CdA / Crr</td><td>0.32 m² / 0.004</td><td></td></tr>
+      <tr><td>Shift feedback</td><td>Gear number on screen, short beep, Play/Ride haptic if supported</td><td></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="data">
+  <h2><span class="n">10</span>Data &amp; storage</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Path</th><th>Format</th><th>Content</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">/workouts/*.zwo</td><td>Zwift XML</td><td>Warmup, Ramp, SteadyState, IntervalsT, FreeRide, Cooldown; Cadence attributes; text events ignored or shown as banners</td></tr>
+      <tr><td class="mono">/rides/2026-10-26_0715.fit</td><td>Garmin FIT</td><td>file_id, device_info, event, record (1 Hz), lap, session, activity</td></tr>
+      <tr><td class="mono">/rides/2026-10-26_0715.csv</td><td>CSV</td><td>Same ride at 1 Hz in a flat table for analysis (schema in section 11)</td></tr>
+      <tr><td class="mono">/rides/summary.csv</td><td>CSV, append-only</td><td>One row per ride: duration, NP, IF, TSS, kJ, HR, workout</td></tr>
+      <tr><td class="mono">/rides/bests.csv</td><td>CSV, append-only</td><td>Best average power per ride for 11 fixed durations</td></tr>
+      <tr><td class="mono">/www/stats/</td><td>Static web app</td><td>Statistics page, DuckDB-WASM and chart library, pre-gzipped</td></tr>
+      <tr><td class="mono">/rides/.journal</td><td>Binary</td><td>Last flushed records; rebuilds the FIT after a power cut</td></tr>
+      <tr><td class="mono">/config/settings.json</td><td>JSON</td><td>FTP, max HR, weight, units, brightness, ERG step, auto-pause</td></tr>
+      <tr><td class="mono">/config/gears.json</td><td>JSON</td><td>Virtual gear table</td></tr>
+      <tr><td class="mono">NVS</td><td>Key-value</td><td>Bonded devices and roles, Wi-Fi credentials, intervals.icu API key</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout info">A 2-hour ride at 1 Hz is about 7 200 records ≈ 200 KB of FIT. The CSV copy adds about 250 KB. An 8 GB card holds years of rides plus the ~10 MB statistics app.</div>
+</section>
+
+<section id="stats">
+  <h2><span class="n">11</span>Statistics with DuckDB-WASM</h2>
+  <p class="sub">DuckDB can't run on the ESP32, but it runs inside any modern browser. The unit serves a small statistics app from its SD card; your phone or laptop downloads it once and runs every query locally. No cloud, no install.</p>
+
+  <div class="fig">
+    <div class="cap"><b>Where the analysis happens</b><span>everything stays on your devices</span></div>
+    <div class="scroll">
+<svg viewBox="0 0 1000 260" role="img" aria-label="Data flow: ride CSV files and the statistics app sit on the microSD card, the head unit web server serves them over Wi-Fi, and the browser runs DuckDB-WASM in a worker with an OPFS cache and draws charts.">
+  <defs>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="s-dot" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+  <rect class="s-box" x="20" y="40" width="260" height="180" rx="4"/>
+  <text class="s-lab" x="34" y="62">MICROSD</text>
+  <text class="s-t" x="34" y="88">/rides/*.csv · 1 Hz samples</text>
+  <text class="s-t" x="34" y="110">/rides/summary.csv</text>
+  <text class="s-t" x="34" y="132">/rides/bests.csv</text>
+  <text class="s-t" x="34" y="160">/www/stats/ · app shell</text>
+  <text class="s-t" x="34" y="182">DuckDB-WASM + worker (.gz)</text>
+  <text class="s-tm" x="34" y="204">written by Recorder at ride end</text>
+
+  <line class="s-w" x1="280" y1="130" x2="358" y2="130" marker-end="url(#ah2)"/>
+
+  <rect class="s-hi" x="360" y="70" width="240" height="120" rx="6"/>
+  <text class="s-tb" x="480" y="100" text-anchor="middle">Head unit web server</text>
+  <text class="s-t" x="480" y="122" text-anchor="middle">esp_http_server</text>
+  <text class="s-t" x="480" y="140" text-anchor="middle">static files · gzip · ETag</text>
+  <text class="s-mono" x="480" y="162" text-anchor="middle">GET /api/rides</text>
+
+  <line class="s-w" x1="600" y1="130" x2="678" y2="130" marker-end="url(#ah2)"/>
+  <text class="s-mono" x="610" y="120">Wi-Fi</text>
+
+  <rect class="s-box" x="680" y="20" width="300" height="225" rx="4"/>
+  <text class="s-lab" x="696" y="42">BROWSER · PHONE OR LAPTOP</text>
+  <rect class="s-band" x="696" y="56" width="268" height="36" rx="3"/>
+  <text class="s-t" x="710" y="79">Stats app · views, queries</text>
+  <rect class="s-band" x="696" y="100" width="268" height="36" rx="3"/>
+  <text class="s-t" x="710" y="123">DuckDB-WASM in a Web Worker</text>
+  <rect class="s-band" x="696" y="144" width="268" height="36" rx="3"/>
+  <text class="s-t" x="710" y="167">OPFS cache · rides.duckdb</text>
+  <rect class="s-band" x="696" y="188" width="268" height="36" rx="3"/>
+  <text class="s-t" x="710" y="211">uPlot charts</text>
+</svg>
+    </div>
+  </div>
+
+  <h3>What the device writes</h3>
+  <p>The Recorder writes a CSV next to every FIT file and appends two small rows at ride end. Computing the summary and best efforts on the device is cheap (a sliding window over the ride already in PSRAM) and means the all-time views never need to load every second of every ride.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>File</th><th>Columns</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">rides/&lt;id&gt;.csv</td><td class="mono" style="white-space:normal">t_s, ts_utc, power_w, cadence_rpm, speed_kmh, hr_bpm, target_w, grade_pct, gear, interval_idx, mode, lap</td></tr>
+      <tr><td class="mono">rides/summary.csv</td><td class="mono" style="white-space:normal">ride_id, start_utc, duration_s, moving_s, workout, ftp_w, avg_w, np_w, if, tss, kj, avg_hr, max_hr, avg_cad, distance_km, fw</td></tr>
+      <tr><td class="mono">rides/bests.csv</td><td class="mono" style="white-space:normal">ride_id, duration_s, watts · durations 1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600 s</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>How the stats app loads</h3>
+  <ol>
+    <li>Browser opens <code>http://trainer.local/stats/</code> (mDNS). App shell is about 100 KB.</li>
+    <li>DuckDB-WASM (one EH bundle plus its worker, a few MB pre-gzipped) loads from the unit once, then comes from the browser cache.</li>
+    <li>The app opens a persistent database in the browser's private file storage (OPFS) and checks which rides it already has.</li>
+    <li><code>GET /api/rides</code> returns the ride list; only new CSVs are fetched and inserted.</li>
+    <li>All queries and charts run locally. If OPFS is not available, the app uses an in-memory database and re-imports.</li>
+  </ol>
+  <div class="callout info">Keep the stats app on the SD card under <code>/www/stats</code>, not in the 16 MB flash. It can then be updated by copying files, separately from the firmware.</div>
+
+  <h3>Views</h3>
+  <div class="grid2">
+    <div class="panel">
+      <h4>Overview</h4>
+      <ul>
+        <li>Fitness, fatigue and form (CTL 42-day, ATL 7-day, TSB) from daily TSS</li>
+        <li>Weekly hours, TSS and kJ</li>
+        <li>Recent rides list</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>Power curve</h4>
+      <ul>
+        <li>All-time, last 90 days and this ride on one log-scale chart</li>
+        <li>FTP estimate (95 % of best 20 min) with date of the effort</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>Ride detail</h4>
+      <ul>
+        <li>Power, target, HR and cadence over time</li>
+        <li>Time in power and HR zones</li>
+        <li>Interval compliance: actual vs target per interval</li>
+        <li>HR drift at constant power (first vs second half)</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h4>SQL console</h4>
+      <ul>
+        <li>Free queries over <code>rides</code>, <code>summary</code>, <code>bests</code></li>
+        <li>Saved queries in the browser</li>
+        <li>Export results as CSV through copy</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Example queries</h3>
+<pre class="code"><span class="c">-- Import a new ride fetched from the unit</span>
+INSERT INTO rides SELECT '2026-10-26_0715' AS ride_id, * FROM read_csv('2026-10-26_0715.csv');
+
+<span class="c">-- Weekly load</span>
+SELECT date_trunc('week', start_utc) AS week, sum(tss) AS tss, round(sum(duration_s) / 3600, 1) AS hours
+FROM summary GROUP BY week ORDER BY week;
+
+<span class="c">-- Power curve: all-time vs last 90 days</span>
+SELECT duration_s,
+       max(watts) AS best_all,
+       max(watts) FILTER (WHERE start_utc > now() - INTERVAL 90 DAY) AS best_90d
+FROM bests JOIN summary USING (ride_id)
+GROUP BY duration_s ORDER BY duration_s;
+
+<span class="c">-- Time in Coggan power zones for one ride</span>
+SELECT CASE WHEN power_w &lt; 0.56 * ftp_w THEN 'Z1' WHEN power_w &lt; 0.76 * ftp_w THEN 'Z2'
+            WHEN power_w &lt; 0.91 * ftp_w THEN 'Z3' WHEN power_w &lt; 1.06 * ftp_w THEN 'Z4'
+            WHEN power_w &lt; 1.21 * ftp_w THEN 'Z5' ELSE 'Z6+' END AS zone,
+       round(count(*) / 60.0, 1) AS minutes
+FROM rides JOIN summary USING (ride_id)
+WHERE ride_id = '2026-10-26_0715' GROUP BY zone ORDER BY zone;
+
+<span class="c">-- Interval compliance</span>
+SELECT interval_idx, avg(target_w) AS target, avg(power_w) AS actual,
+       round(100 * avg(power_w) / nullif(avg(target_w), 0)) AS pct
+FROM rides WHERE ride_id = '2026-10-26_0715' AND target_w &gt; 0
+GROUP BY interval_idx ORDER BY interval_idx;</pre>
+  <p>CTL and ATL are exponential averages over daily TSS. DuckDB has no built-in exponential moving average, so the app takes daily TSS from SQL and computes them in a few lines of JavaScript.</p>
+
+  <h3>Web server endpoints</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Method · path</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">GET /stats/</td><td>Statistics app (from <code>/www/stats</code>, gzip, <code>Cache-Control: max-age=31536000, immutable</code> on hashed asset names)</td></tr>
+      <tr><td class="mono">GET /api/rides</td><td>JSON list: id, start, duration, size, ETag</td></tr>
+      <tr><td class="mono">GET /rides/&lt;file&gt;</td><td>CSV or FIT file, with ETag so unchanged files are not re-sent</td></tr>
+      <tr><td class="mono">GET /rides/summary.csv · bests.csv</td><td>All-ride tables</td></tr>
+      <tr><td class="mono">POST /workouts/&lt;file&gt;</td><td>Upload a .zwo</td></tr>
+      <tr><td class="mono">POST /ota</td><td>Firmware image</td></tr>
+    </tbody>
+  </table></div>
+  <p>Later, if you want years of history analysed on a laptop, the same CSVs work unchanged with DuckDB or Polars in Python. That's optional and needs no firmware changes.</p>
+</section>
+
+<section id="ui">
+  <h2><span class="n">12</span>Display UI</h2>
+  <p class="sub">Ride dashboard at the board's 480×480 square proportions. Power is the hero number; everything else is readable from the saddle in a dark room.</p>
+  <div class="grid2" style="align-items:start">
+    <div class="screen" aria-label="Dashboard mockup">
+      <div class="scr-top"><span><b>4×8 Sweet Spot</b> · int 3/9</span><span>06:12 left · <b>41:08</b></span></div>
+      <div class="scr-pw">
+        <div class="v">248<small>W</small></div>
+        <div class="t">target <b>250 W</b> · 3 s avg 251</div>
+      </div>
+      <div class="scr-tiles">
+        <div>Cadence<span>92</span></div>
+        <div>Heart<span>151</span></div>
+        <div>Speed<span>34.2</span></div>
+        <div>Gear<span class="g">12/24</span></div>
+      </div>
+      <div class="scr-prof" aria-hidden="true">
+        <i class="d" style="height:30%"></i><i class="d" style="height:40%"></i><i class="d" style="height:50%"></i><i class="d" style="height:88%"></i><i class="d" style="height:88%"></i><i class="d" style="height:35%"></i><i class="d" style="height:88%"></i><i class="now" style="height:88%"></i><i style="height:88%"></i><i style="height:35%"></i><i style="height:88%"></i><i style="height:88%"></i><i style="height:35%"></i><i style="height:88%"></i><i style="height:88%"></i><i style="height:40%"></i><i style="height:30%"></i>
+      </div>
+    </div>
+    <div class="panel">
+      <h4>Screens</h4>
+      <ul>
+        <li><b>Ride dashboard</b>, 3 data pages switched with left/right: workout, free ride, laps.</li>
+        <li><b>Workout library</b>: list from SD with duration, TSS and a mini profile.</li>
+        <li><b>Pairing</b>: found devices with signal strength, tap to assign role, battery level.</li>
+        <li><b>Pause menu</b>: resume, skip interval, intensity ±5 %, end ride.</li>
+        <li><b>Summary</b>: time, avg/NP power, IF, TSS, kJ, avg HR, save/discard.</li>
+        <li><b>Settings</b>: FTP, weight, gears, Wi-Fi on/off, spin-down.</li>
+      </ul>
+      <p>Two full 480×480 RGB565 frame buffers (450 KB each) in PSRAM, LVGL in direct mode, numbers updated at 4 Hz. Backlight is on/off through the expander, so brightness control depends on what EXIO4 "BLC" turns out to do.</p>
+    </div>
+  </div>
+</section>
+
+<section id="plan">
+  <h2><span class="n">13</span>Milestones</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Milestone</th><th>Done when</th><th>Est.</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">M0</td><td>Bench setup</td><td>Dev board flashes; nRF Connect captures of KICKR and each controller saved</td><td>1 evening</td></tr>
+      <tr><td class="mono">M1</td><td>FTMS read + display</td><td>Live power, cadence, speed on screen; auto-reconnect</td><td>1 weekend</td></tr>
+      <tr><td class="mono">M2</td><td>ERG workouts</td><td>A .zwo from SD runs end to end with FTP scaling and beeps</td><td>1–2 weekends</td></tr>
+      <tr><td class="mono">M3</td><td>Recording + file manager</td><td>FIT opens in intervals.icu / Golden Cheetah; Wi-Fi upload and download work</td><td>1–2 weekends</td></tr>
+      <tr><td class="mono">M4</td><td>Ride + Click v2</td><td>All buttons produce InputEvts; menus navigable without touch</td><td>1 weekend</td></tr>
+      <tr><td class="mono">M5</td><td>Play + Click v1</td><td>Encrypted handshake reliable over 50 reconnects</td><td>1–2 weekends</td></tr>
+      <tr><td class="mono">M6</td><td>Virtual shifting</td><td>Strategy A feels right across 24 gears; gear shown on screen</td><td>1 weekend</td></tr>
+      <tr><td class="mono">M7</td><td>Case + mount</td><td>Printed case with drip edge, bar or stand mount, cable strain relief</td><td>1–2 weekends</td></tr>
+      <tr><td class="mono">M3b</td><td>Statistics app</td><td>DuckDB-WASM page served from SD shows overview, power curve and ride detail; second visit loads only new rides</td><td>2 weekends</td></tr>
+      <tr><td class="mono">M8</td><td>Extras</td><td>HR, Sterzo, HID, fan control, intervals.icu upload, OTA</td><td>ongoing</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="risks">
+  <h2><span class="n">14</span>Risks &amp; open questions</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td>Zwift changes the controller protocol in a firmware update</td><td><span class="pill p-bad">high</span></td><td>Driver per protocol version, raw-dump debug mode, hold off on controller firmware updates, physical buttons as fallback</td></tr>
+      <tr><td>Encryption details differ from community docs</td><td><span class="pill p-warn">medium</span></td><td>Do M4 (plain) first; capture real traffic with an nRF52840 sniffer before M5</td></tr>
+      <tr><td>BLE airtime with 5–6 links causes dropouts</td><td><span class="pill p-warn">medium</span></td><td>Controllers at 15–30 ms interval, trainer and HR at 50–100 ms; turn off Wi-Fi while riding; NimBLE max connections = 6</td></tr>
+      <tr><td>KICKR allows only 3 BLE connections; Zwift app on another device may hold one</td><td><span class="pill p-info">low</span></td><td>Show "trainer busy" message; only one app should send control at a time</td></tr>
+      <tr><td>SD card corruption on power loss</td><td><span class="pill p-warn">medium</span></td><td>Journal + periodic fsync; finalize FIT on next boot</td></tr>
+      <tr><td>Fast-charge USB supply damages the board</td><td><span class="pill p-bad">high</span></td><td>Plain 5 V USB-A supply and USB-A to C cable only</td></tr>
+      <tr><td>SW6106 switches the board off at light load</td><td><span class="pill p-warn">medium</span></td><td>Register fix at boot (Waveshare FAQ), re-applied on chip reset</td></tr>
+      <tr><td>Pin table in the wiki contradicts itself (I2C pins)</td><td><span class="pill p-warn">medium</span></td><td>Check V3 schematic PDF; I2C scan at first boot</td></tr>
+      <tr><td>Screen flicker or shift while Wi-Fi is busy (RGB panel + PSRAM)</td><td><span class="pill p-warn">medium</span></td><td>Bounce buffers, 80 MHz PSRAM, Wi-Fi only off the bike</td></tr>
+      <tr><td>DuckDB-WASM first load is slow over ESP32 Wi-Fi and SD over SPI (several MB)</td><td><span class="pill p-info">low</span></td><td>Serve pre-gzipped with long cache headers and ETag; one-time wait of a few seconds, then cached by the browser</td></tr>
+      <tr><td>Older browsers or private mode without OPFS</td><td><span class="pill p-info">low</span></td><td>Fall back to an in-memory database and re-import rides each visit</td></tr>
+      <tr><td>Display readability, glare, sweat</td><td><span class="pill p-info">low</span></td><td>IPS panel, high-contrast dark theme, conformal coating, enclosure with drip edge</td></tr>
+      <tr><td>Legal: reverse-engineering for interoperability</td><td><span class="pill p-info">low</span></td><td>Personal, non-commercial use; don't redistribute Zwift binaries or keys</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Open questions</h3>
+  <ul>
+    <li>Which controllers do you own today? That decides whether M4 or M5 comes first.</li>
+    <li>Firmware framework: ESP-IDF (recommended for NimBLE multi-link control and LVGL performance) or Arduino-ESP32 for faster prototyping?</li>
+    <li>Do you want the unit to record alone, or also re-broadcast so a Garmin/Wahoo watch records the same ride?</li>
+  </ul>
+  <h3>References</h3>
+  <ul>
+    <li><a href="https://www.github.com/ajchellew/zwiftplay" target="_blank" rel="noopener">ajchellew/zwiftplay</a> · Zwift Play protocol and encryption notes</li>
+    <li><a href="https://github.com/TheInGoF/RideToWoosh" target="_blank" rel="noopener">TheInGoF/RideToWoosh</a> · ESP32-S3 reading the Zwift Ride</li>
+    <li><a href="https://github.com/doudar/SHIFTR" target="_blank" rel="noopener">doudar/SHIFTR</a> · ESP32 virtual shifting bridge</li>
+    <li><a href="https://duckdb.org/docs/api/wasm/overview" target="_blank" rel="noopener">DuckDB-WASM documentation</a> · in-browser DuckDB</li>
+    <li><a href="https://github.com/Berg0162/DirCon" target="_blank" rel="noopener">Berg0162/DirCon</a> · ESP32 BLE trainer gateway</li>
+    <li><a href="https://dcrainmaker.com/2019/09/multichannel-bluetooth-trainers.html" target="_blank" rel="noopener">DC Rainmaker</a> · KICKR Core cadence over FTMS, 3 BLE connections</li>
+    <li>Bluetooth SIG · Fitness Machine Service 1.0 specification</li>
+  </ul>
+</section>
+</main>
+</div>
