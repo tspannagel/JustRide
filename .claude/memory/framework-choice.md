@@ -1,11 +1,11 @@
 ---
 name: framework-choice
-description: ESP-IDF vs Arduino is still unconfirmed; user referred to the project as "ESP32/Arduino"
+description: Firmware framework is ESP-IDF >= 5.3 (C11), confirmed by the user; no Arduino
 metadata:
   type: project
 ---
 
-`CLAUDE.md` and the plan assume ESP-IDF 5.x (C11), but HANDOVER.md open question 2 is unresolved. On 2026-10-26 the user described the project as "ESP32/ARDUINO" when asking for a .gitignore, which may hint at Arduino (or Arduino-as-component / PlatformIO).
+User chose ESP-IDF on 2026-10-26 (they had loosely called the project "ESP32/Arduino" before). Min version 5.3 because the BSP uses the `i2c_master` driver and `CONFIG_SPIRAM_XIP_FROM_PSRAM`.
 
-**Why:** Scaffolding, build system and component layout differ a lot between the two.
-**How to apply:** Ask the user explicitly before scaffolding any firmware; once answered, update this entry, `CLAUDE.md` and HANDOVER.md. The .gitignore covers both ([[gitignore-conventions]]).
+**Why:** Plan's recommendation; best control over RGB panel + PSRAM and NimBLE multi-link.
+**How to apply:** Don't reopen this. The .gitignore still has Arduino/PlatformIO entries; harmless ([[gitignore-conventions]]).

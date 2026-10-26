@@ -53,7 +53,7 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 
 ## Firmware stack
 
-- **ESP-IDF 5.x**, C (C11). Arduino is not used. (Confirm with the user if not yet done; see HANDOVER.md.)
+- **ESP-IDF ≥ 5.3**, C (C11). Arduino is not used (confirmed by the user).
 - NimBLE host as BLE central, up to 6 simultaneous links
 - LVGL 9 via `esp_lvgl_port`, direct mode on full frame buffers
 - mbedTLS (ECDH P-256, HKDF-SHA256, AES-CCM) for encrypted Zwift controllers

@@ -1,17 +1,18 @@
 # Handover: KICKR Head Unit
 
-Planning was done in a Claude chat on 26 Oct 2026. No code exists yet. Read `CLAUDE.md` first; `docs/plan.html` has the full plan with diagrams.
+Planning was done in a Claude chat on 26 Oct 2026. M0 firmware scaffolding started the same day. Read `CLAUDE.md` first; `docs/plan.html` has the full plan with diagrams.
 
 ## Status
 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
-- Firmware: not started.
+- Firmware: M0 scaffold written but **not yet built** (no ESP-IDF on the dev machine yet). `bsp_s3lcd4` (bring-up steps 1, 3–6), `diag` console, `proto_ftms` codec with passing host tests.
 
 ## Decisions made
 
 | Topic | Decision |
 |---|---|
+| Framework | ESP-IDF ≥ 5.3, C11 (confirmed 2026-10-26) |
 | Board | Waveshare ESP32-S3-Touch-LCD-4 V3, no soldering, no custom PCB |
 | Power | Plain 5 V USB-A supply + USB-A to C cable; no fast chargers |
 | Trainer protocol | Bluetooth FTMS (not Cycling Power, not ANT+) |
@@ -28,15 +29,17 @@ Planning was done in a Claude chat on 26 Oct 2026. No code exists yet. Read `CLA
 ## Open questions (ask the user)
 
 1. Which Zwift controllers do they own? Decides M4 vs M5 order.
-2. ESP-IDF (recommended in the plan) or Arduino? The plan assumes ESP-IDF; confirm before scaffolding.
-3. Has the board arrived, and which version is printed on it (V3 or V4)? V4 has its own demo repo: github.com/waveshareteam/ESP32-S3-Touch-LCD-4.
-4. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
+2. Has the board arrived, and which version is printed on it (V3 or V4)? V4 has its own demo repo: github.com/waveshareteam/ESP32-S3-Touch-LCD-4.
+3. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
 
 ## Must verify on real hardware (don't assume)
 
 - I2C bus pins for the TCA9554 (wiki contradicts itself: 15/7 vs 8/9). I2C scan at first boot.
 - What TCA9554 EXIO4 ("BLC") and EXIO7 ("DO1") do; whether backlight dimming is possible.
-- SW6106 light-load register fix (Waveshare FAQ).
+- SW6106 light-load register fix (Waveshare FAQ). Not implemented: register unknown, TODO in `bsp.c`.
+- ST7701 init sequence: `bsp.c` uses the `esp_lcd_st7701` default; swap in Waveshare's table if colours/gamma are off.
+- RGB timings (porches, 16 MHz PCLK) in `bsp.c` are generic ST7701 values; raise PCLK towards 21 MHz once stable.
+- SD with no SPI CS pin (EXIO3 held low) mounts reliably.
 - ZAP UUIDs, handshake and message layouts on the user's own controllers (capture first).
 - Whether Click v2 / Ride really run unencrypted.
 - Whether a ZAP keep-alive is needed.
