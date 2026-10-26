@@ -16,6 +16,7 @@ typedef struct {
     gear_table_t gears;
 } settings_t;
 
-// Defaults for anything missing or invalid. Writes settings.json if it doesn't exist.
+// Defaults for anything missing or invalid. Writes settings.json if it doesn't
+// exist (or lacks an AP password); a file that isn't valid JSON is left untouched.
 void settings_load(settings_t *s);
 bool settings_save(const settings_t *s);

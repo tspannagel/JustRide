@@ -104,8 +104,13 @@ void settings_load(settings_t *s)
     s->cw = 51;
 
     char *text = read_text(SETTINGS_PATH);
+    if (!text) {
+        text = read_text(SETTINGS_PATH ".tmp");  // power cut between remove and rename in settings_save
+    }
+    bool exists = text != NULL;
     cJSON *root = text ? cJSON_Parse(text) : NULL;
     free(text);
+    bool valid = root != NULL;
     if (root) {
         s->ftp_w = (uint16_t)get_int(root, "ftp_w", s->ftp_w, 50, 600);
         s->max_erg_w = (uint16_t)get_int(root, "max_erg_w", s->max_erg_w, 100, 1500);
@@ -115,14 +120,18 @@ void settings_load(settings_t *s)
         get_str(root, "wifi_password", s->wifi_pass, sizeof(s->wifi_pass));
         get_str(root, "ap_password", s->ap_pass, sizeof(s->ap_pass));
         cJSON_Delete(root);
+    } else if (exists) {
+        // Never overwrite a file the user is editing: a typo would erase their Wi-Fi settings
+        ESP_LOGE(TAG, "settings.json is not valid JSON; using defaults, file left unchanged");
     }
     load_gears(&s->gears);
 
+    bool write = !exists;
     if (strlen(s->ap_pass) < 8) {
         random_pass(s->ap_pass, 10);
-        root = NULL;  // force writing the file with the new password
+        write = write || valid;  // store the new hotspot password
     }
-    if (!root && bsp_sd_mounted()) {
+    if (write && bsp_sd_mounted()) {
         settings_save(s);
     }
 }
