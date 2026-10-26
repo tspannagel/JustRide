@@ -50,31 +50,32 @@ Before a hard session, make sure the trainer and bike are set up as usual: the h
 ### 3.1 Install the tools (macOS)
 
 ```sh
+xcode-select --install        # Apple's compiler and git (skip if already installed)
 brew install cmake ninja dfu-util python3 node
 mkdir -p ~/esp && cd ~/esp
 git clone -b v5.3.2 --recursive https://github.com/espressif/esp-idf.git
 ./esp-idf/install.sh esp32s3
 ```
 
-In **every new terminal** where you build, first run:
-
-```sh
-. ~/esp/esp-idf/export.sh
-```
+This puts the ESP-IDF toolchain in `~/esp/esp-idf` (about 3 GB, 10–20 minutes). You only do this once and never need to work inside that folder afterwards.
 
 (Windows/Linux: follow Espressif's "ESP-IDF Get Started" guide for v5.3, then continue below.)
 
 ### 3.2 Build and flash
 
-Connect the board to your computer with the USB-C cable, then in the project folder:
+You can build without the board; it only proves the code compiles. For flashing, connect the board to your computer with the USB-C cable.
+
+In **every new terminal**, load the tools first, then change into **this repository** (not `~/esp`), because `idf.py` builds the project in the current folder:
 
 ```sh
+. ~/esp/esp-idf/export.sh     # makes idf.py available in this terminal (works from any folder)
+cd ~/Workspace/JustRide       # the repository: wherever you cloned it
 idf.py set-target esp32s3     # first time only
 idf.py build
 idf.py -p /dev/cu.usbmodem* flash monitor
 ```
 
-- The first build downloads LVGL, the display/touch drivers and mDNS (needs internet once).
+- The first build downloads LVGL, the display/touch drivers and mDNS (needs internet once). Build output goes to `build/` inside the repository (ignored by git).
 - If flashing fails with "no serial port": hold the **BOOT** button, plug the cable in, release BOOT, and flash again.
 - `monitor` shows the log. Leave it with `Ctrl+]`.
 
