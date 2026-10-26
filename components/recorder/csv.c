@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -119,6 +120,9 @@ static long parse_fixed(const char *f, int scale, long unknown)
         return unknown;
     }
     double v = strtod(f, NULL) * scale;
+    if (!isfinite(v) || v < -1e6 || v > 1e6) {
+        return unknown;  // garbage; casting it to long would be undefined
+    }
     return (long)(v < 0 ? v - 0.5 : v + 0.5);
 }
 

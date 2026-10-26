@@ -2,6 +2,7 @@
 // elements Zwift writes; unknown elements and text events are skipped.
 
 #include <ctype.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -87,7 +88,8 @@ static const char *parse_attrs(const char *p, const char *end, attrs_t *a)
             size_t n = (size_t)(p - val) < sizeof(buf) - 1 ? (size_t)(p - val) : sizeof(buf) - 1;
             memcpy(buf, val, n);
             buf[n] = 0;
-            *slot = strtod(buf, NULL);
+            double v = strtod(buf, NULL);
+            *slot = isfinite(v) ? v : 0;  // "nan"/"inf" would make the casts below undefined
         }
         p++;
     }

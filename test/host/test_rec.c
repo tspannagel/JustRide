@@ -45,6 +45,11 @@ static void test_row_roundtrip(void)
     CHECK(!csv_parse_row(CSV_RIDE_HEADER, &p));
     CHECK(!csv_parse_row("42,2026-10-26T12:00:42Z,250,90", &p)); // torn last line after a crash
     CHECK(!csv_parse_row("", &p));
+    CHECK(csv_parse_row("1,2026-10-26T12:00:01Z,nan,1e300,inf,-1e99,0,0,0,0,free,0\n", &p));
+    CHECK_EQ(p.power_w, -1); // garbage reads as unknown
+    CHECK_EQ(p.cadence_rpm10, -1);
+    CHECK_EQ(p.speed_kmh100, -1);
+    CHECK_EQ(p.hr_bpm, -1);
     CHECK_EQ(csv_format_row(row, 20, &s), 0); // too small: refuse
 }
 

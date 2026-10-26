@@ -5,8 +5,10 @@ project(justride_host_tests C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-add_compile_options(-Wall -Wextra -Werror -fsanitize=address,undefined -g)
-add_link_options(-fsanitize=address,undefined)
+# float-cast-overflow is not part of GCC's "undefined" group; parsers cast doubles
+add_compile_options(-Wall -Wextra -Werror -fsanitize=address,undefined,float-cast-overflow
+                    -fno-sanitize-recover=all -g)
+add_link_options(-fsanitize=address,undefined,float-cast-overflow)
 enable_testing()
 
 set(C ${CMAKE_CURRENT_SOURCE_DIR}/../../components)

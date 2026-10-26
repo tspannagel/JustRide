@@ -91,6 +91,14 @@ static void test_garbage_and_limits(void)
     // Truncated in the middle of an attribute
     const char *cut = "<SteadyState Duration=\"60\" Power=\"0.";
     CHECK(!zwo_parse(cut, strlen(cut), &w));
+
+    // Non-numbers must not reach the integer casts (UBSan float-cast-overflow)
+    const char *nan = "<SteadyState Duration='nan' Power='1'/><IntervalsT Repeat='nan' OnDuration='inf' "
+                      "OffDuration='60' OnPower='nan' OffPower='0.5'/>";
+    CHECK(zwo_parse(nan, strlen(nan), &w));
+    CHECK_EQ(w.n, 1); // only the 60 s off interval is usable
+    CHECK_EQ(w.seg[0].dur_s, 60);
+    CHECK_EQ(w.seg[0].p_start, 500);
 }
 
 int main(void)
