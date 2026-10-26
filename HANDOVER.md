@@ -6,7 +6,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
-- Firmware: everything is written, including Zwift Ride support (unverified button table). **The ESP-IDF build has never run** (no ESP-IDF on the dev machine); expect compile fixes on the first `idf.py build`, mostly API details of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE written from memory.
+- Firmware: everything is written, including Zwift Ride support (unverified button table). **The firmware compiles and links with ESP-IDF 5.3.2 in CI** (`.github/workflows/ci.yml`, since 2026-10-26; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. No `dependencies.lock` yet: run `idf.py build` locally once and commit it to pin component versions.
 - Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.md`.
 
@@ -51,7 +51,6 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - SD with no SPI CS pin (EXIO3 high during ST7701 init, low from SD bus start) mounts reliably.
 - Zwift Ride (code written before any capture): advert match (company 0x094A / UUID 0xFC82), "RideOn" handshake accepted, keypad message id 0x23, button bit table in `proto_zap.h`, active-low polarity, whether a keep-alive is needed. Use `zap dump on`.
 - KICKR Core firmware exposes FTMS (expected yes) and the Indoor Bike Data flags it uses.
-- First `idf.py build`: fix compile errors (see Status).
 - GT911 address (0x5D or 0x14) and whether touch works with INT/RST not driven by the driver.
 - LVGL direct mode with `avoid_tearing` on the panel's two frame buffers looks stable; Wi-Fi on → RGB drift?
 - FTMS Target Resistance (0x04) accepted by the KICKR Core; otherwise the flat-SIM fallback kicks in (log says "rejected").
@@ -74,7 +73,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 ## Next steps
 
-1. User installs ESP-IDF 5.3, runs `idf.py build`, sends errors → fix until it builds (M0).
+1. User installs ESP-IDF 5.3, runs `idf.py build` (CI already builds it), commits `dependencies.lock`, flashes (M0).
 2. Bring-up on the board with the `diag` console (I2C scan, pattern, SD), adjust `bsp.c` (M0).
 3. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
 4. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).
