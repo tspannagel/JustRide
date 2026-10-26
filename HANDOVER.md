@@ -6,7 +6,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
-- Firmware: all components except Zwift controllers are written. **The ESP-IDF build has never run** (no ESP-IDF on the dev machine); expect compile fixes on the first `idf.py build`, mostly API details of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE written from memory.
+- Firmware: everything is written, including Zwift Ride support (unverified button table). **The ESP-IDF build has never run** (no ESP-IDF on the dev machine); expect compile fixes on the first `idf.py build`, mostly API details of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE written from memory.
 - Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.md`.
 
