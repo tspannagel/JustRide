@@ -1,0 +1,14 @@
+// Wi-Fi (off-bike only), HTTP server, mDNS (trainer.local), SNTP, OTA.
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include "settings.h"
+
+void web_init(void);
+// Join the configured network; falls back to an own access point after 15 s.
+void web_start(const settings_t *s);
+void web_stop(void);
+bool web_running(void);
+// One-line status for the UI
+void web_status(char *buf, size_t size);
