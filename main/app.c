@@ -23,7 +23,6 @@ static const char *TAG = "app";
 #define BEEP_MS 150
 #define BEEP_GAP_MS 350
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01
-#define MAX_ZWO_BYTES (64 * 1024)
 
 static SemaphoreHandle_t s_lock;
 static ride_t s_ride;
@@ -203,8 +202,8 @@ bool app_start_workout(const char *path)
     if (!f) {
         return false;
     }
-    char *xml = malloc(MAX_ZWO_BYTES);
-    size_t n = xml ? fread(xml, 1, MAX_ZWO_BYTES, f) : 0;
+    char *xml = malloc(ZWO_MAX_BYTES);
+    size_t n = xml ? fread(xml, 1, ZWO_MAX_BYTES, f) : 0;
     fclose(f);
     bool ok = false;
     lock();
