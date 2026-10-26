@@ -71,7 +71,10 @@ components/
   ble_mgr/                NimBLE central: scan, connect, GATT discovery, CCCD subscribe, back-off, role per device (NVS)
   drv_ftms/               FTMS trainer driver: metrics out, control point with one write in flight
   drv_hr/                 heart-rate strap (0x180D)
+  drv_zap/                Zwift Ride (plain ZAP): handshake, button edges -> input events, raw hex dump
   proto_ftms/             pure codec: Indoor Bike Data parsing, control point encode/decode
+  proto_zap/              pure codec: RideOn handshake, 0x23 keypad protobuf, button table (unverified)
+  input_map/              pure: input events -> ride actions by ride state (long press for stop/skip/start)
   workout/                pure: .zwo parser + workout timeline
   vshift/                 pure: gear table, strategy-A grade scaling
   metrics/                pure: NP, IF, TSS, kJ, distance, best efforts
@@ -85,7 +88,7 @@ tools/                    sample .zwo files, vendor_stats.sh, sd_deploy.sh
 docs/                     plan.html (planning), manual.md (user manual: setup + operation)
 ```
 
-Not built yet: `drv_zap`/`proto_zap`/`input_map` (Zwift controllers; need captures first), cycling-power fallback, intervals.icu upload.
+Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), menu navigation by controller, cycling-power fallback, intervals.icu upload.
 
 ## Architecture rules
 
@@ -192,12 +195,13 @@ Hardware must not be damaged by this code, and the rider must never be stuck wit
 - Trainer: idle/pause/stop/finish → lowest resistance (flat SIM road if resistance mode is refused). ERG ≤ `max_erg_w` and ≤ 1500 W hard cap; SIM grade −10…+20 %; one control-point write in flight, ≤ 4/s, SIM ≤ 2/s. Spin-down is not exposed.
 - Stopping a ride needs a long press. Wi-Fi is off while riding. OTA needs on-device approval, checks the project name, and relies on bootloader rollback (`esp_ota_mark_app_valid_cancel_rollback()` only after full start-up).
 - Stale sensor data (> 3 s trainer, > 5 s HR) is recorded as unknown, never repeated.
+- Controller input: stop, skip and start need a held button; a disconnect never generates releases (a held button can't become a long press).
 - Limits live in pure code (`ride.c`, `vshift.c`) and have host tests; keep it that way.
 
 ## Working with the user
 
 - The user writes in English, prefers little or no soldering and is new to this board. Explain hardware steps plainly.
-- The user has the KICKR Core. Which Zwift controllers they own is still open (see HANDOVER.md); it decides whether ZAP plain or encrypted comes first.
+- The user has the KICKR Core and a **Zwift Ride** (plain ZAP). The Ride code was written before any capture: verify button bits/polarity with `zap dump on` and turn the dumps into fixtures in `test/host/fixtures/`.
 - Don't claim protocol details are confirmed until they're checked against the user's own devices.
 
 ## Project memory

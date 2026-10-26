@@ -121,14 +121,15 @@ On first boot the device writes `/config/settings.json` with defaults and a rand
 
 `settings.json` is a plain text file, so anyone with the card can read the Wi-Fi password in it.
 
-### 3.5 Connect the trainer and heart-rate strap
+### 3.5 Connect the trainer, heart-rate strap and Zwift Ride
 
-1. **Close Zwift, the Wahoo app and any other app** that might connect to the KICKR.
+1. **Close Zwift, the Wahoo app and any other app** that might connect to the KICKR or the Zwift Ride.
 2. Pedal a few strokes to wake the KICKR.
 3. The status line changes from *Trainer: searching…* to *Trainer: connected* (usually within a few seconds).
 4. Put on the heart-rate strap (moisten the contacts); it connects the same way.
+5. Wake the Zwift Ride by pressing a button. The home screen shows *Zwift Ride: connected*.
 
-The device remembers the first trainer and strap it finds and from then on connects only to those. To pair different ones: **Settings → Forget trainer + HR**.
+The device remembers the first trainer, strap and Zwift controller it finds and from then on connects only to those. To pair different ones: **Settings → Forget paired devices**.
 
 ### 3.6 Set the clock
 
@@ -162,6 +163,22 @@ Leave the bike's real chain in one gear, by default **34 × 17** (front × rear)
 | **Pause** | timer stops, lowest resistance | same |
 | **Lap** | starts a new lap in the ride file | same |
 | **Hold to stop** | press and hold to end the ride | same |
+
+### Zwift Ride buttons
+
+| Button | Action |
+|---|---|
+| Shift up / down (either side) | same as **+** / **−** on screen: virtual gear, or ERG intensity ±5 % |
+| D-pad up / down | road gradient +/− 0.5 % (free ride) |
+| **A** (short) | pause / resume; on the summary screen: done |
+| **A** (hold 1 s) on the home screen | start a free ride |
+| **Y** (short) | lap |
+| D-pad right (hold 1 s) | skip to the next interval |
+| **B** (hold 1 s) | stop the ride |
+
+Menus (workout list, settings, Wi-Fi) are touch-only.
+
+The button layout is based on other people's reverse-engineering and is **not yet verified on a real Zwift Ride**. If a button does the wrong thing or nothing, see [Troubleshooting](#9-troubleshooting).
 
 Beeps: **1** = next interval in 3 seconds, **2** = new interval started, **3** = workout finished (you continue in free ride until you stop).
 
@@ -255,6 +272,7 @@ Keep the USB cable connected to your computer and run `idf.py -p /dev/cu.usbmode
 | `sd` | SD card write/read speed test |
 | `buzz` | short beep |
 | `mem` | free memory |
+| `zap dump on` / `off` | log every packet from the Zwift Ride as hex |
 
 | Problem | What to try |
 |---|---|
@@ -262,11 +280,13 @@ Keep the USB cable connected to your computer and run `idf.py -p /dev/cu.usbmode
 | Colours wrong, image shifted or flickering | Run `pattern 0` (should be white, yellow, cyan, green, magenta, red, blue, black from left to right). Send a photo; the display settings in `bsp.c` need adjusting. |
 | Touch doesn't react | Log says `GT911 not found`? Send the `i2c` output. |
 | *No SD card* on the home screen | Card must be FAT32, 32 GB or smaller, inserted with the board unplugged. Run `sd`. |
-| Trainer stays *searching* | Close every other app connected to the KICKR, pedal to wake it, then try **Settings → Forget trainer + HR**. |
+| Trainer stays *searching* | Close every other app connected to the KICKR, pedal to wake it, then try **Settings → Forget paired devices**. |
+| Zwift Ride doesn't connect | Close the Zwift app (on phone, tablet and PC), press a button to wake it, check the log for `zap`. |
+| Zwift Ride button does the wrong thing / nothing | Run `zap dump on`, press each button once slowly (note the order), and send the log. The button table is then corrected from your recording. |
 | Trainer connects but resistance doesn't change | Check the log for `request control refused` or `rejected`; another app may still have control. |
 | Board switches itself off | A known issue of this board's power chip at low load; the fix isn't implemented yet. Use the computer's USB port for now and report it. |
 | *Clock not set* | Turn on Wi-Fi with your home network configured (needs internet). |
 | `trainer.local` doesn't open | Use the IP address shown on the device instead (some Android phones don't support `.local` names). |
 | Firmware update refused | Tap **Allow firmware update** on the device first (valid 5 minutes). |
 
-Not supported yet: Zwift Click/Play/Ride controllers (they need recordings from your own devices first), power meters and cadence sensors other than the trainer, intervals.icu upload.
+Not supported yet: Zwift Click and Play (encrypted protocol), menu navigation with the Zwift Ride, power meters and cadence sensors other than the trainer, intervals.icu upload.
