@@ -1,14 +1,13 @@
 ---
 name: no-local-idf
-description: As of 2026-10-26 the dev Mac has no ESP-IDF and no cmake; all firmware is unbuilt, host tests run with plain cc
+description: Firmware builds only in GitHub Actions CI; no ESP-IDF on the dev Mac or in Claude cloud sessions
 metadata:
   type: project
 ---
 
-On 2026-10-26 `idf.py` and `cmake` were not installed. Firmware code was written without compiling; host tests were verified with
-`cc -std=c11 -Wall -Wextra -Werror -Icomponents/proto_ftms/include test/host/test_proto_ftms.c components/proto_ftms/proto_ftms.c`.
+As of 2026-10-26 the dev Mac has no ESP-IDF. In Claude cloud sessions, installing ESP-IDF (`install.sh`) is refused by the permission policy and components.espressif.com / dl.espressif.com are blocked. The firmware is built by `.github/workflows/ci.yml` (espressif/esp-idf-ci-action, IDF v5.3.2) on every PR; read the job log via the GitHub tools to fix compile errors.
 
-Off-device checks that do work here: host tests via cc + ASan/UBSan; FIT validation with fitdecode in a scratch venv; the stats app in headless Chrome via puppeteer-core with a local server mimicking the device endpoints.
+Off-device checks that work locally: host tests (`test/host`, gcc + ASan/UBSan/float-cast-overflow); FIT validation with fitdecode in a scratch venv; the stats app in headless Chrome.
 
-**Why:** Explains why the first `idf.py build` may surface compile errors (esp_lcd_st7701, esp_lvgl_port, gt911, NimBLE API details were written from memory).
-**How to apply:** Check `which idf.py cmake` before claiming a build works; delete this entry once the toolchain is installed and the firmware has built.
+**Why:** First successful firmware build was in CI (PR #1); IDF component versions float because there is no `dependencies.lock` yet.
+**How to apply:** Push and read CI logs instead of trying to install IDF; ask the user to commit `dependencies.lock` from a local build.

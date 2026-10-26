@@ -231,7 +231,7 @@ Wi-Fi turns off automatically when you start a ride.
 
 **Over Wi-Fi:**
 1. Build on your computer: `idf.py build` → the file is `build/justride.bin`.
-2. On the device: **Wi-Fi → Turn on → Allow firmware update**. Updates are accepted for 5 minutes after this tap; without it the device refuses them, so nobody else on your network can flash it.
+2. On the device: **Wi-Fi → Turn on → Allow firmware update**. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.
 3. On the device's start page choose the `.bin` under *Firmware update*. Don't unplug the board while it says "flashing".
 4. The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.
 
@@ -246,9 +246,9 @@ Wi-Fi turns off automatically when you start a ride.
 | `crr` | 0.004 | 0.001–0.02 | Rolling resistance sent to the trainer in free ride |
 | `cw` | 0.51 | 0.1–2.0 | Wind resistance coefficient (kg/m) in free ride |
 | `wifi_ssid`, `wifi_password` | empty | | Your home Wi-Fi |
-| `ap_password` | random | ≥ 8 chars | Password of the device's own hotspot |
+| `ap_password` | random | 8–63 chars | Password of the device's own hotspot |
 
-Invalid or out-of-range values are ignored and the default is used.
+Invalid or out-of-range values are ignored and the default is used. If the file is not valid JSON (a missing quote or comma), the device uses defaults for everything, logs `settings.json is not valid JSON` and leaves your file unchanged so you can fix it.
 
 ### `/config/gears.json` (optional)
 
@@ -287,6 +287,6 @@ Keep the USB cable connected to your computer and run `idf.py -p /dev/cu.usbmode
 | Board switches itself off | A known issue of this board's power chip at low load; the fix isn't implemented yet. Use the computer's USB port for now and report it. |
 | *Clock not set* | Turn on Wi-Fi with your home network configured (needs internet). |
 | `trainer.local` doesn't open | Use the IP address shown on the device instead (some Android phones don't support `.local` names). |
-| Firmware update refused | Tap **Allow firmware update** on the device first (valid 5 minutes). |
+| Firmware update refused | Tap **Allow firmware update** on the device first (valid 5 minutes, one upload per tap). Upload from the device's own start page; other pages and tools without the `X-JustRide` header are refused. |
 
 Not supported yet: Zwift Click and Play (encrypted protocol), menu navigation with the Zwift Ride, power meters and cadence sensors other than the trainer, intervals.icu upload.

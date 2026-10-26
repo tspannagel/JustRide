@@ -23,7 +23,6 @@ static const char *TAG = "app";
 #define BEEP_MS 150
 #define BEEP_GAP_MS 350
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01
-#define MAX_ZWO_BYTES (64 * 1024)
 
 static SemaphoreHandle_t s_lock;
 static ride_t s_ride;
@@ -32,6 +31,7 @@ static app_status_t s_status;
 static settings_t s_settings;
 static workout_t s_wo;
 static input_map_t s_input;
+static bool s_finish_pending;
 static uint8_t s_beeps_left;
 static uint32_t s_next_beep_ms;
 
@@ -74,7 +74,9 @@ static void do_action(uint8_t a)
         uint8_t before = s_ride.state;
         ride_action(&s_ride, a);
         if (before != RIDE_DONE && s_ride.state == RIDE_DONE) {
-            recorder_finish();
+            // Written by the task loop after the trainer got its stop command
+            s_finish_pending = true;
+            s_status.saving = true;
             s_beeps_left = 1;
         }
     }
@@ -142,7 +144,20 @@ static void task(void *arg)
         drv_ftms_set(&cmd);
         ride_view(&s_ride, &s_view);
         s_status.clock_ok = utc_now() > CLOCK_VALID_AFTER;
+        bool finish = s_finish_pending;
+        s_finish_pending = false;
         unlock();
+
+        // Writing the FIT file can take seconds. Do it after the lowest-resistance
+        // command went out and without the lock, so the UI keeps running.
+        // Only this task touches the recorder and handles ride actions.
+        if (finish) {
+            bool saved = recorder_finish();
+            lock();
+            s_status.saving = false;
+            s_status.saved = saved;
+            unlock();
+        }
     }
 }
 
@@ -172,12 +187,13 @@ void app_post_action(action_t a)
     evbus_post(&e);
 }
 
-bool app_is_riding(void)
+void app_web_start(void)
 {
     lock();
-    bool riding = s_ride.state != RIDE_IDLE;
+    if (s_ride.state == RIDE_IDLE) {
+        web_start(&s_settings);
+    }
     unlock();
-    return riding;
 }
 
 bool app_start_workout(const char *path)
@@ -186,8 +202,8 @@ bool app_start_workout(const char *path)
     if (!f) {
         return false;
     }
-    char *xml = malloc(MAX_ZWO_BYTES);
-    size_t n = xml ? fread(xml, 1, MAX_ZWO_BYTES, f) : 0;
+    char *xml = malloc(ZWO_MAX_BYTES);
+    size_t n = xml ? fread(xml, 1, ZWO_MAX_BYTES, f) : 0;
     fclose(f);
     bool ok = false;
     lock();

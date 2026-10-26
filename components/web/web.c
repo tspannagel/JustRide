@@ -1,5 +1,6 @@
 #include "web.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,13 +23,13 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mdns.h"
+#include "workout.h"
 
 static const char *TAG = "web";
 
 #define HOSTNAME "trainer"
 #define AP_SSID "JustRide"
 #define STA_TIMEOUT_US (15 * 1000000)
-#define MAX_WORKOUT_BYTES (256 * 1024)
 #define CHUNK 4096
 #define OTA_WINDOW_US (5 * 60 * 1000000LL)
 
@@ -37,9 +38,73 @@ static httpd_handle_t s_http;
 static esp_timer_handle_t s_fallback;
 static bool s_running, s_is_ap, s_got_ip, s_sntp;
 static char s_ip[16];
-static char s_ap_pass[65];
+static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
 static SemaphoreHandle_t s_lock;  // web_start/web_stop come from the UI and the control task
+static char s_buf[CHUNK];         // shared by all handlers: the server runs one handler at a time
+
+// ---- Request checks -------------------------------------------------------------
+
+// DNS rebinding: a page on evil.example that re-resolves to our IP would be
+// same-origin with us. Only serve requests addressed to our name or an IPv4 literal.
+static bool host_ok(httpd_req_t *req)
+{
+    char host[64];
+    if (httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host)) != ESP_OK) {
+        return false;
+    }
+    host[strcspn(host, ":")] = 0;  // drop the port
+    if (strcasecmp(host, HOSTNAME ".local") == 0 || strcasecmp(host, HOSTNAME) == 0) {
+        return true;
+    }
+    int dots = 0;
+    for (const char *c = host; *c; c++) {
+        if (*c == '.') {
+            dots++;
+        } else if (!isdigit((unsigned char)*c)) {
+            return false;
+        }
+    }
+    return dots == 3;
+}
+
+// Answers and returns false if the request must not be served. POSTs need a
+// custom header: browsers send one cross-origin only after a CORS preflight,
+// which this server never grants, so other web pages can't upload or flash.
+static bool allowed(httpd_req_t *req)
+{
+    char v[8];
+    if (!host_ok(req)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown host");
+        return false;
+    }
+    if (req->method == HTTP_POST && httpd_req_get_hdr_value_str(req, "X-JustRide", v, sizeof(v)) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "missing X-JustRide header");
+        return false;
+    }
+    return true;
+}
+
+// In-place %XX decoding of a URI path segment. False on malformed escapes or %00.
+static bool url_decode(char *s)
+{
+    char *out = s;
+    for (const char *in = s; *in; in++) {
+        if (*in != '%') {
+            *out++ = *in;
+            continue;
+        }
+        unsigned v;
+        if (!isxdigit((unsigned char)in[1]) || !isxdigit((unsigned char)in[2]) || sscanf(in + 1, "%2x", &v) != 1 ||
+            v == 0) {
+            return false;
+        }
+        *out++ = (char)v;
+        in += 2;
+    }
+    *out = 0;
+    return true;
+}
 
 // ---- Files ----------------------------------------------------------------------
 
@@ -107,11 +172,10 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *cache
     if (gz) {
         httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     }
-    static char buf[CHUNK];  // the server runs one handler at a time
     size_t n;
     esp_err_t err = ESP_OK;
-    while (err == ESP_OK && (n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        err = httpd_resp_send_chunk(req, buf, (ssize_t)n);
+    while (err == ESP_OK && (n = fread(s_buf, 1, sizeof(s_buf), f)) > 0) {
+        err = httpd_resp_send_chunk(req, s_buf, (ssize_t)n);
     }
     fclose(f);
     return err == ESP_OK ? httpd_resp_send_chunk(req, NULL, 0) : err;
@@ -130,20 +194,26 @@ static const char INDEX_HTML[] =
     "fetch('/api/rides').then(r=>r.json()).then(l=>{for(const f of l.reverse()){const li=document.createElement('li');"
     "li.innerHTML=`<a href='/rides/${f.name}'>${f.name}</a> (${(f.size/1024).toFixed(0)} kB)`;r.append(li)}});"
     "w.onchange=async()=>{for(const f of w.files){ws.textContent='uploading '+f.name;"
-    "const r=await fetch('/workouts/'+encodeURIComponent(f.name),{method:'POST',body:f});"
+    "const r=await fetch('/workouts/'+encodeURIComponent(f.name),{method:'POST',headers:{'X-JustRide':'1'},body:f});"
     "ws.textContent=r.ok?'saved':await r.text()}};"
     "o.onchange=async()=>{if(!confirm('Flash '+o.files[0].name+'?'))return;os.textContent='flashing, do not unplug';"
-    "const r=await fetch('/ota',{method:'POST',body:o.files[0]});os.textContent=await r.text()};"
+    "const r=await fetch('/ota',{method:'POST',headers:{'X-JustRide':'1'},body:o.files[0]});os.textContent=await r.text()};"
     "</script>";
 
 static esp_err_t h_index(httpd_req_t *req)
 {
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t h_stats(httpd_req_t *req)
 {
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
     const char *rel = req->uri + strlen("/stats/");
     char name[80];
     snprintf(name, sizeof(name), "%.*s", (int)strcspn(rel, "?#"), rel);
@@ -162,6 +232,9 @@ static esp_err_t h_stats(httpd_req_t *req)
 
 static esp_err_t h_rides_file(httpd_req_t *req)
 {
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
     const char *name = req->uri + strlen("/rides/");
     if (!safe_name(name) || strchr(name, '/')) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name");
@@ -173,6 +246,9 @@ static esp_err_t h_rides_file(httpd_req_t *req)
 
 static esp_err_t h_api_rides(httpd_req_t *req)
 {
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     DIR *d = opendir(BSP_SD_MOUNT "/rides");
@@ -189,7 +265,7 @@ static esp_err_t h_api_rides(httpd_req_t *req)
         if (stat(path, &st) != 0) {
             continue;
         }
-        snprintf(item, sizeof(item), "%s{\"name\":\"%s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
+        snprintf(item, sizeof(item), "%s{\"name\":\"%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
                  (long)st.st_size, (long)st.st_mtime);
         httpd_resp_sendstr_chunk(req, item);
         first = false;
@@ -203,12 +279,17 @@ static esp_err_t h_api_rides(httpd_req_t *req)
 
 static esp_err_t h_workout_upload(httpd_req_t *req)
 {
-    const char *name = req->uri + strlen("/workouts/");
-    size_t len = strlen(name);
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    // The browser sends encodeURIComponent(name): "My Workout.zwo" -> "My%20Workout.zwo"
+    char name[80];
+    snprintf(name, sizeof(name), "%s", req->uri + strlen("/workouts/"));
+    size_t len = url_decode(name) ? strlen(name) : 0;
     if (!safe_name(name) || strchr(name, '/') || len < 5 || strcasecmp(name + len - 4, ".zwo") != 0) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <name>.zwo");
     }
-    if (req->content_len == 0 || req->content_len > MAX_WORKOUT_BYTES) {
+    if (req->content_len == 0 || req->content_len > ZWO_MAX_BYTES) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "file empty or too large");
     }
     mkdir(BSP_SD_MOUNT "/workouts", 0775);
@@ -219,15 +300,14 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
     if (!f) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD not writable");
     }
-    static char buf[CHUNK];
     size_t left = req->content_len;
     bool ok = true;
     while (ok && left > 0) {
-        int n = httpd_req_recv(req, buf, left < sizeof(buf) ? left : sizeof(buf));
+        int n = httpd_req_recv(req, s_buf, left < sizeof(s_buf) ? left : sizeof(s_buf));
         if (n == HTTPD_SOCK_ERR_TIMEOUT) {
             continue;
         }
-        ok = n > 0 && fwrite(buf, 1, (size_t)n, f) == (size_t)n;
+        ok = n > 0 && fwrite(s_buf, 1, (size_t)n, f) == (size_t)n;
         left -= ok ? (size_t)n : 0;
     }
     ok = fclose(f) == 0 && ok;
@@ -251,10 +331,14 @@ static void restart_task(void *arg)
 // firmware doesn't mark itself valid after a successful start.
 static esp_err_t h_ota(httpd_req_t *req)
 {
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
     if (!web_ota_allowed()) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
                                    "Tap 'Allow firmware update' on the device first (valid 5 minutes)");
     }
+    s_ota_until = 0;  // one upload per tap
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part || req->content_len == 0 || req->content_len > part->size) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad image size");
@@ -263,13 +347,13 @@ static esp_err_t h_ota(httpd_req_t *req)
     if (esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &ota) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota begin failed");
     }
-    static char buf[CHUNK];
+    char *buf = s_buf;
     const size_t desc_off = sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t);
     const size_t head = desc_off + sizeof(esp_app_desc_t);
     size_t left = req->content_len, done = 0, have = 0;
     const char *err = NULL;
     while (!err && left > 0) {
-        int n = httpd_req_recv(req, buf + have, left < sizeof(buf) - have ? left : sizeof(buf) - have);
+        int n = httpd_req_recv(req, buf + have, left < CHUNK - have ? left : CHUNK - have);
         if (n == HTTPD_SOCK_ERR_TIMEOUT) {
             continue;
         }
@@ -359,12 +443,19 @@ static void start_ap(void)
     ESP_LOGI(TAG, "access point %s started", AP_SSID);
 }
 
+// esp_timer task: take the lock so this can't race web_stop() and turn the
+// access point on after a ride started. Don't wait for it (that would delay
+// other timers, e.g. the buzzer off); if web_start/stop holds it, skip.
 static void fallback_cb(void *arg)
 {
+    if (xSemaphoreTake(s_lock, 0) != pdTRUE) {
+        return;
+    }
     if (s_running && !s_got_ip) {
         ESP_LOGW(TAG, "home Wi-Fi not reachable, starting own access point");
         start_ap();
     }
+    xSemaphoreGive(s_lock);
 }
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -413,7 +504,7 @@ void web_start(const settings_t *s)
 
     if (s->wifi_ssid[0]) {
         wifi_config_t sta = {0};
-        snprintf((char *)sta.sta.ssid, sizeof(sta.sta.ssid), "%s", s->wifi_ssid);
+        memcpy(sta.sta.ssid, s->wifi_ssid, strlen(s->wifi_ssid));  // a 32-byte SSID has no NUL
         snprintf((char *)sta.sta.password, sizeof(sta.sta.password), "%s", s->wifi_pass);
         esp_wifi_set_mode(WIFI_MODE_STA);
         esp_wifi_set_config(WIFI_IF_STA, &sta);

@@ -7,6 +7,7 @@
 
 #define WORKOUT_MAX_SEGMENTS 200
 #define WORKOUT_NAME_LEN 48
+#define ZWO_MAX_BYTES (64 * 1024)  // largest .zwo file accepted (upload) and read (start)
 
 typedef enum { SEG_ERG = 0, SEG_FREE = 1 } seg_kind_t;
 

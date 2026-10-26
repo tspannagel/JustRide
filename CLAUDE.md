@@ -175,7 +175,7 @@ Recorder: buffer in PSRAM, flush every 10 s, fsync, journal. Summary + best effo
 - Pre-gzipped files (`*.gz`, served with `Content-Encoding: gzip`), `vendor/` cached `immutable`, everything else `no-cache` + ETag.
 - **No OPFS:** it needs a secure context and `http://trainer.local` isn't one. `summary.csv` + `bests.csv` load on each visit; a ride's CSV loads when opened. DuckDB-WASM has no ICU: don't use `now() - INTERVAL` in SQL, pass UTC `TIMESTAMP` literals (`ago()` in app.js).
 - Views: overview (CTL 42 d / ATL 7 d / TSB from daily TSS, computed in JS), power curve (all-time vs 90 d, FTP = 95 % of best 20 min), ride detail (time series, zones, interval compliance, HR drift), SQL console.
-- Endpoints: `GET /` (start page), `GET /stats/*`, `GET /api/rides`, `GET /rides/<file>`, `POST /workouts/<file>.zwo` (raw body), `POST /ota` (raw .bin; only within 5 min of tapping "Allow firmware update" on the device).
+- Endpoints: `GET /` (start page), `GET /stats/*`, `GET /api/rides`, `GET /rides/<file>`, `POST /workouts/<file>.zwo` (raw body, ≤ 64 KiB), `POST /ota` (raw .bin; one upload per tap of "Allow firmware update" on the device, within 5 min). Every request needs `Host` = `trainer.local` or an IPv4 address (DNS rebinding); every POST needs an `X-JustRide` header (CSRF: forces a CORS preflight the device never grants).
 
 ## Testing
 

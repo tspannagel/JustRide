@@ -13,6 +13,8 @@ typedef struct {
     bool controller;
     bool clock_ok;
     bool sd_ok;
+    bool saving;  // last ride is being written to the SD card
+    bool saved;   // last ride was saved (false: shorter than 1 min or SD error)
 } app_status_t;
 
 void app_start(void);
@@ -23,7 +25,8 @@ void app_post_action(action_t a);
 
 // Load a .zwo from the SD card and start it. Only while idle.
 bool app_start_workout(const char *path);
-bool app_is_riding(void);
+// Turn Wi-Fi on, only while idle (checked under the same lock that starts a ride).
+void app_web_start(void);
 
 // Settings changes, only while idle. Saved to the SD card.
 void app_get_settings(settings_t *s);

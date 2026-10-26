@@ -132,10 +132,11 @@ static void open_workouts(lv_event_t *e)
     struct dirent *de;
     while (d && n < MAX_LIST && (de = readdir(d))) {
         size_t len = strlen(de->d_name);
-        if (de->d_name[0] == '.' || len < 5 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
+        // Longer names would be cut off in s_paths (and are refused by the upload page too)
+        if (de->d_name[0] == '.' || len < 5 || len > 60 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
             continue;
         }
-        snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%s", de->d_name);
+        snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%.60s", de->d_name);
         lv_obj_t *b = lv_list_add_button(wo_list, NULL, de->d_name);
         lv_obj_add_event_cb(b, on_workout, LV_EVENT_CLICKED, s_paths[n]);
         n++;
@@ -233,10 +234,8 @@ static void on_wifi_toggle(lv_event_t *e)
 {
     if (web_running()) {
         web_stop();
-    } else if (!app_is_riding()) {
-        settings_t s;
-        app_get_settings(&s);
-        web_start(&s);
+    } else {
+        app_web_start();
     }
     update_wifi();
 }
@@ -365,7 +364,7 @@ static void update_ride(const ride_view_t *v)
 
 static void build_summary(void)
 {
-    scr_summary = screen("Ride saved", false);
+    scr_summary = screen("Ride finished", false);
     sum_text = label(scr_summary, &lv_font_montserrat_28, "");
     button(row(scr_summary), "Done", 200, 80, on_action, (void *)ACT_DISMISS);
 }
@@ -379,7 +378,10 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
                           t, v->sum.avg_w, v->sum.np_w, v->sum.tss10 / 10, v->sum.tss10 % 10, v->sum.if_1000 / 1000,
                           v->sum.if_1000 % 1000 / 10, (unsigned long)v->sum.kj,
                           (unsigned long)(v->sum.distance_m / 1000), (unsigned long)(v->sum.distance_m % 1000 / 100),
-                          v->sum.avg_hr, st->sd_ok ? "" : "\nNo SD card: NOT saved");
+                          v->sum.avg_hr,
+                          st->saving ? "\nSaving..."
+                          : st->saved ? "\nSaved"
+                                      : "\nNOT saved (shorter than 1 min, or SD card problem)");
 }
 
 // ---- Screens + refresh --------------------------------------------------------
