@@ -41,6 +41,18 @@ static const char *TAG = "ui";
 
 // Montserrat Medium 100 px, only "-0123456789" (generated with lv_font_conv, see font_digits_100.c)
 LV_FONT_DECLARE(font_digits_100);
+// Font Awesome 5 glyphs at 18 px (font_icons_18.c); only these exist in it
+LV_FONT_DECLARE(font_icons_18);
+#define I_BOLT "\xEF\x83\xA7"
+#define I_HEART "\xEF\x80\x84"
+#define I_CADENCE "\xEF\x8B\xB1"
+#define I_SPEED "\xEF\x8F\xBD"
+#define I_TIME "\xEF\x8B\xB2"
+#define I_ROAD "\xEF\x80\x98"
+#define I_FIRE "\xEF\x81\xAD"
+#define I_BARS "\xEF\x82\x80"
+#define I_PERCENT "\xEF\x8A\x95"
+#define I_LINE "\xEF\x88\x81"
 
 static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger;
 
@@ -190,13 +202,24 @@ static lv_obj_t *card(lv_obj_t *parent, lv_flex_flow_t flow)
     return c;
 }
 
-// Card with a coloured caption and a value + unit: returns the value label
-static lv_obj_t *metric_font(lv_obj_t *parent, const char *name, uint32_t color, const char *unit,
+// Icon + caption in one colour; returns the caption label
+static lv_obj_t *icon_caption(lv_obj_t *parent, const char *icon, const char *name, uint32_t color)
+{
+    lv_obj_t *r = row(parent);
+    lv_obj_set_size(r, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_column(r, 6, 0);
+    lv_obj_t *i = label(r, &font_icons_18, icon);
+    lv_obj_set_style_text_color(i, rgb(color), 0);
+    return caption(r, name, color);
+}
+
+// Card with an icon, a coloured caption and a value + unit: returns the value label
+static lv_obj_t *metric_font(lv_obj_t *parent, const char *icon, const char *name, uint32_t color, const char *unit,
                              const lv_font_t *font)
 {
     lv_obj_t *c = grow(card(parent, LV_FLEX_FLOW_COLUMN));
     lv_obj_set_width(c, 0);  // with grow: equal widths
-    caption(c, name, color);
+    icon_caption(c, icon, name, color);
     lv_obj_t *r = row(c);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_set_style_pad_column(r, 4, 0);
@@ -207,9 +230,9 @@ static lv_obj_t *metric_font(lv_obj_t *parent, const char *name, uint32_t color,
     return v;
 }
 
-static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, const char *unit)
+static lv_obj_t *metric(lv_obj_t *parent, const char *icon, const char *name, uint32_t color, const char *unit)
 {
-    return metric_font(parent, name, color, unit, &lv_font_montserrat_28);
+    return metric_font(parent, icon, name, color, unit, &lv_font_montserrat_28);
 }
 
 // ---- Workout profile ------------------------------------------------------------
@@ -555,9 +578,10 @@ static void build_preview(void)
     lv_obj_set_width(pv_title, 0);
     pv_profile = profile(scr_preview, &s_pv_prof, 190);
     lv_obj_t *r = row(scr_preview);
-    static const char *const names[4] = {"DURATION", "AVG", "IF", "TSS"};
+    static const char *const names[4] = {"TIME", "AVG", "IF", "TSS"};
+    static const char *const icons[4] = {I_TIME, I_BOLT, I_PERCENT, I_BARS};
     for (int i = 0; i < 4; i++) {
-        pv_val[i] = metric_font(r, names[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
+        pv_val[i] = metric_font(r, icons[i], names[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
     }
     pv_note = muted(scr_preview, &lv_font_montserrat_14, "");
     pv_msg = label(scr_preview, &lv_font_montserrat_16, "");
@@ -750,7 +774,7 @@ static void build_ride(void)
     // Power: the number that matters most, on its own card
     r_power_card = card(scr_ride, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(r_power_card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    r_power_cap = caption(r_power_card, "", C_POWER);
+    r_power_cap = icon_caption(r_power_card, I_BOLT, "", C_POWER);
     lv_obj_t *pr = row(r_power_card);
     lv_obj_set_size(pr, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_align(pr, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
@@ -762,9 +786,9 @@ static void build_ride(void)
     lv_obj_set_style_pad_row(r_power_card, 2, 0);
 
     lv_obj_t *mid = row(scr_ride);
-    r_cad = metric(mid, "CADENCE", C_CAD, "rpm");
-    r_hr = metric(mid, "HEART RATE", C_HR, "bpm");
-    r_speed = metric(mid, "SPEED", C_SPEED, "km/h");
+    r_cad = metric(mid, I_CADENCE, "CADENCE", C_CAD, "rpm");
+    r_hr = metric(mid, I_HEART, "HEART RATE", C_HR, "bpm");
+    r_speed = metric(mid, I_SPEED, "SPEED", C_SPEED, "km/h");
 
     r_stats = muted(scr_ride, &lv_font_montserrat_16, "");
     lv_obj_set_width(r_stats, LV_PCT(100));
@@ -818,6 +842,7 @@ static void update_ride(const ride_view_t *v)
     // Paused: orange frame and caption, so it's obvious from the saddle
     lv_label_set_text(r_power_cap, paused ? "PAUSED" : "POWER");
     lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_parent(r_power_cap), 0), rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_border_width(r_power_card, paused ? 3 : 0, 0);
 
     // ERG: the number turns green when within 5 % (at least 5 W) of the target
@@ -882,11 +907,12 @@ static void build_summary(void)
 
     static const char *const names[9] = {"TIME", "DISTANCE", "ENERGY", "AVG POWER", "NP",
                                          "MAX POWER", "TSS", "IF", "AVG HR"};
-    static const uint32_t colors[9] = {C_MUTED, C_SPEED, C_MUTED, C_POWER, C_POWER, C_POWER, C_MUTED, C_MUTED, C_HR};
+    static const uint32_t colors[9] = {C_MUTED, C_SPEED, C_POWER, C_POWER, C_POWER, C_POWER, C_MUTED, C_MUTED, C_HR};
+    static const char *const icons[9] = {I_TIME, I_ROAD, I_FIRE, I_BOLT, I_LINE, I_BOLT, I_BARS, I_PERCENT, I_HEART};
     for (int r = 0; r < 3; r++) {
         lv_obj_t *rw = row(scr_summary);
         for (int c = 0; c < 3; c++) {
-            sum_val[r * 3 + c] = metric(rw, names[r * 3 + c], colors[r * 3 + c], NULL);
+            sum_val[r * 3 + c] = metric(rw, icons[r * 3 + c], names[r * 3 + c], colors[r * 3 + c], NULL);
         }
     }
     sum_note = muted(scr_summary, &lv_font_montserrat_16, "");
