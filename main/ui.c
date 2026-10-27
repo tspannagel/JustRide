@@ -44,15 +44,19 @@ LV_FONT_DECLARE(font_digits_100);
 
 static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger;
 
-static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
+static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_preview, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
 
 static lv_obj_t *home_user, *home_dot[3], *home_state[3], *home_warn;
 static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
+static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_note, *pv_msg;
+static workout_t s_preview;          // workout shown on the preview screen
+static const char *s_preview_path;   // points into s_paths
 static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
 static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
+static lv_obj_t *r_profile;
 static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
 static lv_obj_t *sum_saved, *sum_note, *sum_val[9], *sum_ftp_btn, *sum_ftp_label;
@@ -187,7 +191,8 @@ static lv_obj_t *card(lv_obj_t *parent, lv_flex_flow_t flow)
 }
 
 // Card with a coloured caption and a value + unit: returns the value label
-static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, const char *unit)
+static lv_obj_t *metric_font(lv_obj_t *parent, const char *name, uint32_t color, const char *unit,
+                             const lv_font_t *font)
 {
     lv_obj_t *c = grow(card(parent, LV_FLEX_FLOW_COLUMN));
     lv_obj_set_width(c, 0);  // with grow: equal widths
@@ -195,11 +200,90 @@ static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, cons
     lv_obj_t *r = row(c);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_set_style_pad_column(r, 4, 0);
-    lv_obj_t *v = label(r, &lv_font_montserrat_28, "-");
+    lv_obj_t *v = label(r, font, "-");
     if (unit) {
         lv_obj_set_style_pad_bottom(muted(r, &lv_font_montserrat_14, unit), 4, 0);
     }
     return v;
+}
+
+static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, const char *unit)
+{
+    return metric_font(parent, name, color, unit, &lv_font_montserrat_28);
+}
+
+// ---- Workout profile ------------------------------------------------------------
+
+// Zwift-style zone colours by % of FTP
+static uint32_t zone_color(uint16_t pm)
+{
+    return pm < 600 ? 0x8B949E : pm < 760 ? 0x2F81F7 : pm < 900 ? 0x3FB950 : pm < 1050 ? 0xE3B341 : pm < 1180 ? 0xF0883E : 0xF85149;
+}
+
+typedef struct {
+    const workout_t *w;
+    int32_t pos_s;  // workout time to mark, < 0: none
+} profile_t;
+
+static profile_t s_pv_prof, s_ride_prof;
+
+static void fill(lv_layer_t *layer, int x1, int y1, int x2, int y2, uint32_t color, lv_opa_t opa)
+{
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = rgb(color);
+    d.bg_opa = opa;
+    lv_area_t a = {x1, y1, x2, y2};
+    lv_draw_rect(layer, &d, &a);
+}
+
+// One bar per pixel column, height = target power, colour = zone. Free
+// segments are drawn flat and dark. Done part dimmed, marker at pos_s.
+static void draw_profile(lv_event_t *e)
+{
+    const profile_t *p = lv_event_get_user_data(e);
+    const workout_t *w = p->w;
+    if (!w || w->total_s == 0) {
+        return;
+    }
+    lv_obj_t *o = lv_event_get_target_obj(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_content_coords(o, &a);
+    int width = lv_area_get_width(&a), height = lv_area_get_height(&a);
+    if (width <= 0 || width > BSP_LCD_W || height <= 0) {
+        return;
+    }
+    static uint16_t col[BSP_LCD_W];
+    uint16_t top = 1000;
+    for (int x = 0; x < width; x++) {
+        uint32_t t = (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * width));
+        col[x] = workout_profile_at(w, t);
+        top = col[x] > top ? col[x] : top;
+    }
+    top = top + top / 10;  // headroom
+    int marker = p->pos_s < 0 ? -1 : (int)((uint64_t)p->pos_s * width / w->total_s);
+    for (int x = 0; x < width; x++) {
+        workout_pos_t pos;
+        workout_at(w, (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * width)), &pos);
+        int h = col[x] * height / top;
+        uint32_t c = pos.kind == SEG_FREE ? C_BTN : zone_color(col[x]);
+        fill(layer, a.x1 + x, a.y2 - h + 1, a.x1 + x, a.y2, c, x < marker ? LV_OPA_40 : LV_OPA_COVER);
+    }
+    int ftp_y = a.y2 - 1000 * height / top;  // 100 % FTP line
+    fill(layer, a.x1, ftp_y, a.x2, ftp_y, C_TEXT, LV_OPA_30);
+    if (marker >= 0) {
+        fill(layer, a.x1 + marker - 1, a.y1, a.x1 + marker, a.y2, C_TEXT, LV_OPA_COVER);
+    }
+}
+
+static lv_obj_t *profile(lv_obj_t *parent, profile_t *p, int h)
+{
+    lv_obj_t *o = card(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_height(o, h);
+    lv_obj_set_style_pad_all(o, 6, 0);
+    lv_obj_add_event_cb(o, draw_profile, LV_EVENT_DRAW_MAIN_END, p);
+    return o;
 }
 
 static void fmt_time(char *buf, size_t n, uint32_t s)
@@ -423,12 +507,62 @@ static void build_name(void)
 
 // ---- Workouts -----------------------------------------------------------------
 
-static void on_workout(lv_event_t *e)
+static void open_preview(const char *path)
 {
-    const char *path = lv_event_get_user_data(e);
-    if (!app_start_workout(path)) {
+    if (!app_read_workout(path, &s_preview)) {
         lv_label_set_text(wo_msg, "Could not load this workout");
+        return;
     }
+    s_preview_path = path;
+    settings_t s;
+    app_get_settings(&s);
+    uint32_t ftp = settings_user(&s)->ftp_w;
+    workout_est_t est;
+    workout_estimate(&s_preview, &est);
+    char t[16];
+    fmt_time(t, sizeof(t), est.total_s);
+    lv_label_set_text(pv_title, s_preview.name);
+    lv_label_set_text(pv_val[0], t);
+    lv_label_set_text_fmt(pv_val[1], "%lu W", (unsigned long)((ftp * est.avg_pm + 500) / 1000));
+    lv_label_set_text_fmt(pv_val[2], "%u.%02u", est.if_pm / 1000, est.if_pm % 1000 / 10);
+    lv_label_set_text_fmt(pv_val[3], "%u", (est.tss10 + 5) / 10);
+    lv_label_set_text_fmt(pv_note, "%s, FTP %lu W  -  %u intervals  -  peak %lu W", settings_user(&s)->name,
+                          (unsigned long)ftp, s_preview.n, (unsigned long)((ftp * est.max_pm + 500) / 1000));
+    lv_label_set_text(pv_msg, "");
+    s_pv_prof = (profile_t){.w = &s_preview, .pos_s = -1};
+    lv_obj_invalidate(pv_profile);
+    go(scr_preview);
+}
+
+static void on_workout(lv_event_t *e) { open_preview(lv_event_get_user_data(e)); }
+
+static void on_preview_start(lv_event_t *e)
+{
+    if (!s_preview_path || !app_start_workout(s_preview_path)) {
+        lv_label_set_text(pv_msg, "Could not start this workout");
+    }
+}
+
+static void on_preview_back(lv_event_t *e) { go(scr_workouts); }
+
+static void build_preview(void)
+{
+    scr_preview = screen(NULL, false);
+    lv_obj_t *top = row(scr_preview);
+    button(top, LV_SYMBOL_LEFT, 56, 44, on_preview_back, NULL);
+    pv_title = grow(label(top, &lv_font_montserrat_20, ""));
+    lv_label_set_long_mode(pv_title, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(pv_title, 0);
+    pv_profile = profile(scr_preview, &s_pv_prof, 190);
+    lv_obj_t *r = row(scr_preview);
+    static const char *const names[4] = {"DURATION", "AVG", "IF", "TSS"};
+    for (int i = 0; i < 4; i++) {
+        pv_val[i] = metric_font(r, names[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
+    }
+    pv_note = muted(scr_preview, &lv_font_montserrat_14, "");
+    pv_msg = label(scr_preview, &lv_font_montserrat_16, "");
+    lv_obj_set_style_text_color(pv_msg, rgb(C_DANGER), 0);
+    primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL));
 }
 
 static void open_workouts(lv_event_t *e)
@@ -605,9 +739,13 @@ static void build_wifi(void)
 static void build_ride(void)
 {
     scr_ride = screen(NULL, false);
+    lv_obj_set_style_pad_row(scr_ride, 8, 0);  // tighter: everything must fit with the workout strip
+    lv_obj_set_style_pad_top(scr_ride, 8, 0);
+    lv_obj_set_style_pad_bottom(scr_ride, 8, 0);
     lv_obj_t *top = row(scr_ride);
     r_time = grow(label(top, &lv_font_montserrat_28, ""));
     r_info = muted(top, &lv_font_montserrat_20, "");
+    r_profile = profile(scr_ride, &s_ride_prof, 34);  // workouts only
 
     // Power: the number that matters most, on its own card
     r_power_card = card(scr_ride, LV_FLEX_FLOW_COLUMN);
@@ -620,6 +758,8 @@ static void build_ride(void)
     r_power = label(pr, &font_digits_100, "");
     lv_obj_set_style_pad_bottom(muted(pr, &lv_font_montserrat_28, "W"), 16, 0);
     r_target = muted(r_power_card, &lv_font_montserrat_20, "");
+    lv_obj_set_style_pad_ver(r_power_card, 6, 0);
+    lv_obj_set_style_pad_row(r_power_card, 2, 0);
 
     lv_obj_t *mid = row(scr_ride);
     r_cad = metric(mid, "CADENCE", C_CAD, "rpm");
@@ -654,7 +794,20 @@ static void update_ride(const ride_view_t *v)
 
     bool erg = v->mode == MODE_ERG;
     bool paused = v->state == RIDE_PAUSED;
-    if (v->has_workout && !v->wo_done) {
+    bool in_workout = v->has_workout && !v->wo_done;
+    show(r_profile, in_workout);
+    if (in_workout) {
+        // Workout time from the segment position (Skip jumps ahead of the ride timer)
+        const workout_t *w = app_workout();
+        int32_t pos = v->seg_idx < w->n ? (int32_t)(workout_seg_start(w, v->seg_idx) + w->seg[v->seg_idx].dur_s -
+                                                    v->seg_left_s)
+                                        : -1;
+        if (s_ride_prof.w != w || s_ride_prof.pos_s != pos) {
+            s_ride_prof = (profile_t){.w = w, .pos_s = pos};
+            lv_obj_invalidate(r_profile);
+        }
+    }
+    if (in_workout) {
         char left[16];
         fmt_time(left, sizeof(left), v->seg_left_s);
         lv_label_set_text_fmt(r_info, "Interval %d/%d  %s", v->seg_idx + 1, v->seg_count, left);
@@ -833,6 +986,7 @@ static void build_all(lv_display_t *disp)
     build_users();
     build_name();
     build_workouts();
+    build_preview();
     build_settings();
     build_wifi();
     build_ride();

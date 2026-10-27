@@ -24,8 +24,13 @@ void app_start(void);
 void app_get_view(ride_view_t *v, app_status_t *st);
 void app_post_action(action_t a);
 
+// Parse a .zwo from the SD card (no side effects; for previews)
+bool app_read_workout(const char *path, workout_t *w);
 // Load a .zwo from the SD card and start it. Only while idle.
 bool app_start_workout(const char *path);
+// The workout of the current ride. Only changes while idle, so the UI may read
+// it without a lock during a ride.
+const workout_t *app_workout(void);
 // Turn Wi-Fi on, only while idle (checked under the same lock that starts a ride).
 void app_web_start(void);
 

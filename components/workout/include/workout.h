@@ -44,3 +44,17 @@ void workout_at(const workout_t *w, uint32_t t_s, workout_pos_t *pos);
 
 // Workout time at which segment idx starts.
 uint32_t workout_seg_start(const workout_t *w, int idx);
+
+// What a workout will be like if ridden exactly on target (FREE segments count as 50 % FTP).
+typedef struct {
+    uint32_t total_s;
+    uint16_t avg_pm;   // average target, per mille of FTP
+    uint16_t max_pm;
+    uint16_t if_pm;    // intensity factor x 1000 (4th-power mean of the targets)
+    uint16_t tss10;    // TSS x 10
+} workout_est_t;
+
+void workout_estimate(const workout_t *w, workout_est_t *e);
+
+// Target at workout time t_s for drawing (FREE segments: 500), 0 past the end.
+uint16_t workout_profile_at(const workout_t *w, uint32_t t_s);

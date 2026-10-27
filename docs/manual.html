@@ -224,7 +224,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <h3>Ride screen controls</h3>
 <div class="shots">
-  <figure class="device"><img src="img/ride-workout.png" alt="Workout ride screen: interval 4 of 9, 247 W, target 250 W at 100 percent, 90 rpm"><figcaption>ERG workout: interval 4 of 9, power on target (green).</figcaption></figure>
+  <figure class="device"><img src="img/ride-workout.png" alt="Workout ride screen: profile strip with position marker, interval 4 of 8, 247 W in green, target 250 W at 100 percent, 90 rpm"><figcaption>ERG workout: profile strip with your position, power on target (green).</figcaption></figure>
   <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with an orange frame around the power card, caption PAUSED, and a Resume button"><figcaption>Paused: orange frame; the trainer is at its lowest resistance.</figcaption></figure>
 </div>
 <p>In an ERG segment the power number turns <b>green</b> while you are within 5 % (at least 5 W) of the target.</p>
@@ -263,11 +263,23 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="workouts">6. Workouts</h2>
+<p>Workouts are Zwift <code>.zwo</code> files in <code>/workouts/</code> on the SD card, shared by all riders. Power is always given as a fraction of FTP (<code>0.9</code> = 90 %), so the same file fits every rider: the device scales it to the active rider's FTP.</p>
+
+<h3>Choose and check a workout</h3>
 <div class="shots">
-  <figure class="device"><img src="img/workouts.png" alt="Workouts screen listing sweet spot 3x10 and endurance 60"><figcaption>Tap a workout to start it.</figcaption></figure>
+  <figure class="device"><img src="img/workouts.png" alt="Workouts screen listing sweet spot 3x10 and endurance 60"><figcaption>Workouts on the SD card.</figcaption></figure>
+  <figure class="device"><img src="img/workout-preview.png" alt="Workout preview: profile chart of Sweet Spot 3x10 in zone colours, duration 1:00:00, average 182 W, IF 0.78, TSS 62, Start workout button"><figcaption>Preview: profile, duration and estimates for the active rider.</figcaption></figure>
 </div>
-<p>Workouts are Zwift <code>.zwo</code> files in <code>/workouts/</code> on the SD card, shared by all riders. Supported: <code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code>, <code>SteadyState</code>, <code>IntervalsT</code>, <code>FreeRide</code>, <code>MaxEffort</code> (as free ride), and <code>Cadence</code> targets. Power values are fractions of the active rider's FTP (<code>0.9</code> = 90 %).</p>
-<p>Add workouts by copying <code>.zwo</code> files to the card, or over Wi-Fi from the device's start page (see below). A minimal example:</p>
+<p>Tap <span class="btn">Workouts</span>, then a workout. The preview shows:</p>
+<ul>
+  <li>the <b>profile</b>: each bar is the target power over time, coloured by zone (grey &lt; 60 %, blue &lt; 76 %, green &lt; 90 %, yellow &lt; 105 %, orange &lt; 118 %, red above). The thin line is 100 % FTP. Free-ride parts are dark and flat;</li>
+  <li><b>duration</b>, <b>average watts</b>, <b>IF</b> and <b>TSS</b> if you ride it exactly on target (free-ride parts are counted as 50 % FTP), and the peak target in watts.</li>
+</ul>
+<p>Tap <span class="btn">Start workout</span> to ride it, or <span class="btn">‹</span> to go back. During the ride a small copy of the profile sits under the timer: the part you have done is dimmed and a white line marks where you are.</p>
+
+<h3 id="design">Design your own</h3>
+<p><b>Option 1: export from another app.</b> Many workout tools can save or export Zwift <code>.zwo</code> files, for example the workout editor in the Zwift app (it saves to <code>Documents/Zwift/Workouts/</code>), workout libraries such as whatsonzwift.com, or the workout builder in intervals.icu (look for a Zwift / <code>.zwo</code> export). Copy the file to the card or upload it over Wi-Fi.</p>
+<p><b>Option 2: write it yourself.</b> A <code>.zwo</code> file is plain text; any text editor works. Durations are in seconds, power is a fraction of FTP:</p>
 <pre><code>&lt;workout_file&gt;
   &lt;name&gt;Threshold 2x20&lt;/name&gt;
   &lt;workout&gt;
@@ -276,6 +288,17 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
     &lt;Cooldown Duration="300" PowerLow="0.6" PowerHigh="0.4"/&gt;
   &lt;/workout&gt;
 &lt;/workout_file&gt;</code></pre>
+<p>That is 10 min warm-up rising from 50 to 75 %, two 20-minute blocks at 95 % with 5 minutes easy in between, and 5 min cool-down. The building blocks, in the order you list them:</p>
+<div class="scroll"><table>
+  <tr><th>Element</th><th>Attributes</th><th>What it does</th></tr>
+  <tr><td><code>SteadyState</code></td><td><code>Duration</code>, <code>Power</code></td><td>constant target</td></tr>
+  <tr><td><code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code></td><td><code>Duration</code>, <code>PowerLow</code> (start), <code>PowerHigh</code> (end)</td><td>target changes evenly from start to end</td></tr>
+  <tr><td><code>IntervalsT</code></td><td><code>Repeat</code>, <code>OnDuration</code>, <code>OffDuration</code>, <code>OnPower</code>, <code>OffPower</code></td><td>repeated on/off pairs</td></tr>
+  <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: free ride with virtual gears for that time</td></tr>
+  <tr><td>any of the above</td><td><code>Cadence</code> (rpm), <code>CadenceResting</code> (rpm, for <code>IntervalsT</code> off parts)</td><td>cadence shown as a target on the ride screen</td></tr>
+</table></div>
+<p>Limits: up to 200 segments (each interval repeat counts as two), 10 hours per segment, 300 % FTP. Whatever a file says, ERG targets never go above the rider's <i>Max ERG</i>. Elements the device doesn't know (text messages, <code>textevent</code>, …) are ignored. Name files without special characters, e.g. <code>threshold_2x20.zwo</code>; underscores are shown as spaces.</p>
+<p>Check a new workout on the device with the preview before you ride it: if the profile looks wrong or the workout doesn't appear, the file has a typo (open it in a browser: it shows XML errors).</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="wifi">7. Wi-Fi, statistics and ride files</h2>

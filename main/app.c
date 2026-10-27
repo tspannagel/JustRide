@@ -208,7 +208,7 @@ void app_web_start(void)
     unlock();
 }
 
-bool app_start_workout(const char *path)
+bool app_read_workout(const char *path, workout_t *w)
 {
     FILE *f = fopen(path, "rb");
     if (!f) {
@@ -217,22 +217,33 @@ bool app_start_workout(const char *path)
     char *xml = malloc(ZWO_MAX_BYTES);
     size_t n = xml ? fread(xml, 1, ZWO_MAX_BYTES, f) : 0;
     fclose(f);
-    bool ok = false;
+    bool ok = xml && zwo_parse(xml, n, w);
+    free(xml);
+    if (ok && w->name[0] == 0) {
+        const char *base = strrchr(path, '/');
+        snprintf(w->name, sizeof(w->name), "%s", base ? base + 1 : path);
+    }
+    return ok;
+}
+
+bool app_start_workout(const char *path)
+{
+    workout_t *w = malloc(sizeof(*w));
+    bool ok = w && app_read_workout(path, w);
     lock();
-    if (xml && s_ride.state == RIDE_IDLE) {
-        ok = zwo_parse(xml, n, &s_wo);
-        if (ok && s_wo.name[0] == 0) {
-            const char *base = strrchr(path, '/');
-            snprintf(s_wo.name, sizeof(s_wo.name), "%s", base ? base + 1 : path);
-        }
+    ok = ok && s_ride.state == RIDE_IDLE;
+    if (ok) {
+        s_wo = *w;
     }
     unlock();
-    free(xml);
+    free(w);
     if (ok) {
         app_post_action(ACT_START_WORKOUT);
     }
     return ok;
 }
+
+const workout_t *app_workout(void) { return &s_wo; }
 
 void app_get_settings(settings_t *s)
 {

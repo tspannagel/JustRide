@@ -101,10 +101,37 @@ static void test_garbage_and_limits(void)
     CHECK_EQ(w.seg[0].p_start, 500);
 }
 
+static void test_estimate(void)
+{
+    workout_t hour = {.n = 1, .total_s = 3600, .seg = {{.dur_s = 3600, .p_start = 1000, .p_end = 1000}}};
+    workout_est_t e;
+    workout_estimate(&hour, &e);
+    CHECK_EQ(e.total_s, 3600);
+    CHECK_EQ(e.avg_pm, 1000);
+    CHECK_EQ(e.if_pm, 1000);
+    CHECK_EQ(e.tss10, 1000);  // 1 h at FTP = 100 TSS
+
+    // 30 min free (counted as 50 %) + 30 min ramp 0.5 -> 1.0
+    workout_t mix = {.n = 2, .total_s = 3600,
+                     .seg = {{.dur_s = 1800, .kind = SEG_FREE}, {.dur_s = 1800, .p_start = 500, .p_end = 1000}}};
+    workout_estimate(&mix, &e);
+    CHECK_EQ(e.avg_pm, 625);
+    CHECK(e.max_pm >= 999 && e.max_pm <= 1000);
+    CHECK(e.if_pm > e.avg_pm && e.if_pm < 800);  // 4th-power mean weights the hard part
+    CHECK_EQ(workout_profile_at(&mix, 0), 500);
+    CHECK_EQ(workout_profile_at(&mix, 2700), 750);
+    CHECK_EQ(workout_profile_at(&mix, 3600), 0);
+
+    workout_t empty = {0};
+    workout_estimate(&empty, &e);
+    CHECK_EQ(e.tss10, 0);
+}
+
 int main(void)
 {
     test_sweet_spot();
     test_endurance_comment_and_free();
     test_garbage_and_limits();
+    test_estimate();
     return test_summary("workout");
 }

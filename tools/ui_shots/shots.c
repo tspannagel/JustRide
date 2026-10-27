@@ -23,6 +23,20 @@ void app_get_view(ride_view_t *v, app_status_t *st)
 void app_get_settings(settings_t *s) { *s = g_settings; }
 void app_post_action(action_t a) {}
 bool app_start_workout(const char *path) { return true; }
+
+bool app_read_workout(const char *path, workout_t *w)
+{
+    static char xml[ZWO_MAX_BYTES];
+    FILE *f = fopen(path, "rb");
+    size_t n = f ? fread(xml, 1, sizeof(xml), f) : 0;
+    if (f) {
+        fclose(f);
+    }
+    return n > 0 && zwo_parse(xml, n, w);
+}
+
+static workout_t g_wo;
+const workout_t *app_workout(void) { return &g_wo; }
 void app_web_start(void) {}
 bool app_edit_user(const user_t *u) { return true; }
 void app_accept_ftp(void) {}
@@ -157,6 +171,9 @@ int main(int argc, char **argv)
     open_workouts(NULL);
     save("workouts");
 
+    open_preview(BSP_SD_MOUNT "/workouts/sweet_spot_3x10.zwo");
+    save("workout-preview");
+
     open_settings(NULL);
     save("settings");
 
@@ -178,9 +195,10 @@ int main(int argc, char **argv)
     g_view.power_w = 247;
     g_view.target_w = 250;
     g_view.cadence_target = 90;
+    app_read_workout(BSP_SD_MOUNT "/workouts/sweet_spot_3x10.zwo", &g_wo);
     g_view.has_workout = true;
     g_view.seg_idx = 3;
-    g_view.seg_count = 9;
+    g_view.seg_count = g_wo.n;
     g_view.seg_left_s = 412;
     refresh(NULL);
     save("ride-workout");
