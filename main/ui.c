@@ -318,12 +318,12 @@ static void stepper(lv_obj_t *parent, lv_obj_t **value, int field, int step)
     lv_obj_t *r = row(parent);
     char t[8];
     snprintf(t, sizeof(t), "-%d", step);
-    button(r, t, 80, 56, on_step, STEP(field, -step));
+    button(r, t, 72, 56, on_step, STEP(field, -step));
     *value = label(r, &lv_font_montserrat_28, "");
-    lv_obj_set_width(*value, 230);
+    lv_obj_set_width(*value, 290);
     lv_obj_set_style_text_align(*value, LV_TEXT_ALIGN_CENTER, 0);
     snprintf(t, sizeof(t), "+%d", step);
-    button(r, t, 80, 56, on_step, STEP(field, step));
+    button(r, t, 72, 56, on_step, STEP(field, step));
 }
 
 static void on_forget(lv_event_t *e)
@@ -434,9 +434,13 @@ static void build_ride(void)
     lv_obj_set_style_bg_color(stop, lv_palette_main(LV_PALETTE_RED), 0);
     r_grade_plus = button(b2, "Grade +", 120, 60, on_action, (void *)ACT_GRADE_PLUS);
 
+    // Banner in the free strip below the buttons, so it hides no numbers
     r_paused = label(scr_ride, &lv_font_montserrat_28, "PAUSED");
     lv_obj_add_flag(r_paused, LV_OBJ_FLAG_FLOATING);
-    lv_obj_align(r_paused, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_set_width(r_paused, LV_PCT(100));
+    lv_obj_set_style_text_align(r_paused, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_ver(r_paused, 10, 0);
+    lv_obj_align(r_paused, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(r_paused, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(r_paused, lv_palette_main(LV_PALETTE_ORANGE), 0);
 }
