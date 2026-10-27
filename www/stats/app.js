@@ -61,6 +61,42 @@ const RIDE_COLS = 't_s INTEGER, ts_utc TIMESTAMP, power_w INTEGER, cadence_rpm D
 // now() is TIMESTAMPTZ and can't do interval math; the CSVs are UTC anyway.
 const ago = (days) => `TIMESTAMP '${new Date(Date.now() - days * 86400e3).toISOString().slice(0, 19).replace('T', ' ')}'`;
 
+// ---- Icons ------------------------------------------------------------------------
+// Feather icons (https://feathericons.com, MIT licence), inlined: the app must work offline.
+
+const ICONS = {
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  trending: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+  list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>' +
+    '<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>' +
+    '<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23' +
+    'l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>' +
+    '<line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  bars: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  energy: '<path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19M15 6h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/>' +
+    '<line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/>',
+  percent: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  cadence: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>' +
+    '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  distance: '<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
+  award: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+  back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+};
+// Metric colours, the same as on the device
+const C = { power: '#f59e0b', hr: '#ef4444', cad: '#14b8a6', dist: '#8b5cf6', load: '#2563eb', time: '#64748b' };
+
+const icon = (name, color) =>
+  `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"${color ? ` style="color:${color}"` : ''}>${ICONS[name]}</svg>`;
+
 // ---- Rendering helpers ----------------------------------------------------------
 
 const fmt = {
@@ -69,17 +105,21 @@ const fmt = {
   num: (v, d = 0) => (v == null || Number.isNaN(v) ? '-' : Number(v).toFixed(d)),
 };
 
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// items: [label, value, icon, colour]
 function cards(el, items) {
-  el.innerHTML = items.map(([label, value]) => `<div class="card"><b>${value}</b><span>${label}</span></div>`).join('');
+  el.innerHTML = items.map(([label, value, ic, color]) => `<div class="card">${ic ? `<span class="badge" style="--c:${color ||
+    C.time}">${icon(ic)}</span>` : ''}<div><b>${esc(value)}</b><span>${esc(label)}</span></div></div>`).join('');
 }
 
+// cols: [key, heading, format(value, row), html]; html: format returns markup (escape it yourself)
 function table(el, rows, cols, onClick) {
   if (!rows.length) { el.innerHTML = '<p>No data yet.</p>'; return; }
   cols = cols || Object.keys(rows[0]).map((k) => [k, k]);
-  const esc = (v) => String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   el.innerHTML = `<div class="scroll"><table class="${onClick ? 'clickable' : ''}"><thead><tr>${
     cols.map(([, h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
-    rows.map((r, i) => `<tr data-i="${i}">${cols.map(([k, , f]) => `<td>${esc(f ? f(r[k], r) : r[k])}</td>`).join('')}</tr>`).join('')
+    rows.map((r, i) => `<tr data-i="${i}">${cols.map(([k, , f, html]) => `<td>${html ? f(r[k], r) : esc(f ? f(r[k], r) : r[k])}</td>`).join('')}</tr>`).join('')
   }</tbody></table></div>`;
   if (onClick) el.querySelectorAll('tbody tr').forEach((tr) => tr.onclick = () => onClick(rows[tr.dataset.i]));
 }
@@ -109,9 +149,9 @@ async function overview() {
       coalesce(sum(kj) FILTER (WHERE start_utc > ${ago(30)}), 0) AS kj30,
       count(*) AS rides, coalesce(sum(duration_s), 0) AS secs FROM summary`))[0];
   cards($('totals'), [
-    ['rides, last 7 days', t.rides7], ['TSS, last 7 days', fmt.num(t.tss7)],
-    ['hours, last 30 days', fmt.num(t.secs30 / 3600, 1)], ['kJ, last 30 days', fmt.num(t.kj30)],
-    ['rides total', t.rides], ['hours total', fmt.num(t.secs / 3600, 1)],
+    ['rides, last 7 days', t.rides7, 'activity', C.load], ['TSS, last 7 days', fmt.num(t.tss7), 'bars', C.load],
+    ['hours, last 30 days', fmt.num(t.secs30 / 3600, 1), 'clock'], ['kJ, last 30 days', fmt.num(t.kj30), 'energy', C.power],
+    ['rides total', t.rides, 'calendar'], ['hours total', fmt.num(t.secs / 3600, 1), 'clock'],
   ]);
 
   const daily = await q(`SELECT CAST(start_utc AS DATE) AS day, sum(tss) AS tss FROM summary GROUP BY 1 ORDER BY 1`);
@@ -140,12 +180,13 @@ async function curve() {
   const rows = await q(`SELECT b.duration_s AS d, max(b.watts) AS best,
       max(b.watts) FILTER (WHERE s.start_utc > ${ago(90)}) AS recent
     FROM bests b LEFT JOIN summary s USING (ride_id) GROUP BY 1 ORDER BY 1`);
-  if (!rows.length) { $('curve-chart').innerHTML = '<p>No rides yet.</p>'; $('ftp').textContent = ''; return; }
+  if (!rows.length) { $('curve-chart').innerHTML = '<p>No rides yet.</p>'; $('ftp').innerHTML = ''; return; }
   const m20 = rows.find((r) => r.d === 1200);
   const kg = (await q(`SELECT weight_kg FROM summary WHERE weight_kg > 0 ORDER BY start_utc DESC LIMIT 1`))[0]?.weight_kg;
   const ftp = m20 && Math.round(m20.best * 0.95);
-  $('ftp').textContent = m20 ? `Estimated FTP: ${ftp} W${kg ? ` (${fmt.num(ftp / kg, 2)} W/kg at ${kg} kg)` : ''}` +
-    ` = 95 % of best 20 min, ${m20.best} W` : 'Ride 20 minutes or longer for an FTP estimate.';
+  $('ftp').innerHTML = icon('award', C.power) + ' ' + esc(m20 ?
+    `Estimated FTP: ${ftp} W${kg ? ` (${fmt.num(ftp / kg, 2)} W/kg at ${kg} kg)` : ''} = 95 % of best 20 min, ${m20.best} W` :
+    'Ride 20 minutes or longer for an FTP estimate.');
   chart('curve-chart', {
     scales: { x: { time: false, distr: 3 } },
     axes: [{ ...axes()[0], values: (u, v) => v.map((s) => (s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : `${s / 3600}h`)) }, axes()[1]],
@@ -162,7 +203,8 @@ async function rideList(db) {
   $('ride-list').hidden = false;
   const rows = await q(`SELECT * FROM summary ORDER BY start_utc DESC`);
   table($('ride-list'), rows, [
-    ['start_utc', 'Date', fmt.date], ['workout', 'Workout', (v) => v || 'Free ride'], ['duration_s', 'Time', fmt.dur],
+    ['start_utc', 'Date', fmt.date],
+    ['workout', 'Workout', (v) => (v ? `${icon('target', C.load)} ${esc(v)}` : `${icon('distance', C.dist)} Free ride`), true], ['duration_s', 'Time', fmt.dur],
     ['avg_w', 'Avg W'], ['np_w', 'NP'], ['tss', 'TSS', (v) => fmt.num(v)], ['avg_hr', 'HR', (v) => v || '-'],
     ['distance_km', 'km', (v) => fmt.num(v, 1)],
   ], (r) => rideDetail(db, r));
@@ -175,20 +217,20 @@ async function rideDetail(db, s) {
   $('ride-list').hidden = true;
   $('ride-detail').hidden = false;
   $('ride-title').textContent = `${fmt.date(s.start_utc)}  ${s.workout || 'Free ride'}`;
-  cards($('ride-cards'), [
-    ['time', fmt.dur(s.duration_s)], ['avg power', `${s.avg_w} W`], ['normalized power', `${s.np_w} W`],
-    ...(s.weight_kg ? [['avg W/kg', fmt.num(s.avg_w / s.weight_kg, 2)]] : []),
-    ['TSS', fmt.num(s.tss)], ['IF', fmt.num(s.if, 2)], ['kJ', s.kj], ['avg HR', s.avg_hr || '-'],
-    ['avg cadence', fmt.num(s.avg_cad)],
-  ]);
-
   // Aerobic decoupling: power per heartbeat, first half vs second half
   const drift = (await q(`WITH h AS (SELECT t_s < (SELECT max(t_s) / 2 FROM ride) AS first, power_w, hr_bpm
       FROM ride WHERE hr_bpm > 0 AND power_w > 0)
     SELECT (avg(power_w) FILTER (WHERE first) / avg(hr_bpm) FILTER (WHERE first)) /
            (avg(power_w) FILTER (WHERE NOT first) / avg(hr_bpm) FILTER (WHERE NOT first)) - 1 AS d FROM h`))[0]?.d;
-  if (drift != null) cards($('ride-cards'), [...[...$('ride-cards').children].map((c) => [c.children[1].textContent, c.children[0].textContent]),
-    ['HR drift (Pa:HR)', `${fmt.num(drift * 100, 1)} %`]]);
+  cards($('ride-cards'), [
+    ['time', fmt.dur(s.duration_s), 'clock'], ['distance', `${fmt.num(s.distance_km, 1)} km`, 'distance', C.dist],
+    ['avg power', `${s.avg_w} W`, 'zap', C.power], ['normalized power', `${s.np_w} W`, 'zap', C.power],
+    ...(s.weight_kg ? [['avg W/kg', fmt.num(s.avg_w / s.weight_kg, 2), 'trending', C.power]] : []),
+    ['TSS', fmt.num(s.tss), 'bars', C.load], ['IF', fmt.num(s.if, 2), 'percent', C.load],
+    ['kJ', s.kj, 'energy', C.power], ['avg HR', s.avg_hr || '-', 'heart', C.hr],
+    ['avg cadence', fmt.num(s.avg_cad), 'cadence', C.cad],
+    ...(drift != null ? [['HR drift (Pa:HR)', `${fmt.num(drift * 100, 1)} %`, 'activity', C.hr]] : []),
+  ]);
 
   const pts = await q(`SELECT t_s, power_w, hr_bpm, cadence_rpm, nullif(target_w, 0) AS target_w FROM ride ORDER BY t_s`);
   chart('ride-chart', {
@@ -256,6 +298,9 @@ async function loadUser(db, u) {
 
 async function main() {
   const db = await openDb();
+  // Static icons in index.html: <el data-icon="name" data-color="power">
+  document.querySelectorAll('[data-icon]').forEach((el) =>
+    el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon, C[el.dataset.color]) + ' '));
   const users = await (await fetch('/api/users', { cache: 'no-cache' })).json();
   if (!users.length) { status('No riders found (is the SD card in?)'); return; }
   const pick = $('user');

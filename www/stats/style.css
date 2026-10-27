@@ -13,9 +13,12 @@ button { font: inherit; color: var(--fg); background: var(--card); border: 1px s
 button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 #status { color: var(--muted); }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
-.card { background: var(--card); border-radius: 8px; padding: 10px 12px; }
-.card b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 8px; margin: 12px 0; }
+.card { background: var(--card); border-radius: 8px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; }
+.badge { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent); }
+.badge .i { width: 20px; height: 20px; }
+.card b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .card span { color: var(--muted); font-size: 13px; }
 table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -25,3 +28,8 @@ tbody tr:hover { background: var(--card); }
 textarea { width: 100%; font: 13px ui-monospace, monospace; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
 .u-legend { color: var(--fg); }
 select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+.i { width: 1.1em; height: 1.1em; vertical-align: -0.18em; fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round; }
+button .i { margin-right: 2px; }
+.rider { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+#ftp { font-size: 16px; }

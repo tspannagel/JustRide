@@ -11,19 +11,19 @@
 <body>
 <header>
   <h1>JustRide</h1>
-  <select id="user" aria-label="Rider"></select>
+  <label class="rider" data-icon="user"><select id="user" aria-label="Rider"></select></label>
   <nav>
-    <button data-view="overview" class="active">Overview</button>
-    <button data-view="curve">Power curve</button>
-    <button data-view="rides">Rides</button>
-    <button data-view="sql">SQL</button>
+    <button data-view="overview" class="active" data-icon="activity">Overview</button>
+    <button data-view="curve" data-icon="trending">Power curve</button>
+    <button data-view="rides" data-icon="list">Rides</button>
+    <button data-view="sql" data-icon="database">SQL</button>
   </nav>
 </header>
 <main>
   <p id="status">Loading DuckDB...</p>
   <section id="overview" class="view">
     <div id="totals" class="cards"></div>
-    <h2>Fitness (CTL 42 d) / Fatigue (ATL 7 d) / Form (TSB)</h2>
+    <h2 data-icon="trending" data-color="load">Fitness (CTL 42 d) / Fatigue (ATL 7 d) / Form (TSB)</h2>
     <div id="pmc"></div>
   </section>
   <section id="curve" class="view" hidden>
@@ -33,13 +33,13 @@
   <section id="rides" class="view" hidden>
     <div id="ride-list"></div>
     <div id="ride-detail" hidden>
-      <button id="ride-back">&larr; All rides</button>
+      <button id="ride-back" data-icon="back">All rides</button>
       <h2 id="ride-title"></h2>
       <div id="ride-cards" class="cards"></div>
       <div id="ride-chart"></div>
-      <h3>Power zones</h3><div id="ride-zones"></div>
-      <h3>Heart-rate zones</h3><div id="ride-hr-zones"></div>
-      <h3>Intervals</h3><div id="ride-intervals"></div>
+      <h3 data-icon="zap" data-color="power">Power zones</h3><div id="ride-zones"></div>
+      <h3 data-icon="heart" data-color="hr">Heart-rate zones</h3><div id="ride-hr-zones"></div>
+      <h3 data-icon="layers" data-color="load">Intervals</h3><div id="ride-intervals"></div>
     </div>
   </section>
   <section id="sql" class="view" hidden>
@@ -47,7 +47,7 @@
     <textarea id="sql-text" rows="5">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
        round(sum(tss)) AS tss, round(sum(duration_s) / 3600, 1) AS hours
 FROM summary GROUP BY 1 ORDER BY 1 DESC</textarea>
-    <button id="sql-run">Run</button>
+    <button id="sql-run" data-icon="play">Run</button>
     <div id="sql-out"></div>
   </section>
 </main>
