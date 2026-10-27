@@ -150,9 +150,10 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <h3 id="first">3.4 First start</h3>
 <div class="shots">
-  <figure class="device"><img src="img/home.png" alt="Home screen: rider button, connection status, Free ride, Workouts, Settings and Wi-Fi buttons"><figcaption>Home screen with everything connected.</figcaption></figure>
+  <figure class="device"><img src="img/home-first-start.png" alt="Home screen on first start: trainer searching, heart rate and Zwift Ride not connected, warning that the clock is not set"><figcaption>First start: nothing paired yet, clock not set.</figcaption></figure>
+  <figure class="device"><img src="img/home.png" alt="Home screen: rider name at the top right, all three devices connected with green dots, Free ride, Workouts, Settings and Wi-Fi tiles"><figcaption>Everything connected (green dots).</figcaption></figure>
 </div>
-<p>Power the board. The home screen shows the active <b>rider</b>, the connection status, and <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>.</p>
+<p>Power the board. The home screen shows the active <b>rider</b> (top right), the connection status of trainer, heart-rate strap and Zwift Ride, and the tiles <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>. Warnings (no SD card, clock not set) appear in orange under the status.</p>
 <p>On first boot the device writes <code>/config/settings.json</code> with one rider called “Rider” and a random password for its own Wi-Fi hotspot. Rename the rider and set your values on the device (<a href="#riders">Riders</a>). Your home Wi-Fi is set in <code>settings.json</code> on your computer: unplug the board, move the card, edit, move it back:</p>
 <pre><code>"wifi_ssid": "MyHomeWifi",
 "wifi_password": "secret",</code></pre>
@@ -185,12 +186,12 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <div class="shots">
   <figure class="device"><img src="img/riders.png" alt="Riders screen: list with Sam (selected) and Anna, buttons Add, Rename, Hold to delete"><figcaption>Riders: tap a name to switch.</figcaption></figure>
   <figure class="device"><img src="img/rider-name.png" alt="On-screen keyboard to enter a rider name"><figcaption>Adding or renaming a rider.</figcaption></figure>
-  <figure class="device"><img src="img/settings.png" alt="Settings for Sam: FTP, Max ERG, Weight, Max HR with minus and plus buttons, Forget paired devices"><figcaption>Settings always belong to the active rider.</figcaption></figure>
+  <figure class="device"><img src="img/settings.png" alt="Settings for Sam: cards for FTP, Max ERG, Weight and Max heart rate with minus and plus buttons; Forget paired devices"><figcaption>Settings always belong to the active rider.</figcaption></figure>
 </div>
 
 <h3>Switch, add, rename, delete</h3>
 <ul>
-  <li><b>Switch:</b> tap the <span class="btn">Rider: …</span> button on the home screen, then a name. Only possible while no ride is running.</li>
+  <li><b>Switch:</b> tap your name at the top right of the home screen, then a name. Only possible while no ride is running.</li>
   <li><b>Add:</b> <span class="btn">Add</span>, type a name (1–15 letters, digits or spaces), confirm with <span class="btn">✓</span>. The new rider becomes active and starts with FTP 200 W, Max ERG 600 W, 75 kg, max HR 185.</li>
   <li><b>Rename:</b> renames the active rider.</li>
   <li><b>Delete:</b> press and hold <span class="btn">Hold to delete</span>. This deletes the active rider; the last rider can't be deleted. Their ride files stay on the SD card.</li>
@@ -217,18 +218,20 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <div class="shots">
   <figure class="device"><img src="img/ride-free.png" alt="Free ride screen: time, gear 14 of 24, 231 W, road gradient, cadence, heart rate, speed, buttons"><figcaption>Free ride: virtual gear 14 of 24 on a 3.5 % road.</figcaption></figure>
 </div>
-<p>Tap <span class="btn">Free ride</span>. The trainer simulates a road; you change <b>virtual gears</b> with <span class="btn">−</span> and <span class="btn">+</span> and the road's gradient with <span class="btn">Grade −</span> / <span class="btn">Grade +</span> (0.5 % steps). <i>Road</i> is the gradient you chose, <i>Sent</i> is what the trainer gets after the virtual gear is applied.</p>
+<p>Tap <span class="btn">Free ride</span>. The trainer simulates a road; you change <b>virtual gears</b> with <span class="btn">−</span> and <span class="btn">+</span> and the road's gradient with <span class="btn">⌄ Grade</span> / <span class="btn">⌃ Grade</span> (0.5 % steps). <i>Road</i> is the gradient you chose, <i>sent</i> is what the trainer gets after the virtual gear is applied.</p>
+<p>The large number is your power (3-second average). Below it: cadence, heart rate and speed, then average power, NP, energy and lap.</p>
 <p>Leave the bike's real chain in one gear, by default <b>34 × 17</b> (front × rear). Virtual gears make the trainer harder or easier as if you shifted. If your real gear is different, set <code>real_ratio</code> in <code>gears.json</code> (see <a href="#settings">Settings reference</a>).</p>
 
 <h3>Ride screen controls</h3>
 <div class="shots">
-  <figure class="device"><img src="img/ride-workout.png" alt="Workout ride screen: interval 4 of 9, 247 W, target 250 W at 100 percent, 90 rpm"><figcaption>ERG workout: interval 4 of 9, target 250 W.</figcaption></figure>
-  <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with orange PAUSED banner at the bottom and a Resume button"><figcaption>Paused: the trainer is at its lowest resistance.</figcaption></figure>
+  <figure class="device"><img src="img/ride-workout.png" alt="Workout ride screen: interval 4 of 9, 247 W, target 250 W at 100 percent, 90 rpm"><figcaption>ERG workout: interval 4 of 9, power on target (green).</figcaption></figure>
+  <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with an orange frame around the power card, caption PAUSED, and a Resume button"><figcaption>Paused: orange frame; the trainer is at its lowest resistance.</figcaption></figure>
 </div>
+<p>In an ERG segment the power number turns <b>green</b> while you are within 5 % (at least 5 W) of the target.</p>
 <div class="scroll"><table>
   <tr><th>Control</th><th>Free ride / free segment</th><th>ERG workout segment</th></tr>
   <tr><td class="btn">− / +</td><td>virtual gear down / up</td><td>intensity −5 % / +5 % (50–150 %)</td></tr>
-  <tr><td class="btn">Grade − / +</td><td>road gradient</td><td>hidden</td></tr>
+  <tr><td class="btn">⌄ Grade / ⌃ Grade</td><td>road gradient</td><td>hidden</td></tr>
   <tr><td class="btn">Skip</td><td>–</td><td>jump to the next interval</td></tr>
   <tr><td class="btn">Pause</td><td>timer stops, lowest resistance</td><td>same</td></tr>
   <tr><td class="btn">Lap</td><td>starts a new lap in the ride file</td><td>same</td></tr>
@@ -252,16 +255,16 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <h3 id="after">After the ride</h3>
 <div class="shots">
-  <figure class="device"><img src="img/summary.png" alt="Ride finished screen: time, average power, NP, TSS, IF, kJ, distance, average heart rate, Saved, Set FTP to 262 W button, Done button"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
+  <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; Set FTP to 262 W and Done buttons"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
 </div>
-<p>The summary shows time, average power, NP, TSS, IF, kJ, distance and average heart rate. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a>). Tap <span class="btn">Done</span>.</p>
+<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="workouts">6. Workouts</h2>
 <div class="shots">
-  <figure class="device"><img src="img/workouts.png" alt="Workouts screen listing sweet_spot_3x10.zwo and endurance_60.zwo"><figcaption>Tap a workout to start it.</figcaption></figure>
+  <figure class="device"><img src="img/workouts.png" alt="Workouts screen listing sweet spot 3x10 and endurance 60"><figcaption>Tap a workout to start it.</figcaption></figure>
 </div>
 <p>Workouts are Zwift <code>.zwo</code> files in <code>/workouts/</code> on the SD card, shared by all riders. Supported: <code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code>, <code>SteadyState</code>, <code>IntervalsT</code>, <code>FreeRide</code>, <code>MaxEffort</code> (as free ride), and <code>Cadence</code> targets. Power values are fractions of the active rider's FTP (<code>0.9</code> = 90 %).</p>
 <p>Add workouts by copying <code>.zwo</code> files to the card, or over Wi-Fi from the device's start page (see below). A minimal example:</p>

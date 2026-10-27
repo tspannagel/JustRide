@@ -1,5 +1,6 @@
 // Touch UI: home, riders, workouts, settings, Wi-Fi, ride, summary. LVGL 9.
 // Everything here runs in the LVGL task; ride state comes from app_get_view().
+// Look: dark background, numbers on cards, one colour per metric, flat buttons.
 
 #include "ui.h"
 
@@ -21,23 +22,78 @@ static const char *TAG = "ui";
 #define WORKOUT_DIR BSP_SD_MOUNT "/workouts"
 #define MAX_LIST 40
 #define PAD 12
+#define GAP 10
+
+// Palette
+#define C_BG 0x0D1117
+#define C_CARD 0x161B22
+#define C_BTN 0x262C36
+#define C_TEXT 0xE6EDF3
+#define C_MUTED 0x8B949E
+#define C_ACCENT 0x2F81F7
+#define C_OK 0x3FB950
+#define C_WARN 0xE3A21A
+#define C_DANGER 0xDA3633
+#define C_POWER 0xF5B83D
+#define C_HR 0xF85149
+#define C_CAD 0x39C5BB
+#define C_SPEED 0xA371F7
+
+// Montserrat Medium 100 px, only "-0123456789" (generated with lv_font_conv, see font_digits_100.c)
+LV_FONT_DECLARE(font_digits_100);
+
+static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger;
 
 static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
 
-static lv_obj_t *home_status, *home_user;
+static lv_obj_t *home_user, *home_dot[3], *home_state[3], *home_warn;
 static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
 static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
-static lv_obj_t *wifi_status, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
-static lv_obj_t *r_time, *r_info, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats, *r_paused;
+static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
+static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
-static lv_obj_t *sum_text, *sum_ftp_btn, *sum_ftp_label;
+static lv_obj_t *sum_saved, *sum_note, *sum_val[9], *sum_ftp_btn, *sum_ftp_label;
 
 static char s_paths[MAX_LIST][80];
 
 // ---- Helpers ------------------------------------------------------------------
+
+static lv_color_t rgb(uint32_t c) { return lv_color_hex(c); }
+
+static void styles_init(void)
+{
+    lv_style_init(&st_screen);
+    lv_style_set_bg_color(&st_screen, rgb(C_BG));
+    lv_style_set_text_color(&st_screen, rgb(C_TEXT));
+    lv_style_set_pad_all(&st_screen, PAD);
+    lv_style_set_pad_row(&st_screen, GAP);
+
+    lv_style_init(&st_card);
+    lv_style_set_bg_color(&st_card, rgb(C_CARD));
+    lv_style_set_bg_opa(&st_card, LV_OPA_COVER);
+    lv_style_set_radius(&st_card, 14);
+    lv_style_set_pad_all(&st_card, 10);
+    lv_style_set_pad_row(&st_card, 4);
+    lv_style_set_pad_column(&st_card, 8);
+    lv_style_set_border_color(&st_card, rgb(C_WARN));
+    lv_style_set_border_width(&st_card, 0);
+
+    lv_style_init(&st_btn);
+    lv_style_set_bg_color(&st_btn, rgb(C_BTN));
+    lv_style_set_radius(&st_btn, 12);
+    lv_style_set_shadow_width(&st_btn, 0);
+    lv_style_set_border_width(&st_btn, 0);
+    lv_style_set_text_color(&st_btn, rgb(C_TEXT));
+
+    lv_style_init(&st_primary);
+    lv_style_set_bg_color(&st_primary, rgb(C_ACCENT));
+
+    lv_style_init(&st_danger);
+    lv_style_set_bg_color(&st_danger, rgb(C_DANGER));
+}
 
 static lv_obj_t *screen(const char *title, bool back);
 
@@ -49,9 +105,26 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, const char *text
     return l;
 }
 
+// Small upper-case label above a value
+static lv_obj_t *caption(lv_obj_t *parent, const char *text, uint32_t color)
+{
+    lv_obj_t *l = label(parent, &lv_font_montserrat_14, text);
+    lv_obj_set_style_text_color(l, rgb(color), 0);
+    lv_obj_set_style_text_letter_space(l, 1, 0);
+    return l;
+}
+
+static lv_obj_t *muted(lv_obj_t *parent, const lv_font_t *font, const char *text)
+{
+    lv_obj_t *l = label(parent, font, text);
+    lv_obj_set_style_text_color(l, rgb(C_MUTED), 0);
+    return l;
+}
+
 static lv_obj_t *button(lv_obj_t *parent, const char *text, int w, int h, lv_event_cb_t cb, void *data)
 {
     lv_obj_t *b = lv_button_create(parent);
+    lv_obj_add_style(b, &st_btn, 0);
     lv_obj_set_size(b, w, h);
     lv_obj_t *l = label(b, &lv_font_montserrat_20, text);
     lv_obj_center(l);
@@ -59,15 +132,74 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, int w, int h, lv_eve
     return b;
 }
 
+static lv_obj_t *primary(lv_obj_t *b)
+{
+    lv_obj_add_style(b, &st_primary, 0);
+    return b;
+}
+
+static lv_obj_t *danger(lv_obj_t *b)
+{
+    lv_obj_add_style(b, &st_danger, 0);
+    return b;
+}
+
+// Fires only after a long press: for actions that must not happen by accident
+static lv_obj_t *hold_button(lv_obj_t *parent, const char *text, int w, int h, lv_event_cb_t cb, void *data)
+{
+    lv_obj_t *b = danger(button(parent, text, w, h, cb, data));
+    lv_obj_remove_event_cb(b, cb);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_LONG_PRESSED, data);
+    return b;
+}
+
+static lv_obj_t *grow(lv_obj_t *o)
+{
+    lv_obj_set_flex_grow(o, 1);
+    return o;
+}
+
+static lv_obj_t *box(lv_obj_t *parent, lv_flex_flow_t flow)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(o, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(o, flow);
+    lv_obj_set_style_pad_column(o, GAP, 0);
+    lv_obj_set_style_pad_row(o, 4, 0);
+    return o;
+}
+
+// Children side by side, vertically centred
 static lv_obj_t *row(lv_obj_t *parent)
 {
-    lv_obj_t *r = lv_obj_create(parent);
-    lv_obj_remove_style_all(r);
-    lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(r, PAD, 0);
+    lv_obj_t *r = box(parent, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     return r;
+}
+
+static lv_obj_t *card(lv_obj_t *parent, lv_flex_flow_t flow)
+{
+    lv_obj_t *c = box(parent, flow);
+    lv_obj_add_style(c, &st_card, 0);
+    return c;
+}
+
+// Card with a coloured caption and a value + unit: returns the value label
+static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, const char *unit)
+{
+    lv_obj_t *c = grow(card(parent, LV_FLEX_FLOW_COLUMN));
+    lv_obj_set_width(c, 0);  // with grow: equal widths
+    caption(c, name, color);
+    lv_obj_t *r = row(c);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(r, 4, 0);
+    lv_obj_t *v = label(r, &lv_font_montserrat_28, "-");
+    if (unit) {
+        lv_obj_set_style_pad_bottom(muted(r, &lv_font_montserrat_14, unit), 4, 0);
+    }
+    return v;
 }
 
 static void fmt_time(char *buf, size_t n, uint32_t s)
@@ -97,32 +229,69 @@ static void open_workouts(lv_event_t *e);
 static void open_settings(lv_event_t *e);
 static void open_wifi(lv_event_t *e);
 
+static lv_obj_t *tile(lv_obj_t *parent, const char *icon, const char *text, lv_event_cb_t cb, void *data)
+{
+    lv_obj_t *b = grow(button(parent, "", 0, LV_PCT(100), cb, data));
+    lv_obj_clean(b);
+    lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(b, 8, 0);
+    label(b, &lv_font_montserrat_28, icon);
+    label(b, &lv_font_montserrat_20, text);
+    return b;
+}
+
 static void build_home(void)
 {
-    scr_home = screen("JustRide", false);
-    lv_obj_t *u = button(scr_home, "", 420, 60, open_users, NULL);
+    scr_home = screen(NULL, false);
+    lv_obj_t *top = row(scr_home);
+    grow(label(top, &lv_font_montserrat_28, "JustRide"));
+    lv_obj_t *u = button(top, "", LV_SIZE_CONTENT, 44, open_users, NULL);
+    lv_obj_set_style_pad_hor(u, 16, 0);
     home_user = lv_obj_get_child(u, 0);
-    home_status = label(scr_home, &lv_font_montserrat_20, "");
-    lv_obj_t *r1 = row(scr_home), *r2 = row(scr_home);
-    button(r1, "Free ride", 200, 110, on_action, (void *)ACT_START_FREE);
-    button(r1, "Workouts", 200, 110, open_workouts, NULL);
-    button(r2, "Settings", 200, 110, open_settings, NULL);
-    button(r2, "Wi-Fi", 200, 110, open_wifi, NULL);
+
+    static const char *const names[3] = {"Trainer", "Heart rate", "Zwift Ride"};
+    lv_obj_t *c = card(scr_home, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(c, 6, 0);
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *r = row(c);
+        home_dot[i] = lv_obj_create(r);
+        lv_obj_remove_style_all(home_dot[i]);
+        lv_obj_set_size(home_dot[i], 10, 10);
+        lv_obj_set_style_radius(home_dot[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(home_dot[i], LV_OPA_COVER, 0);
+        grow(label(r, &lv_font_montserrat_20, names[i]));
+        home_state[i] = muted(r, &lv_font_montserrat_16, "");
+    }
+    home_warn = label(c, &lv_font_montserrat_16, "");
+    lv_obj_set_style_text_color(home_warn, rgb(C_WARN), 0);
+
+    lv_obj_t *r1 = grow(row(scr_home)), *r2 = grow(row(scr_home));  // tiles fill the rest of the screen
+    primary(tile(r1, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE));
+    tile(r1, LV_SYMBOL_LIST, "Workouts", open_workouts, NULL);
+    tile(r2, LV_SYMBOL_SETTINGS, "Settings", open_settings, NULL);
+    tile(r2, LV_SYMBOL_WIFI, "Wi-Fi", open_wifi, NULL);
 }
 
 static void update_home(const ride_view_t *v, const app_status_t *st)
 {
     settings_t s;
     app_get_settings(&s);
-    lv_label_set_text_fmt(home_user, LV_SYMBOL_HOME "  Rider: %s", settings_user(&s)->name);
-    lv_label_set_text_fmt(home_status, "Trainer: %s\nHeart rate: %s\nZwift Ride: %s%s%s",
-                          st->trainer ? "connected" : "searching...", st->hr ? "connected" : "-",
-                          st->controller ? "connected" : "-",
-                          st->sd_ok ? "" : "\nNo SD card: rides are not saved",
-                          st->clock_ok ? "" : "\nClock not set: turn on Wi-Fi once");
+    lv_label_set_text_fmt(home_user, "%s  " LV_SYMBOL_DOWN, settings_user(&s)->name);
+    const bool on[3] = {st->trainer, st->hr, st->controller};
+    for (int i = 0; i < 3; i++) {
+        lv_obj_set_style_bg_color(home_dot[i], rgb(on[i] ? C_OK : C_MUTED), 0);
+        lv_label_set_text(home_state[i], on[i] ? "Connected" : i == 0 ? "Searching..." : "Not connected");
+    }
+    lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
+                          !st->sd_ok && !st->clock_ok ? "\n" : "",
+                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: turn on Wi-Fi once");
+    show(home_warn, !st->sd_ok || !st->clock_ok);
 }
 
 // ---- Riders -------------------------------------------------------------------
+
+static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_event_cb_t cb, void *data);
 
 static void on_user(lv_event_t *e)
 {
@@ -137,8 +306,10 @@ static void open_users(lv_event_t *e)
     lv_obj_clean(users_list);
     lv_label_set_text(users_msg, "");
     for (int i = 0; i < s.n_users; i++) {
-        lv_obj_t *b = lv_list_add_button(users_list, i == s.user ? LV_SYMBOL_OK : NULL, s.users[i].name);
-        lv_obj_add_event_cb(b, on_user, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        const user_t *u = &s.users[i];
+        char text[48];
+        snprintf(text, sizeof(text), "%s\nFTP %u W  -  %u kg", u->name, u->ftp_w, u->weight_kg);
+        list_item(users_list, i == s.user ? LV_SYMBOL_OK : " ", text, on_user, (void *)(intptr_t)i);
     }
     go(scr_users);
 }
@@ -176,20 +347,36 @@ static void on_delete_user(lv_event_t *e)
     lv_label_set_text(users_msg, "Deleted. Their rides stay on the SD card.");
 }
 
+static lv_obj_t *list(lv_obj_t *parent, int h)
+{
+    lv_obj_t *l = lv_list_create(parent);
+    lv_obj_add_style(l, &st_card, 0);
+    lv_obj_set_style_pad_all(l, 8, 0);
+    lv_obj_set_style_pad_row(l, 8, 0);
+    lv_obj_set_size(l, LV_PCT(100), h);
+    return l;
+}
+
+// List row styled like a button, icon in the accent colour
+static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_event_cb_t cb, void *data)
+{
+    lv_obj_t *b = lv_list_add_button(l, icon, text);
+    lv_obj_add_style(b, &st_btn, 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_ACCENT), 0);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
+    return b;
+}
+
 static void build_users(void)
 {
     scr_users = screen("Riders", true);
-    users_list = lv_list_create(scr_users);
-    lv_obj_set_size(users_list, LV_PCT(100), 240);
+    users_list = list(scr_users, 268);
     lv_obj_t *r = row(scr_users);
-    button(r, "Add", 120, 60, on_add_user, NULL);
-    button(r, "Rename", 120, 60, on_rename_user, NULL);
-    // Long press: deleting a rider (and their paired HR strap) by accident would be annoying
-    lv_obj_t *del = button(r, "Hold to delete", 170, 60, on_delete_user, NULL);
-    lv_obj_remove_event_cb(del, on_delete_user);
-    lv_obj_add_event_cb(del, on_delete_user, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_set_style_bg_color(del, lv_palette_main(LV_PALETTE_RED), 0);
-    users_msg = label(scr_users, &lv_font_montserrat_16, "");
+    lv_obj_set_flex_grow(primary(button(r, LV_SYMBOL_PLUS " Add", 0, 60, on_add_user, NULL)), 3);
+    lv_obj_set_flex_grow(button(r, "Rename", 0, 60, on_rename_user, NULL), 3);
+    // Deleting a rider (and their paired HR strap) by accident would be annoying
+    lv_obj_set_flex_grow(hold_button(r, "Hold to delete", 0, 60, on_delete_user, NULL), 4);
+    users_msg = muted(scr_users, &lv_font_montserrat_16, "");
 }
 
 static void on_name_done(lv_event_t *e)
@@ -219,11 +406,15 @@ static void build_name(void)
     scr_name = screen(NULL, false);
     name_title = label(scr_name, &lv_font_montserrat_20, "");
     name_ta = lv_textarea_create(scr_name);
+    lv_obj_add_style(name_ta, &st_card, 0);
+    lv_obj_set_style_text_font(name_ta, &lv_font_montserrat_28, 0);
     lv_textarea_set_one_line(name_ta, true);
     lv_textarea_set_max_length(name_ta, SETTINGS_NAME_LEN - 1);
     lv_obj_set_width(name_ta, LV_PCT(100));
     lv_obj_t *kb = lv_keyboard_create(scr_name);
-    lv_obj_set_size(kb, LV_PCT(100), 280);
+    lv_obj_set_size(kb, LV_PCT(100), 300);
+    lv_obj_set_style_bg_opa(kb, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(kb, 0, 0);
     lv_keyboard_set_textarea(kb, name_ta);
     // The keyboard's OK and close keys send READY / CANCEL
     lv_obj_add_event_cb(kb, on_name_done, LV_EVENT_READY, NULL);
@@ -254,8 +445,12 @@ static void open_workouts(lv_event_t *e)
             continue;
         }
         snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%.60s", de->d_name);
-        lv_obj_t *b = lv_list_add_button(wo_list, NULL, de->d_name);
-        lv_obj_add_event_cb(b, on_workout, LV_EVENT_CLICKED, s_paths[n]);
+        char name[64];
+        snprintf(name, sizeof(name), "%.*s", (int)(len - 4), de->d_name);  // without ".zwo"
+        for (char *c = name; *c; c++) {
+            *c = *c == '_' ? ' ' : *c;
+        }
+        list_item(wo_list, LV_SYMBOL_PLAY, name, on_workout, s_paths[n]);
         n++;
     }
     if (d) {
@@ -270,9 +465,8 @@ static void open_workouts(lv_event_t *e)
 static void build_workouts(void)
 {
     scr_workouts = screen("Workouts", true);
-    wo_msg = label(scr_workouts, &lv_font_montserrat_20, "");
-    wo_list = lv_list_create(scr_workouts);
-    lv_obj_set_size(wo_list, LV_PCT(100), 330);
+    wo_list = list(scr_workouts, 340);
+    wo_msg = muted(scr_workouts, &lv_font_montserrat_16, "");
 }
 
 // ---- Settings -----------------------------------------------------------------
@@ -283,10 +477,10 @@ static void update_settings(void)
     app_get_settings(&s);
     const user_t *u = settings_user(&s);
     lv_label_set_text_fmt(set_title, "Settings: %s", u->name);
-    lv_label_set_text_fmt(set_ftp, "FTP %u W", u->ftp_w);
-    lv_label_set_text_fmt(set_erg, "Max ERG %u W", u->max_erg_w);
-    lv_label_set_text_fmt(set_weight, "Weight %u kg", u->weight_kg);
-    lv_label_set_text_fmt(set_hr, "Max HR %u", u->max_hr);
+    lv_label_set_text_fmt(set_ftp, "%u W", u->ftp_w);
+    lv_label_set_text_fmt(set_erg, "%u W", u->max_erg_w);
+    lv_label_set_text_fmt(set_weight, "%u kg", u->weight_kg);
+    lv_label_set_text_fmt(set_hr, "%u bpm", u->max_hr);
 }
 
 // One handler for all +/- buttons: user data = field * 1000 + 500 + step
@@ -313,17 +507,18 @@ static void on_step(lv_event_t *e)
     update_settings();
 }
 
-static void stepper(lv_obj_t *parent, lv_obj_t **value, int field, int step)
+// Card: caption + value on the left, - and + on the right
+static void stepper(lv_obj_t *parent, lv_obj_t **value, const char *name, int field, int step)
 {
-    lv_obj_t *r = row(parent);
-    char t[8];
-    snprintf(t, sizeof(t), "-%d", step);
-    button(r, t, 72, 56, on_step, STEP(field, -step));
-    *value = label(r, &lv_font_montserrat_28, "");
-    lv_obj_set_width(*value, 290);
-    lv_obj_set_style_text_align(*value, LV_TEXT_ALIGN_CENTER, 0);
-    snprintf(t, sizeof(t), "+%d", step);
-    button(r, t, 72, 56, on_step, STEP(field, step));
+    lv_obj_t *c = card(parent, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_ver(c, 6, 0);
+    lv_obj_t *col = grow(box(c, LV_FLEX_FLOW_COLUMN));
+    lv_obj_set_style_pad_row(col, 0, 0);
+    caption(col, name, C_MUTED);
+    *value = label(col, &lv_font_montserrat_28, "");
+    button(c, LV_SYMBOL_MINUS, 76, 52, on_step, STEP(field, -step));
+    button(c, LV_SYMBOL_PLUS, 76, 52, on_step, STEP(field, step));
 }
 
 static void on_forget(lv_event_t *e)
@@ -342,12 +537,13 @@ static void build_settings(void)
 {
     scr_settings = screen(NULL, true);
     set_title = label(lv_obj_get_child(scr_settings, 0), &lv_font_montserrat_28, "");
-    stepper(scr_settings, &set_ftp, F_FTP, 5);
-    stepper(scr_settings, &set_erg, F_ERG, 50);
-    stepper(scr_settings, &set_weight, F_WEIGHT, 1);
-    stepper(scr_settings, &set_hr, F_HR, 1);
-    button(row(scr_settings), "Forget paired devices", 300, 56, on_forget, NULL);
-    label(scr_settings, &lv_font_montserrat_16, esp_app_get_description()->version);
+    stepper(scr_settings, &set_ftp, "FTP", F_FTP, 5);
+    stepper(scr_settings, &set_erg, "MAX ERG", F_ERG, 50);
+    stepper(scr_settings, &set_weight, "WEIGHT", F_WEIGHT, 1);
+    stepper(scr_settings, &set_hr, "MAX HEART RATE", F_HR, 1);
+    lv_obj_t *r = row(scr_settings);
+    grow(button(r, "Forget paired devices", 0, 52, on_forget, NULL));
+    muted(r, &lv_font_montserrat_14, esp_app_get_description()->version);
 }
 
 // ---- Wi-Fi --------------------------------------------------------------------
@@ -357,9 +553,16 @@ static void update_wifi(void)
     char buf[160];
     web_status(buf, sizeof(buf));
     lv_label_set_text(wifi_status, buf);
-    lv_label_set_text(wifi_btn_label, web_running() ? "Turn off" : "Turn on");
-    show(wifi_ota_btn, web_running());
-    lv_label_set_text(wifi_ota_label, web_ota_allowed() ? "Update allowed (5 min)" : "Allow firmware update");
+    bool on = web_running();
+    lv_label_set_text(wifi_btn_label, on ? LV_SYMBOL_CLOSE " Turn off" : LV_SYMBOL_WIFI " Turn on");
+    if (on) {
+        lv_obj_remove_style(wifi_btn, &st_primary, 0);
+    } else {
+        primary(wifi_btn);
+    }
+    show(wifi_ota_btn, on);
+    lv_label_set_text(wifi_ota_label, web_ota_allowed() ? LV_SYMBOL_OK " Update allowed (5 min)"
+                                                        : LV_SYMBOL_DOWNLOAD " Allow firmware update");
 }
 
 static void on_allow_ota(lv_event_t *e)
@@ -387,12 +590,14 @@ static void open_wifi(lv_event_t *e)
 static void build_wifi(void)
 {
     scr_wifi = screen("Wi-Fi", true);
-    wifi_status = label(scr_wifi, &lv_font_montserrat_20, "");
-    lv_obj_t *b = button(row(scr_wifi), "", 220, 80, on_wifi_toggle, NULL);
-    wifi_btn_label = lv_obj_get_child(b, 0);
-    wifi_ota_btn = button(row(scr_wifi), "", 320, 70, on_allow_ota, NULL);
+    lv_obj_t *c = card(scr_wifi, LV_FLEX_FLOW_COLUMN);
+    caption(c, "STATUS", C_MUTED);
+    wifi_status = label(c, &lv_font_montserrat_20, "");
+    wifi_btn = button(scr_wifi, "", LV_PCT(100), 64, on_wifi_toggle, NULL);
+    wifi_btn_label = lv_obj_get_child(wifi_btn, 0);
+    wifi_ota_btn = button(scr_wifi, "", LV_PCT(100), 64, on_allow_ota, NULL);
     wifi_ota_label = lv_obj_get_child(wifi_ota_btn, 0);
-    label(scr_wifi, &lv_font_montserrat_16, "Wi-Fi turns off automatically when a ride starts.");
+    muted(scr_wifi, &lv_font_montserrat_16, "Wi-Fi turns off automatically when a ride starts.");
 }
 
 // ---- Ride ---------------------------------------------------------------------
@@ -401,48 +606,44 @@ static void build_ride(void)
 {
     scr_ride = screen(NULL, false);
     lv_obj_t *top = row(scr_ride);
-    r_time = label(top, &lv_font_montserrat_28, "");
-    r_info = label(top, &lv_font_montserrat_20, "");
+    r_time = grow(label(top, &lv_font_montserrat_28, ""));
+    r_info = muted(top, &lv_font_montserrat_20, "");
 
-    r_power = label(scr_ride, &lv_font_montserrat_48, "");
-    lv_obj_set_style_text_align(r_power, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(r_power, LV_PCT(100));
-    r_target = label(scr_ride, &lv_font_montserrat_20, "");
-    lv_obj_set_style_text_align(r_target, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(r_target, LV_PCT(100));
+    // Power: the number that matters most, on its own card
+    r_power_card = card(scr_ride, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(r_power_card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    r_power_cap = caption(r_power_card, "", C_POWER);
+    lv_obj_t *pr = row(r_power_card);
+    lv_obj_set_size(pr, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_align(pr, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(pr, 6, 0);
+    r_power = label(pr, &font_digits_100, "");
+    lv_obj_set_style_pad_bottom(muted(pr, &lv_font_montserrat_28, "W"), 16, 0);
+    r_target = muted(r_power_card, &lv_font_montserrat_20, "");
 
     lv_obj_t *mid = row(scr_ride);
-    r_cad = label(mid, &lv_font_montserrat_28, "");
-    r_hr = label(mid, &lv_font_montserrat_28, "");
-    r_speed = label(mid, &lv_font_montserrat_28, "");
-    r_stats = label(scr_ride, &lv_font_montserrat_16, "");
+    r_cad = metric(mid, "CADENCE", C_CAD, "rpm");
+    r_hr = metric(mid, "HEART RATE", C_HR, "bpm");
+    r_speed = metric(mid, "SPEED", C_SPEED, "km/h");
+
+    r_stats = muted(scr_ride, &lv_font_montserrat_16, "");
+    lv_obj_set_width(r_stats, LV_PCT(100));
+    lv_obj_set_style_text_align(r_stats, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *b1 = row(scr_ride);
-    button(b1, "-", 100, 70, on_action, (void *)ACT_MINUS);
-    lv_obj_t *pause = button(b1, "", 110, 70, on_action, (void *)ACT_PAUSE_TOGGLE);
+    grow(button(b1, LV_SYMBOL_MINUS, 0, 60, on_action, (void *)ACT_MINUS));
+    lv_obj_t *pause = grow(button(b1, "", 0, 60, on_action, (void *)ACT_PAUSE_TOGGLE));
+    lv_obj_set_flex_grow(pause, 2);
     r_pause_label = lv_obj_get_child(pause, 0);
-    button(b1, "Lap", 100, 70, on_action, (void *)ACT_LAP);
-    button(b1, "+", 100, 70, on_action, (void *)ACT_PLUS);
+    grow(button(b1, "Lap", 0, 60, on_action, (void *)ACT_LAP));
+    grow(button(b1, LV_SYMBOL_PLUS, 0, 60, on_action, (void *)ACT_PLUS));
 
     lv_obj_t *b2 = row(scr_ride);
-    r_grade_minus = button(b2, "Grade -", 120, 60, on_action, (void *)ACT_GRADE_MINUS);
-    r_skip = button(b2, "Skip", 120, 60, on_action, (void *)ACT_SKIP);
+    r_grade_minus = grow(button(b2, LV_SYMBOL_DOWN " Grade", 0, 56, on_action, (void *)ACT_GRADE_MINUS));
+    r_skip = grow(button(b2, LV_SYMBOL_NEXT " Skip", 0, 56, on_action, (void *)ACT_SKIP));
     // Stop needs a long press so it can't be hit by accident mid-interval
-    lv_obj_t *stop = button(b2, "Hold to stop", 160, 60, on_action, (void *)ACT_STOP);
-    lv_obj_remove_event_cb(stop, on_action);
-    lv_obj_add_event_cb(stop, on_action, LV_EVENT_LONG_PRESSED, (void *)ACT_STOP);
-    lv_obj_set_style_bg_color(stop, lv_palette_main(LV_PALETTE_RED), 0);
-    r_grade_plus = button(b2, "Grade +", 120, 60, on_action, (void *)ACT_GRADE_PLUS);
-
-    // Banner in the free strip below the buttons, so it hides no numbers
-    r_paused = label(scr_ride, &lv_font_montserrat_28, "PAUSED");
-    lv_obj_add_flag(r_paused, LV_OBJ_FLAG_FLOATING);
-    lv_obj_set_width(r_paused, LV_PCT(100));
-    lv_obj_set_style_text_align(r_paused, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_ver(r_paused, 10, 0);
-    lv_obj_align(r_paused, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_opa(r_paused, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(r_paused, lv_palette_main(LV_PALETTE_ORANGE), 0);
+    lv_obj_set_flex_grow(hold_button(b2, "Hold to stop", 0, 56, on_action, (void *)ACT_STOP), 2);
+    r_grade_plus = grow(button(b2, LV_SYMBOL_UP " Grade", 0, 56, on_action, (void *)ACT_GRADE_PLUS));
 }
 
 static void update_ride(const ride_view_t *v)
@@ -452,6 +653,7 @@ static void update_ride(const ride_view_t *v)
     lv_label_set_text(r_time, t);
 
     bool erg = v->mode == MODE_ERG;
+    bool paused = v->state == RIDE_PAUSED;
     if (v->has_workout && !v->wo_done) {
         char left[16];
         fmt_time(left, sizeof(left), v->seg_left_s);
@@ -460,43 +662,55 @@ static void update_ride(const ride_view_t *v)
         lv_label_set_text_fmt(r_info, "Gear %u/%u", v->gear, v->gears);
     }
 
+    // Paused: orange frame and caption, so it's obvious from the saddle
+    lv_label_set_text(r_power_cap, paused ? "PAUSED" : "POWER");
+    lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
+    lv_obj_set_style_border_width(r_power_card, paused ? 3 : 0, 0);
+
+    // ERG: the number turns green when within 5 % (at least 5 W) of the target
+    uint32_t color = C_TEXT;
     if (v->power_w >= 0) {
-        lv_label_set_text_fmt(r_power, "%d W", v->power_w);
-    } else {
-        lv_label_set_text(r_power, "- W");
-    }
-    if (erg) {
-        if (v->cadence_target) {
-            lv_label_set_text_fmt(r_target, "Target %d W  (%u %%)  %u rpm", v->target_w, v->intensity,
-                                  v->cadence_target);
-        } else {
-            lv_label_set_text_fmt(r_target, "Target %d W  (%u %%)", v->target_w, v->intensity);
+        lv_label_set_text_fmt(r_power, "%d", v->power_w);
+        int tol = v->target_w / 20 > 5 ? v->target_w / 20 : 5;
+        if (erg && !paused && v->target_w > 0 && abs(v->power_w - v->target_w) <= tol) {
+            color = C_OK;
         }
     } else {
-        lv_label_set_text_fmt(r_target, "Road %+d.%d %%   Sent %+d.%02d %%", v->base_grade / 100,
+        lv_label_set_text(r_power, "-");
+    }
+    lv_obj_set_style_text_color(r_power, rgb(color), 0);
+
+    if (erg) {
+        if (v->cadence_target) {
+            lv_label_set_text_fmt(r_target, "Target %d W  -  %u %%  -  %u rpm", v->target_w, v->intensity,
+                                  v->cadence_target);
+        } else {
+            lv_label_set_text_fmt(r_target, "Target %d W  -  %u %%", v->target_w, v->intensity);
+        }
+    } else {
+        lv_label_set_text_fmt(r_target, "Road %+d.%d %%  -  sent %+d.%02d %%", v->base_grade / 100,
                               abs(v->base_grade % 100) / 10, v->grade / 100, abs(v->grade % 100));
     }
 
     if (v->cadence_rpm10 >= 0) {
-        lv_label_set_text_fmt(r_cad, "%d rpm", (v->cadence_rpm10 + 5) / 10);
+        lv_label_set_text_fmt(r_cad, "%d", (v->cadence_rpm10 + 5) / 10);
     } else {
-        lv_label_set_text(r_cad, "- rpm");
+        lv_label_set_text(r_cad, "-");
     }
     if (v->hr_bpm > 0) {
-        lv_label_set_text_fmt(r_hr, "%d bpm", v->hr_bpm);
+        lv_label_set_text_fmt(r_hr, "%d", v->hr_bpm);
     } else {
-        lv_label_set_text(r_hr, "- bpm");
+        lv_label_set_text(r_hr, "-");
     }
     if (v->speed_kmh100 >= 0) {
-        lv_label_set_text_fmt(r_speed, "%ld.%ld km/h", (long)(v->speed_kmh100 / 100), (long)(v->speed_kmh100 % 100 / 10));
+        lv_label_set_text_fmt(r_speed, "%ld.%ld", (long)(v->speed_kmh100 / 100), (long)(v->speed_kmh100 % 100 / 10));
     } else {
-        lv_label_set_text(r_speed, "- km/h");
+        lv_label_set_text(r_speed, "-");
     }
-    lv_label_set_text_fmt(r_stats, "Avg %d W   NP %d W   %lu kJ   Lap %u", v->sum.avg_w, v->sum.np_w,
+    lv_label_set_text_fmt(r_stats, "Avg %d W     NP %d W     %lu kJ     Lap %u", v->sum.avg_w, v->sum.np_w,
                           (unsigned long)v->sum.kj, v->lap + 1);
 
-    lv_label_set_text(r_pause_label, v->state == RIDE_PAUSED ? "Resume" : "Pause");
-    show(r_paused, v->state == RIDE_PAUSED);
+    lv_label_set_text(r_pause_label, paused ? LV_SYMBOL_PLAY " Resume" : LV_SYMBOL_PAUSE " Pause");
     show(r_grade_minus, !erg);
     show(r_grade_plus, !erg);
     show(r_skip, v->has_workout && !v->wo_done);
@@ -508,29 +722,57 @@ static void on_accept_ftp(lv_event_t *e) { app_accept_ftp(); }
 
 static void build_summary(void)
 {
-    scr_summary = screen("Ride finished", false);
-    sum_text = label(scr_summary, &lv_font_montserrat_28, "");
-    sum_ftp_btn = button(row(scr_summary), "", 300, 70, on_accept_ftp, NULL);
+    scr_summary = screen(NULL, false);
+    lv_obj_t *top = row(scr_summary);
+    grow(label(top, &lv_font_montserrat_28, "Ride finished"));
+    sum_saved = label(top, &lv_font_montserrat_16, "");
+
+    static const char *const names[9] = {"TIME", "DISTANCE", "ENERGY", "AVG POWER", "NP",
+                                         "MAX POWER", "TSS", "IF", "AVG HR"};
+    static const uint32_t colors[9] = {C_MUTED, C_SPEED, C_MUTED, C_POWER, C_POWER, C_POWER, C_MUTED, C_MUTED, C_HR};
+    for (int r = 0; r < 3; r++) {
+        lv_obj_t *rw = row(scr_summary);
+        for (int c = 0; c < 3; c++) {
+            sum_val[r * 3 + c] = metric(rw, names[r * 3 + c], colors[r * 3 + c], NULL);
+        }
+    }
+    sum_note = muted(scr_summary, &lv_font_montserrat_16, "");
+
+    lv_obj_t *b = row(scr_summary);
+    sum_ftp_btn = grow(button(b, "", 0, 64, on_accept_ftp, NULL));
+    lv_obj_set_flex_grow(sum_ftp_btn, 3);
     sum_ftp_label = lv_obj_get_child(sum_ftp_btn, 0);
-    button(row(scr_summary), "Done", 200, 80, on_action, (void *)ACT_DISMISS);
+    lv_obj_set_flex_grow(primary(button(b, LV_SYMBOL_OK " Done", 0, 64, on_action, (void *)ACT_DISMISS)), 2);
 }
 
 static void update_summary(const ride_view_t *v, const app_status_t *st)
 {
+    const metrics_summary_t *m = &v->sum;
     char t[16];
-    fmt_time(t, sizeof(t), v->sum.duration_s);
-    lv_label_set_text_fmt(sum_text,
-                          "Time %s\nAvg %d W   NP %d W\nTSS %u.%u   IF %u.%02u\n%lu kJ   %lu.%lu km\nAvg HR %d%s",
-                          t, v->sum.avg_w, v->sum.np_w, v->sum.tss10 / 10, v->sum.tss10 % 10, v->sum.if_1000 / 1000,
-                          v->sum.if_1000 % 1000 / 10, (unsigned long)v->sum.kj,
-                          (unsigned long)(v->sum.distance_m / 1000), (unsigned long)(v->sum.distance_m % 1000 / 100),
-                          v->sum.avg_hr,
-                          st->saving ? "\nSaving..."
-                          : st->saved ? "\nSaved"
-                                      : "\nNOT saved (shorter than 1 min, or SD card problem)");
+    fmt_time(t, sizeof(t), m->duration_s);
+    lv_label_set_text(sum_val[0], t);
+    lv_label_set_text_fmt(sum_val[1], "%lu.%lu km", (unsigned long)(m->distance_m / 1000),
+                          (unsigned long)(m->distance_m % 1000 / 100));
+    lv_label_set_text_fmt(sum_val[2], "%lu kJ", (unsigned long)m->kj);
+    lv_label_set_text_fmt(sum_val[3], "%d W", m->avg_w);
+    lv_label_set_text_fmt(sum_val[4], "%d W", m->np_w);
+    lv_label_set_text_fmt(sum_val[5], "%d W", m->max_w);
+    lv_label_set_text_fmt(sum_val[6], "%u.%u", m->tss10 / 10, m->tss10 % 10);
+    lv_label_set_text_fmt(sum_val[7], "%u.%02u", m->if_1000 / 1000, m->if_1000 % 1000 / 10);
+    if (m->avg_hr > 0) {
+        lv_label_set_text_fmt(sum_val[8], "%d", m->avg_hr);
+    } else {
+        lv_label_set_text(sum_val[8], "-");
+    }
+
+    lv_label_set_text(sum_saved, st->saving ? "Saving..." : st->saved ? LV_SYMBOL_OK " Saved" : LV_SYMBOL_WARNING " Not saved");
+    lv_obj_set_style_text_color(sum_saved, rgb(st->saving ? C_MUTED : st->saved ? C_OK : C_DANGER), 0);
+    lv_label_set_text(sum_note, st->saving || st->saved ? "" : "Shorter than 1 min, or SD card problem.");
+    show(sum_note, !st->saving && !st->saved);
+
     // 95 % of this ride's best 20 min beat the FTP: offer it, never apply it silently
     show(sum_ftp_btn, st->ftp_suggest_w > 0);
-    lv_label_set_text_fmt(sum_ftp_label, "Set FTP to %u W", st->ftp_suggest_w);
+    lv_label_set_text_fmt(sum_ftp_label, LV_SYMBOL_UP " Set FTP to %u W", st->ftp_suggest_w);
 }
 
 // ---- Screens + refresh --------------------------------------------------------
@@ -538,14 +780,13 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
 static lv_obj_t *screen(const char *title, bool back)
 {
     lv_obj_t *s = lv_obj_create(NULL);
+    lv_obj_add_style(s, &st_screen, 0);
     lv_obj_set_flex_flow(s, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_all(s, PAD, 0);
-    lv_obj_set_style_pad_row(s, PAD, 0);
     if (title || back) {
         lv_obj_t *r = row(s);
         if (back) {
-            button(r, LV_SYMBOL_LEFT, 70, 50, on_back, NULL);
+            button(r, LV_SYMBOL_LEFT, 56, 44, on_back, NULL);
         }
         if (title) {
             label(r, &lv_font_montserrat_28, title);
@@ -584,6 +825,20 @@ static void refresh(lv_timer_t *t)
     }
 }
 
+static void build_all(lv_display_t *disp)
+{
+    lv_theme_default_init(disp, rgb(C_ACCENT), rgb(C_WARN), true, &lv_font_montserrat_20);
+    styles_init();
+    build_home();
+    build_users();
+    build_name();
+    build_workouts();
+    build_settings();
+    build_wifi();
+    build_ride();
+    build_summary();
+}
+
 void ui_start(void)
 {
     lvgl_port_cfg_t port = ESP_LVGL_PORT_INIT_CONFIG();
@@ -610,16 +865,7 @@ void ui_start(void)
     }
 
     lvgl_port_lock(0);
-    lv_theme_default_init(disp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_ORANGE), true,
-                          &lv_font_montserrat_20);
-    build_home();
-    build_users();
-    build_name();
-    build_workouts();
-    build_settings();
-    build_wifi();
-    build_ride();
-    build_summary();
+    build_all(disp);
     go(scr_home);
     lv_timer_create(refresh, 250, NULL);
     lvgl_port_unlock();

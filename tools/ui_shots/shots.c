@@ -132,17 +132,7 @@ int main(int argc, char **argv)
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_buffers(disp, s_draw, NULL, sizeof(s_draw), LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(disp, flush);
-    // Same theme and screens as ui_start()
-    lv_theme_default_init(disp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_ORANGE), true,
-                          &lv_font_montserrat_20);
-    build_home();
-    build_users();
-    build_name();
-    build_workouts();
-    build_settings();
-    build_wifi();
-    build_ride();
-    build_summary();
+    build_all(disp);  // same theme and screens as ui_start()
 
     add_user("u1", "Sam", 250, 75, 185);
     add_user("u3", "Anna", 190, 62, 178);
@@ -151,6 +141,11 @@ int main(int argc, char **argv)
     go(scr_home);
     refresh(NULL);
     save("home");
+
+    g_status = (app_status_t){.sd_ok = true};  // first start: nothing paired, clock not set
+    refresh(NULL);
+    save("home-first-start");
+    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .clock_ok = true, .sd_ok = true};
 
     open_users(NULL);
     save("riders");
@@ -196,7 +191,7 @@ int main(int argc, char **argv)
 
     memset(&g_view, 0, sizeof(g_view));
     g_view.state = RIDE_DONE;
-    g_view.sum = (metrics_summary_t){.duration_s = 3725, .avg_w = 214, .np_w = 236, .tss10 = 905, .if_1000 = 944,
+    g_view.sum = (metrics_summary_t){.duration_s = 3725, .avg_w = 214, .np_w = 236, .max_w = 612, .tss10 = 905, .if_1000 = 944,
                                      .kj = 797, .avg_hr = 151, .distance_m = 33420};
     g_status.saved = true;
     g_status.ftp_suggest_w = 262;

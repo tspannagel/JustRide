@@ -17,7 +17,7 @@ target_include_directories(lvgl PUBLIC ${LVGL} ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(lvgl PUBLIC LV_CONF_INCLUDE_SIMPLE)
 target_compile_options(lvgl PRIVATE -w)
 
-add_executable(ui_shots shots.c)
+add_executable(ui_shots shots.c ${REPO}/main/font_digits_100.c)
 # stubs/ first: it replaces the ESP-IDF headers ui.c includes
 target_include_directories(ui_shots PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs ${REPO}/main

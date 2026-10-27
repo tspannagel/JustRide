@@ -64,7 +64,7 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 ### Repo layout
 
 ```
-main/                     app_main (bring-up order), app.c control task, ui.c LVGL screens, diag.c console
+main/                     app_main (bring-up order), app.c control task, ui.c LVGL screens (palette + style helpers at the top), font_digits_100.c (power digits, lv_font_conv), diag.c console
 components/
   bsp_s3lcd4/             board support: I2C, TCA9554, ST7701 init, RGB panel, SD, RTC, touch, buzzer
   evbus/                  jr_types.h (stable event/sample types, pure) + one FreeRTOS queue
