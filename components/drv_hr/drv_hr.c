@@ -27,6 +27,7 @@ static bool matches(const struct ble_hs_adv_fields *adv) { return ble_adv_has_uu
 const ble_drv_t drv_hr = {
     .name = "hr",
     .role = SRC_HR,
+    .per_user = true,
     .matches = matches,
     .service = {.u16 = BLE_UUID16_INIT(0x180D)},
     .chrs = {{{.u16 = BLE_UUID16_INIT(0x2A37)}, BLE_CHR_NOTIFY | BLE_CHR_REQUIRED}},

@@ -3,11 +3,13 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include "bsp.h"
+#include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
 #include "esp_event.h"
@@ -187,12 +189,15 @@ static const char INDEX_HTML[] =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
     "<title>JustRide</title><style>body{font-family:system-ui;max-width:40em;margin:1em auto;padding:0 1em}"
     "li{margin:.2em 0}</style><h1>JustRide</h1><p><a href='/stats/'>Statistics</a></p>"
-    "<h2>Rides</h2><ul id=r></ul>"
+    "<h2>Ride files</h2><ul id=r></ul>"
     "<h2>Upload workout (.zwo)</h2><input type=file id=w accept='.zwo' multiple> <span id=ws></span>"
     "<h2>Firmware update</h2><input type=file id=o accept='.bin'> <span id=os></span>"
     "<script>"
-    "fetch('/api/rides').then(r=>r.json()).then(l=>{for(const f of l.reverse()){const li=document.createElement('li');"
-    "li.innerHTML=`<a href='/rides/${f.name}'>${f.name}</a> (${(f.size/1024).toFixed(0)} kB)`;r.append(li)}});"
+    "Promise.all([fetch('/api/users').then(r=>r.json()),fetch('/api/rides').then(r=>r.json())]).then(([u,l])=>{"
+    "const n=Object.fromEntries(u.map(x=>[x.id,x.name]));"
+    "for(const f of l.sort((a,b)=>b.mtime-a.mtime)){const li=document.createElement('li'),a=document.createElement('a');"
+    "a.href='/rides/'+f.name;a.textContent=f.name.split('/')[1];li.append(a,` ${n[f.name.split('/')[0]]||'?'} "
+    "(${(f.size/1024).toFixed(0)} kB)`);r.append(li)}});"
     "w.onchange=async()=>{for(const f of w.files){ws.textContent='uploading '+f.name;"
     "const r=await fetch('/workouts/'+encodeURIComponent(f.name),{method:'POST',headers:{'X-JustRide':'1'},body:f});"
     "ws.textContent=r.ok?'saved':await r.text()}};"
@@ -235,8 +240,10 @@ static esp_err_t h_rides_file(httpd_req_t *req)
     if (!allowed(req)) {
         return ESP_OK;
     }
+    // <user id>/<file>
     const char *name = req->uri + strlen("/rides/");
-    if (!safe_name(name) || strchr(name, '/')) {
+    const char *slash = strchr(name, '/');
+    if (!safe_name(name) || !slash || slash == name || strchr(slash + 1, '/') || !slash[1]) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name");
     }
     char path[128];
@@ -244,6 +251,7 @@ static esp_err_t h_rides_file(httpd_req_t *req)
     return send_file(req, path, "no-cache");
 }
 
+// Every file in every rider's folder: [{"name":"u1/2026-10-26_1200.fit",...}]
 static esp_err_t h_api_rides(httpd_req_t *req)
 {
     if (!allowed(req)) {
@@ -251,30 +259,71 @@ static esp_err_t h_api_rides(httpd_req_t *req)
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    DIR *d = opendir(BSP_SD_MOUNT "/rides");
     httpd_resp_sendstr_chunk(req, "[");
     bool first = true;
-    struct dirent *e;
-    while (d && (e = readdir(d))) {
-        if (e->d_name[0] == '.' || !safe_name(e->d_name)) {
+    DIR *top = opendir(BSP_SD_MOUNT "/rides");
+    struct dirent *u;
+    while (top && (u = readdir(top))) {
+        char dir[160];
+        if (u->d_name[0] == '.' || !safe_name(u->d_name) || strlen(u->d_name) > 8) {
             continue;
         }
-        char path[300], item[200];
-        struct stat st;
-        snprintf(path, sizeof(path), BSP_SD_MOUNT "/rides/%s", e->d_name);
-        if (stat(path, &st) != 0) {
-            continue;
+        snprintf(dir, sizeof(dir), BSP_SD_MOUNT "/rides/%s", u->d_name);
+        DIR *d = opendir(dir);  // NULL for plain files
+        struct dirent *e;
+        while (d && (e = readdir(d))) {
+            if (e->d_name[0] == '.' || !safe_name(e->d_name)) {
+                continue;
+            }
+            char path[300], item[200];
+            struct stat st;
+            snprintf(path, sizeof(path), "%s/%.64s", dir, e->d_name);  // safe_name: <= 64
+            if (stat(path, &st) != 0) {
+                continue;
+            }
+            snprintf(item, sizeof(item), "%s{\"name\":\"%.8s/%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",",
+                     u->d_name, e->d_name, (long)st.st_size, (long)st.st_mtime);
+            httpd_resp_sendstr_chunk(req, item);
+            first = false;
         }
-        snprintf(item, sizeof(item), "%s{\"name\":\"%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
-                 (long)st.st_size, (long)st.st_mtime);
-        httpd_resp_sendstr_chunk(req, item);
-        first = false;
+        if (d) {
+            closedir(d);
+        }
     }
-    if (d) {
-        closedir(d);
+    if (top) {
+        closedir(top);
     }
     httpd_resp_sendstr_chunk(req, "]");
     return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+// Riders from settings.json: [{"id":"u1","name":"Sam","active":true}] (nothing else from that file)
+static esp_err_t h_api_users(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    settings_t *s = malloc(sizeof(*s));
+    if (!s) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+    }
+    settings_read_users(s);
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < s->n_users; i++) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id", s->users[i].id);
+        cJSON_AddStringToObject(o, "name", s->users[i].name);
+        cJSON_AddBoolToObject(o, "active", i == s->user);
+        cJSON_AddItemToArray(arr, o);
+    }
+    free(s);
+    char *text = cJSON_PrintUnformatted(arr);
+    cJSON_Delete(arr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    esp_err_t err = text ? httpd_resp_sendstr(req, text) : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "");
+    free(text);
+    return err;
 }
 
 static esp_err_t h_workout_upload(httpd_req_t *req)
@@ -408,6 +457,7 @@ static void http_start(void)
         {.uri = "/", .method = HTTP_GET, .handler = h_index},
         {.uri = "/stats/*", .method = HTTP_GET, .handler = h_stats},
         {.uri = "/api/rides", .method = HTTP_GET, .handler = h_api_rides},
+        {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
         {.uri = "/workouts/*", .method = HTTP_POST, .handler = h_workout_upload},
         {.uri = "/ota", .method = HTTP_POST, .handler = h_ota},

@@ -161,7 +161,8 @@ bool csv_parse_row(const char *line, ride_sample_t *s)
 }
 
 size_t csv_format_summary(char *buf, size_t size, const char *ride_id, uint32_t start_utc, const char *workout,
-                          uint16_t ftp_w, const metrics_summary_t *m, const char *fw)
+                          uint16_t ftp_w, const metrics_summary_t *m, const char *fw, uint8_t weight_kg,
+                          uint8_t max_hr)
 {
     char iso[21];
     csv_iso_utc(iso, start_utc);
@@ -176,11 +177,12 @@ size_t csv_format_summary(char *buf, size_t size, const char *ride_id, uint32_t 
     }
     name[k] = 0;
 
-    int n = snprintf(buf, size, "%s,%s,%lu,%lu,\"%s\",%u,%d,%d,%u.%03u,%u.%u,%lu,%d,%d,%u.%u,%lu.%03lu,%s\n", ride_id,
+    int n = snprintf(buf, size, "%s,%s,%lu,%lu,\"%s\",%u,%d,%d,%u.%03u,%u.%u,%lu,%d,%d,%u.%u,%lu.%03lu,%s,%u,%u\n", ride_id,
                      iso, (unsigned long)m->duration_s, (unsigned long)m->moving_s, name, ftp_w, m->avg_w, m->np_w,
                      m->if_1000 / 1000, m->if_1000 % 1000, m->tss10 / 10, m->tss10 % 10, (unsigned long)m->kj,
                      m->avg_hr, m->max_hr, m->avg_cad10 / 10, m->avg_cad10 % 10,
-                     (unsigned long)(m->distance_m / 1000), (unsigned long)(m->distance_m % 1000), fw);
+                     (unsigned long)(m->distance_m / 1000), (unsigned long)(m->distance_m % 1000), fw, weight_kg,
+                     max_hr);
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
 

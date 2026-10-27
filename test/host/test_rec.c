@@ -59,9 +59,9 @@ static void test_summary_and_bests(void)
                            .tss10 = 706, .kj = 720, .avg_hr = 140, .max_hr = 170, .avg_cad10 = 887,
                            .distance_m = 32050};
     char buf[512];
-    CHECK(csv_format_summary(buf, sizeof(buf), "2026-10-26_1200", T0, "Sweet \"Spot\", 3x10", 250, &m, "0.1.0") > 0);
+    CHECK(csv_format_summary(buf, sizeof(buf), "2026-10-26_1200", T0, "Sweet \"Spot\", 3x10", 250, &m, "0.1.0", 75, 185) > 0);
     CHECK(strcmp(buf, "2026-10-26_1200,2026-10-26T12:00:00Z,3600,3590,\"Sweet Spot, 3x10\",250,200,210,0.840,70.6,"
-                      "720,140,170,88.7,32.050,0.1.0\n") == 0);
+                      "720,140,170,88.7,32.050,0.1.0,75,185\n") == 0);
 
     int16_t b[METRICS_N_BESTS] = {900, 700, 600, 400, 350, 320, 290, -1, -1, -1, -1};
     CHECK(csv_format_bests(buf, sizeof(buf), "r1", b) > 0);

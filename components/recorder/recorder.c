@@ -27,8 +27,8 @@ static bool s_write_error;
 static struct {
     char id[16];
     uint32_t start_utc;
-    uint16_t ftp_w;
-    char workout[48];
+    rec_info_t info;
+    uint16_t ftp_estimate;
 } s_meta;
 
 void recorder_init(void)
@@ -39,9 +39,22 @@ void recorder_init(void)
     }
 }
 
+// <user dir>/<name>, e.g. /sdcard/rides/u1/summary.csv
+static void user_path(char *out, size_t size, const char *name)
+{
+    snprintf(out, size, RIDES_DIR "/%s/%s", s_meta.info.user_id, name);
+}
+
 static void path(char *out, size_t size, const char *ext)
 {
-    snprintf(out, size, RIDES_DIR "/%s.%s", s_meta.id, ext);
+    snprintf(out, size, RIDES_DIR "/%s/%s.%s", s_meta.info.user_id, s_meta.id, ext);
+}
+
+// Lowercase letters and digits only: the id is a folder name and goes into the journal
+static bool valid_user_id(const char *id)
+{
+    size_t n = strlen(id);
+    return n > 0 && n < sizeof(s_meta.info.user_id) && strspn(id, "abcdefghijklmnopqrstuvwxyz0123456789") == n;
 }
 
 static void flush(void)
@@ -58,22 +71,25 @@ static void flush(void)
     s_pending_len = 0;
 }
 
-bool recorder_start(uint32_t start_utc, const char *workout, uint16_t ftp_w)
+bool recorder_start(uint32_t start_utc, const rec_info_t *info)
 {
-    if (!s_buf) {
+    if (!s_buf || !valid_user_id(info->user_id)) {
         return false;
     }
-    mkdir(RIDES_DIR, 0775);
     memset(&s_meta, 0, sizeof(s_meta));
     csv_ride_id(s_meta.id, start_utc);
     s_meta.start_utc = start_utc;
-    s_meta.ftp_w = ftp_w;
-    snprintf(s_meta.workout, sizeof(s_meta.workout), "%s", workout ? workout : "");
+    s_meta.info = *info;
+    // One line, no newline inside: the journal is line-based
+    s_meta.info.workout[strcspn(s_meta.info.workout, "\r\n")] = 0;
+    mkdir(RIDES_DIR, 0775);
+    char p[64];
+    snprintf(p, sizeof(p), RIDES_DIR "/%s", s_meta.info.user_id);
+    mkdir(p, 0775);
     s_n = 0;
     s_pending_len = 0;
     s_write_error = false;
 
-    char p[64];
     path(p, sizeof(p), "csv");
     s_csv = fopen(p, "w");
     if (s_csv) {
@@ -81,7 +97,9 @@ bool recorder_start(uint32_t start_utc, const char *workout, uint16_t ftp_w)
     }
     FILE *j = fopen(JOURNAL, "w");
     if (j) {
-        fprintf(j, "%s\n%lu\n%u\n%s\n", s_meta.id, (unsigned long)start_utc, ftp_w, s_meta.workout);
+        const rec_info_t *i = &s_meta.info;
+        fprintf(j, "%s %lu %s %u %u %u\n%s\n", s_meta.id, (unsigned long)start_utc, i->user_id, i->ftp_w,
+                i->weight_kg, i->max_hr, i->workout);
         fclose(j);
     }
     if (!s_csv || !j) {
@@ -141,7 +159,8 @@ static bool write_outputs(void)
     char p[64];
     path(p, sizeof(p), "fit");
     FILE *f = fopen(p, "wb");
-    fit_meta_t meta = {.ftp_w = s_meta.ftp_w, .sw_version = 100};
+    const rec_info_t *info = &s_meta.info;
+    fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100};
     bool ok = f && fit_write_activity(fit_sink, f, s_buf, s_n, &meta);
     if (f) {
         ok = fclose(f) == 0 && ok;
@@ -153,27 +172,31 @@ static bool write_outputs(void)
         metrics_add(&m, &s_buf[i]);
     }
     metrics_summary_t sum;
-    metrics_summary(&m, s_meta.ftp_w, &sum);
+    metrics_summary(&m, info->ftp_w, &sum);
     char row[256];
-    if (csv_format_summary(row, sizeof(row), s_meta.id, s_meta.start_utc, s_meta.workout, s_meta.ftp_w, &sum,
-                           app->version)) {
-        ok = append(RIDES_DIR "/summary.csv", CSV_SUMMARY_HEADER, row) && ok;
+    if (csv_format_summary(row, sizeof(row), s_meta.id, s_meta.start_utc, info->workout, info->ftp_w, &sum,
+                           app->version, info->weight_kg, info->max_hr)) {
+        user_path(p, sizeof(p), "summary.csv");
+        ok = append(p, CSV_SUMMARY_HEADER, row) && ok;
     }
     int16_t bests[METRICS_N_BESTS];
     metrics_bests(s_buf, s_n, bests);
+    s_meta.ftp_estimate = metrics_ftp_estimate(bests);
     char brows[METRICS_N_BESTS * 40];
     if (csv_format_bests(brows, sizeof(brows), s_meta.id, bests)) {
-        ok = append(RIDES_DIR "/bests.csv", CSV_BESTS_HEADER, brows) && ok;
+        user_path(p, sizeof(p), "bests.csv");
+        ok = append(p, CSV_BESTS_HEADER, brows) && ok;
     }
     if (ok) {
         remove(JOURNAL);  // only when everything is on the card
     }
-    ESP_LOGI(TAG, "ride %s saved (%u s)%s", s_meta.id, (unsigned)s_n, ok ? "" : " WITH ERRORS");
+    ESP_LOGI(TAG, "ride %s/%s saved (%u s)%s", info->user_id, s_meta.id, (unsigned)s_n, ok ? "" : " WITH ERRORS");
     return ok;
 }
 
-bool recorder_finish(void)
+bool recorder_finish(uint16_t *ftp_estimate)
 {
+    *ftp_estimate = 0;
     flush();
     if (s_csv) {
         fclose(s_csv);
@@ -198,7 +221,9 @@ bool recorder_finish(void)
             fclose(f);
         }
     }
-    return write_outputs();
+    bool saved = write_outputs();
+    *ftp_estimate = saved ? s_meta.ftp_estimate : 0;
+    return saved;
 }
 
 void recorder_recover(void)
@@ -210,21 +235,22 @@ void recorder_recover(void)
         }
         return;
     }
-    char line[64];
+    char line[96];
+    unsigned long start = 0;
+    unsigned ftp = 0, weight = 0, max_hr = 0;
     memset(&s_meta, 0, sizeof(s_meta));
-    bool ok = fgets(s_meta.id, sizeof(s_meta.id), j) && fgets(line, sizeof(line), j);
-    if (ok) {
-        s_meta.start_utc = (uint32_t)strtoul(line, NULL, 10);
-        ok = fgets(line, sizeof(line), j) != NULL;
-        s_meta.ftp_w = ok ? (uint16_t)atoi(line) : 0;
-        if (!fgets(s_meta.workout, sizeof(s_meta.workout), j)) {
-            s_meta.workout[0] = 0;
-        }
+    rec_info_t *info = &s_meta.info;
+    bool ok = fgets(line, sizeof(line), j) &&
+              sscanf(line, "%15s %lu %7s %u %u %u", s_meta.id, &start, info->user_id, &ftp, &weight, &max_hr) == 6;
+    if (ok && fgets(info->workout, sizeof(info->workout), j)) {
+        info->workout[strcspn(info->workout, "\r\n")] = 0;
     }
     fclose(j);
-    s_meta.id[strcspn(s_meta.id, "\r\n")] = 0;
-    s_meta.workout[strcspn(s_meta.workout, "\r\n")] = 0;
-    if (!ok || strlen(s_meta.id) != 15 || strchr(s_meta.id, '/')) {
+    s_meta.start_utc = (uint32_t)start;
+    info->ftp_w = (uint16_t)(ftp <= 600 ? ftp : 0);
+    info->weight_kg = (uint8_t)(weight <= 255 ? weight : 0);
+    info->max_hr = (uint8_t)(max_hr <= 255 ? max_hr : 0);
+    if (!ok || strlen(s_meta.id) != 15 || strchr(s_meta.id, '/') || !valid_user_id(info->user_id)) {
         ESP_LOGW(TAG, "journal unreadable, removed");
         remove(JOURNAL);
         return;
@@ -243,6 +269,6 @@ void recorder_recover(void)
     if (f) {
         fclose(f);
     }
-    ESP_LOGW(TAG, "recovering interrupted ride %s (%u s)", s_meta.id, (unsigned)s_n);
+    ESP_LOGW(TAG, "recovering interrupted ride %s/%s (%u s)", info->user_id, s_meta.id, (unsigned)s_n);
     write_outputs();
 }

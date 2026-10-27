@@ -11,6 +11,7 @@
 <body>
 <header>
   <h1>JustRide</h1>
+  <select id="user" aria-label="Rider"></select>
   <nav>
     <button data-view="overview" class="active">Overview</button>
     <button data-view="curve">Power curve</button>
@@ -37,11 +38,12 @@
       <div id="ride-cards" class="cards"></div>
       <div id="ride-chart"></div>
       <h3>Power zones</h3><div id="ride-zones"></div>
+      <h3>Heart-rate zones</h3><div id="ride-hr-zones"></div>
       <h3>Intervals</h3><div id="ride-intervals"></div>
     </div>
   </section>
   <section id="sql" class="view" hidden>
-    <p>Tables: <code>summary</code>, <code>bests</code>, and <code>ride</code> (the ride last opened).</p>
+    <p>Tables (for the selected rider): <code>summary</code>, <code>bests</code>, and <code>ride</code> (the ride last opened).</p>
     <textarea id="sql-text" rows="5">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
        round(sum(tss)) AS tss, round(sum(duration_s) / 3600, 1) AS hours
 FROM summary GROUP BY 1 ORDER BY 1 DESC</textarea>

@@ -1,4 +1,5 @@
 // JustRide statistics: DuckDB-WASM over the CSV files the head unit writes.
+// Each rider has a folder /rides/<id>/; /api/users lists the riders.
 // summary.csv and bests.csv are loaded on every visit (small); a ride's
 // per-second CSV only when it is opened. Plain HTTP on the LAN is not a secure
 // context, so OPFS is unavailable; the browser's HTTP cache + ETags do the caching.
@@ -7,7 +8,7 @@ import uPlot from './vendor/uplot-1.6.32/uPlot.esm.js';
 
 const $ = (id) => document.getElementById(id);
 const status = (t) => { $('status').textContent = t; $('status').hidden = !t; };
-let conn;
+let conn, user;  // user: {id, name}
 
 // ---- DuckDB ---------------------------------------------------------------------
 
@@ -51,7 +52,7 @@ async function loadCsv(db, table, url, columns) {
 
 const SUMMARY_COLS = 'ride_id VARCHAR, start_utc TIMESTAMP, duration_s INTEGER, moving_s INTEGER, workout VARCHAR, ' +
   'ftp_w INTEGER, avg_w INTEGER, np_w INTEGER, if DOUBLE, tss DOUBLE, kj INTEGER, avg_hr INTEGER, max_hr INTEGER, ' +
-  'avg_cad DOUBLE, distance_km DOUBLE, fw VARCHAR';
+  'avg_cad DOUBLE, distance_km DOUBLE, fw VARCHAR, weight_kg INTEGER, user_max_hr INTEGER';
 const BESTS_COLS = 'ride_id VARCHAR, duration_s INTEGER, watts INTEGER';
 const RIDE_COLS = 't_s INTEGER, ts_utc TIMESTAMP, power_w INTEGER, cadence_rpm DOUBLE, speed_kmh DOUBLE, ' +
   'hr_bpm INTEGER, target_w INTEGER, grade_pct DOUBLE, gear INTEGER, interval_idx INTEGER, mode VARCHAR, lap INTEGER';
@@ -141,8 +142,10 @@ async function curve() {
     FROM bests b LEFT JOIN summary s USING (ride_id) GROUP BY 1 ORDER BY 1`);
   if (!rows.length) { $('curve-chart').innerHTML = '<p>No rides yet.</p>'; $('ftp').textContent = ''; return; }
   const m20 = rows.find((r) => r.d === 1200);
-  $('ftp').textContent = m20 ? `Estimated FTP: ${Math.round(m20.best * 0.95)} W (95 % of best 20 min, ${m20.best} W)` :
-    'Ride 20 minutes or longer for an FTP estimate.';
+  const kg = (await q(`SELECT weight_kg FROM summary WHERE weight_kg > 0 ORDER BY start_utc DESC LIMIT 1`))[0]?.weight_kg;
+  const ftp = m20 && Math.round(m20.best * 0.95);
+  $('ftp').textContent = m20 ? `Estimated FTP: ${ftp} W${kg ? ` (${fmt.num(ftp / kg, 2)} W/kg at ${kg} kg)` : ''}` +
+    ` = 95 % of best 20 min, ${m20.best} W` : 'Ride 20 minutes or longer for an FTP estimate.';
   chart('curve-chart', {
     scales: { x: { time: false, distr: 3 } },
     axes: [{ ...axes()[0], values: (u, v) => v.map((s) => (s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : `${s / 3600}h`)) }, axes()[1]],
@@ -167,13 +170,14 @@ async function rideList(db) {
 
 async function rideDetail(db, s) {
   status('Loading ride...');
-  await loadCsv(db, 'ride', `/rides/${encodeURIComponent(s.ride_id)}.csv`, RIDE_COLS);
+  await loadCsv(db, 'ride', `/rides/${user.id}/${encodeURIComponent(s.ride_id)}.csv`, RIDE_COLS);
   status('');
   $('ride-list').hidden = true;
   $('ride-detail').hidden = false;
   $('ride-title').textContent = `${fmt.date(s.start_utc)}  ${s.workout || 'Free ride'}`;
   cards($('ride-cards'), [
     ['time', fmt.dur(s.duration_s)], ['avg power', `${s.avg_w} W`], ['normalized power', `${s.np_w} W`],
+    ...(s.weight_kg ? [['avg W/kg', fmt.num(s.avg_w / s.weight_kg, 2)]] : []),
     ['TSS', fmt.num(s.tss)], ['IF', fmt.num(s.if, 2)], ['kJ', s.kj], ['avg HR', s.avg_hr || '-'],
     ['avg cadence', fmt.num(s.avg_cad)],
   ]);
@@ -207,6 +211,17 @@ async function rideDetail(db, s) {
   table($('ride-zones'), zones, [['zone', `Zone (FTP ${ftp} W)`], ['secs', 'Time', fmt.dur],
     ['secs', 'Share', (v) => `${fmt.num((v / total) * 100)} %`]]);
 
+  // Heart-rate zones as % of the rider's max HR at the time of the ride
+  const hrmax = s.user_max_hr;
+  const hrz = hrmax ? await q(`SELECT CASE
+        WHEN hr_bpm < ${hrmax} * 0.60 THEN 'Z1 < 60 %' WHEN hr_bpm < ${hrmax} * 0.70 THEN 'Z2 60-70 %'
+        WHEN hr_bpm < ${hrmax} * 0.80 THEN 'Z3 70-80 %' WHEN hr_bpm < ${hrmax} * 0.90 THEN 'Z4 80-90 %'
+        ELSE 'Z5 > 90 %' END AS zone, count(*) AS secs
+      FROM ride WHERE hr_bpm > 0 GROUP BY 1 ORDER BY 1`) : [];
+  const hrTotal = hrz.reduce((a, z) => a + z.secs, 0) || 1;
+  table($('ride-hr-zones'), hrz, [['zone', `Zone (max HR ${hrmax || '-'})`], ['secs', 'Time', fmt.dur],
+    ['secs', 'Share', (v) => `${fmt.num((v / hrTotal) * 100)} %`]]);
+
   const intervals = await q(`SELECT interval_idx + 1 AS n, count(*) AS secs, round(avg(target_w)) AS target,
       round(avg(power_w)) AS actual, round(avg(cadence_rpm)) AS cad, round(avg(hr_bpm)) AS hr
     FROM ride WHERE mode = 'erg' GROUP BY interval_idx ORDER BY interval_idx`);
@@ -230,21 +245,34 @@ async function runSql() {
 
 // ---- Main -----------------------------------------------------------------------
 
+async function loadUser(db, u) {
+  user = u;
+  status('Loading rides...');
+  const n = await loadCsv(db, 'summary', `/rides/${u.id}/summary.csv`, SUMMARY_COLS);
+  await loadCsv(db, 'bests', `/rides/${u.id}/bests.csv`, BESTS_COLS);
+  await loadCsv(db, 'ride', null, RIDE_COLS); // empty until a ride is opened
+  status(n ? '' : `No rides recorded for ${u.name} yet.`);
+}
+
 async function main() {
   const db = await openDb();
-  status('Loading rides...');
-  const n = await loadCsv(db, 'summary', '/rides/summary.csv', SUMMARY_COLS);
-  await loadCsv(db, 'bests', '/rides/bests.csv', BESTS_COLS);
-  await loadCsv(db, 'ride', null, RIDE_COLS); // empty until a ride is opened
-  status(n ? '' : 'No rides recorded yet.');
+  const users = await (await fetch('/api/users', { cache: 'no-cache' })).json();
+  if (!users.length) { status('No riders found (is the SD card in?)'); return; }
+  const pick = $('user');
+  pick.innerHTML = users.map((u, i) => `<option value="${i}">${u.name.replace(/[&<>"]/g, '')}</option>`).join('');
+  pick.value = String(Math.max(0, users.findIndex((u) => u.active)));
+  await loadUser(db, users[pick.value]);
 
+  let current = 'overview';
   const views = { overview, curve, rides: () => rideList(db), sql: async () => {} };
   const show = async (name) => {
+    current = name;
     document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     document.querySelectorAll('.view').forEach((v) => (v.hidden = v.id !== name));
     await views[name]();
   };
   document.querySelectorAll('nav button').forEach((b) => (b.onclick = () => show(b.dataset.view)));
+  pick.onchange = async () => { await loadUser(db, users[pick.value]); await show(current); };
   $('ride-back').onclick = () => rideList(db);
   $('sql-run').onclick = runSql;
   await show('overview');

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include "ble_mgr.h"
 #include "bsp.h"
 #include "drv_ftms.h"
 #include "esp_log.h"
@@ -43,9 +44,10 @@ static void unlock(void) { xSemaphoreGive(s_lock); }
 
 static ride_config_t ride_cfg(void)
 {
+    const user_t *u = settings_user(&s_settings);
     return (ride_config_t){
-        .ftp_w = s_settings.ftp_w,
-        .max_erg_w = s_settings.max_erg_w,
+        .ftp_w = u->ftp_w,
+        .max_erg_w = u->max_erg_w,
         .crr = s_settings.crr,
         .cw = s_settings.cw,
         .gears = s_settings.gears,
@@ -60,7 +62,12 @@ static void start_ride(const workout_t *wo)
     web_stop();  // Wi-Fi off while riding (RGB drift, and no OTA mid-ride)
     s_ride.cfg = ride_cfg();  // ride_start re-validates it and keeps live sensor values
     ride_start(&s_ride, wo, now_ms(), utc_now());
-    recorder_start(utc_now(), wo ? wo->name : "", s_settings.ftp_w);
+    const user_t *u = settings_user(&s_settings);
+    rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr};
+    snprintf(info.user_id, sizeof(info.user_id), "%s", u->id);
+    snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : "");
+    recorder_start(utc_now(), &info);
+    s_status.ftp_suggest_w = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
 
@@ -152,10 +159,14 @@ static void task(void *arg)
         // command went out and without the lock, so the UI keeps running.
         // Only this task touches the recorder and handles ride actions.
         if (finish) {
-            bool saved = recorder_finish();
+            uint16_t ftp_est;
+            bool saved = recorder_finish(&ftp_est);
             lock();
             s_status.saving = false;
             s_status.saved = saved;
+            // Only suggested, never applied: one bad power reading must not raise every ERG target
+            uint16_t ftp = settings_user(&s_settings)->ftp_w;
+            s_status.ftp_suggest_w = ftp_est > ftp && ftp_est <= RIDE_FTP_MAX ? ftp_est : 0;
             unlock();
         }
     }
@@ -168,6 +179,7 @@ void app_start(void)
     settings_load(&s_settings);
     ride_config_t cfg = ride_cfg();
     ride_init(&s_ride, &cfg);
+    ble_mgr_set_user(settings_user(&s_settings)->id);  // before ble_mgr_start
     recorder_init();
     recorder_recover();
     xTaskCreatePinnedToCore(task, "control", 6144, NULL, 5, NULL, 1);
@@ -238,22 +250,78 @@ static void apply_settings(void)
     settings_save(&s_settings);
 }
 
-void app_set_ftp(uint16_t ftp_w)
+bool app_edit_user(const user_t *u)
+{
+    bool ok = u->ftp_w >= RIDE_FTP_MIN && u->ftp_w <= RIDE_FTP_MAX && u->max_erg_w >= 100 &&
+              u->max_erg_w <= RIDE_ERG_CAP_W && u->weight_kg >= 30 && u->weight_kg <= 200 && u->max_hr >= 100 &&
+              u->max_hr <= 230 && settings_valid_name(u->name);
+    lock();
+    ok = ok && s_ride.state == RIDE_IDLE;
+    if (ok) {
+        user_t *cur = settings_user(&s_settings);
+        if (u->ftp_w != cur->ftp_w) {
+            s_status.ftp_suggest_w = 0;
+        }
+        memcpy(cur->name, u->name, sizeof(cur->name));
+        cur->ftp_w = u->ftp_w;
+        cur->max_erg_w = u->max_erg_w;
+        cur->weight_kg = u->weight_kg;
+        cur->max_hr = u->max_hr;
+        apply_settings();
+    }
+    unlock();
+    return ok;
+}
+
+void app_accept_ftp(void)
 {
     lock();
-    if (s_ride.state == RIDE_IDLE && ftp_w >= RIDE_FTP_MIN && ftp_w <= RIDE_FTP_MAX) {
-        s_settings.ftp_w = ftp_w;
+    if (s_ride.state != RIDE_RUNNING && s_ride.state != RIDE_PAUSED && s_status.ftp_suggest_w) {
+        settings_user(&s_settings)->ftp_w = s_status.ftp_suggest_w;
+        s_status.ftp_suggest_w = 0;
         apply_settings();
     }
     unlock();
 }
 
-void app_set_max_erg(uint16_t w)
+// Called with the lock held, after s_settings.user changed
+static void user_changed(void)
+{
+    s_status.ftp_suggest_w = 0;
+    apply_settings();
+    ble_mgr_set_user(settings_user(&s_settings)->id);  // reconnects to this user's HR strap
+}
+
+bool app_select_user(int idx)
 {
     lock();
-    if (s_ride.state == RIDE_IDLE && w >= 100 && w <= RIDE_ERG_CAP_W) {
-        s_settings.max_erg_w = w;
-        apply_settings();
+    bool ok = s_ride.state == RIDE_IDLE && idx >= 0 && idx < s_settings.n_users;
+    if (ok && idx != s_settings.user) {
+        s_settings.user = (uint8_t)idx;
+        user_changed();
     }
     unlock();
+    return ok;
+}
+
+bool app_add_user(const char *name)
+{
+    lock();
+    bool ok = s_ride.state == RIDE_IDLE && settings_add_user(&s_settings, name);
+    if (ok) {
+        user_changed();
+    }
+    unlock();
+    return ok;
+}
+
+bool app_delete_user(void)
+{
+    lock();
+    bool ok = s_ride.state == RIDE_IDLE && settings_delete_user(&s_settings);
+    if (ok) {
+        user_changed();
+    }
+    unlock();
+    return ok;
 }

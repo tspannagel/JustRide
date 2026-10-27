@@ -104,6 +104,9 @@ static void test_bests(void)
     CHECK_EQ(b[2], 500);              // 10 s
     CHECK_EQ(b[6], (300 * 100 + 10 * 400 + 900) / 300); // 300 s window holds both
     CHECK_EQ(b[7], -1);               // 600 s: ride too short
+    CHECK_EQ(metrics_ftp_estimate(b), 0);
+    b[8] = 263;                       // 20 min
+    CHECK_EQ(metrics_ftp_estimate(b), 250);
     free(s);
 }
 

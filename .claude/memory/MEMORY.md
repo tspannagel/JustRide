@@ -7,5 +7,5 @@ Don't duplicate what `CLAUDE.md`, `HANDOVER.md`, the code or git history already
 - [Framework: ESP-IDF](framework-choice.md) — confirmed ESP-IDF >= 5.3, no Arduino
 - [Keep it simple](keep-it-simple.md) — no overengineering, only scaffold what's used now
 - [Operational safety](operational-safety.md) — review every change; hardware must not be damaged
-- [Firmware builds in CI only](no-local-idf.md) — no local or cloud ESP-IDF; use the CI firmware job
+- [ESP-IDF on the Mac](no-local-idf.md) — local `idf.py build` works since 2026-10-27; cloud sessions use CI
 - [gitignore conventions](gitignore-conventions.md) — sdkconfig ignored, stats vendor/ generated (not committed)

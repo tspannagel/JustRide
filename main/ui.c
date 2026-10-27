@@ -1,4 +1,4 @@
-// Touch UI: home, workouts, settings, Wi-Fi, ride, summary. LVGL 9.
+// Touch UI: home, riders, workouts, settings, Wi-Fi, ride, summary. LVGL 9.
 // Everything here runs in the LVGL task; ride state comes from app_get_view().
 
 #include "ui.h"
@@ -22,15 +22,18 @@ static const char *TAG = "ui";
 #define MAX_LIST 40
 #define PAD 12
 
-static lv_obj_t *scr_home, *scr_workouts, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
+static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
 
-static lv_obj_t *home_status;
+static lv_obj_t *home_status, *home_user;
+static lv_obj_t *users_list, *users_msg;
+static lv_obj_t *name_title, *name_ta;
+static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
-static lv_obj_t *set_ftp, *set_erg;
+static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
 static lv_obj_t *wifi_status, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
 static lv_obj_t *r_time, *r_info, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats, *r_paused;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
-static lv_obj_t *sum_text;
+static lv_obj_t *sum_text, *sum_ftp_btn, *sum_ftp_label;
 
 static char s_paths[MAX_LIST][80];
 
@@ -89,6 +92,7 @@ static void on_action(lv_event_t *e) { app_post_action((action_t)(intptr_t)lv_ev
 
 // ---- Home ---------------------------------------------------------------------
 
+static void open_users(lv_event_t *e);
 static void open_workouts(lv_event_t *e);
 static void open_settings(lv_event_t *e);
 static void open_wifi(lv_event_t *e);
@@ -96,6 +100,8 @@ static void open_wifi(lv_event_t *e);
 static void build_home(void)
 {
     scr_home = screen("JustRide", false);
+    lv_obj_t *u = button(scr_home, "", 420, 60, open_users, NULL);
+    home_user = lv_obj_get_child(u, 0);
     home_status = label(scr_home, &lv_font_montserrat_20, "");
     lv_obj_t *r1 = row(scr_home), *r2 = row(scr_home);
     button(r1, "Free ride", 200, 110, on_action, (void *)ACT_START_FREE);
@@ -106,11 +112,122 @@ static void build_home(void)
 
 static void update_home(const ride_view_t *v, const app_status_t *st)
 {
+    settings_t s;
+    app_get_settings(&s);
+    lv_label_set_text_fmt(home_user, LV_SYMBOL_HOME "  Rider: %s", settings_user(&s)->name);
     lv_label_set_text_fmt(home_status, "Trainer: %s\nHeart rate: %s\nZwift Ride: %s%s%s",
                           st->trainer ? "connected" : "searching...", st->hr ? "connected" : "-",
                           st->controller ? "connected" : "-",
                           st->sd_ok ? "" : "\nNo SD card: rides are not saved",
                           st->clock_ok ? "" : "\nClock not set: turn on Wi-Fi once");
+}
+
+// ---- Riders -------------------------------------------------------------------
+
+static void on_user(lv_event_t *e)
+{
+    app_select_user((int)(intptr_t)lv_event_get_user_data(e));
+    go(scr_home);
+}
+
+static void open_users(lv_event_t *e)
+{
+    settings_t s;
+    app_get_settings(&s);
+    lv_obj_clean(users_list);
+    lv_label_set_text(users_msg, "");
+    for (int i = 0; i < s.n_users; i++) {
+        lv_obj_t *b = lv_list_add_button(users_list, i == s.user ? LV_SYMBOL_OK : NULL, s.users[i].name);
+        lv_obj_add_event_cb(b, on_user, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
+    go(scr_users);
+}
+
+static void open_name(bool add)
+{
+    settings_t s;
+    app_get_settings(&s);
+    s_name_add = add;
+    lv_label_set_text(name_title, add ? "New rider name" : "Rename rider");
+    lv_textarea_set_text(name_ta, add ? "" : settings_user(&s)->name);
+    go(scr_name);
+}
+
+static void on_add_user(lv_event_t *e)
+{
+    settings_t s;
+    app_get_settings(&s);
+    if (s.n_users >= SETTINGS_MAX_USERS) {
+        lv_label_set_text_fmt(users_msg, "At most %d riders", SETTINGS_MAX_USERS);
+        return;
+    }
+    open_name(true);
+}
+
+static void on_rename_user(lv_event_t *e) { open_name(false); }
+
+static void on_delete_user(lv_event_t *e)
+{
+    if (!app_delete_user()) {
+        lv_label_set_text(users_msg, "The last rider can't be deleted");
+        return;
+    }
+    open_users(NULL);
+    lv_label_set_text(users_msg, "Deleted. Their rides stay on the SD card.");
+}
+
+static void build_users(void)
+{
+    scr_users = screen("Riders", true);
+    users_list = lv_list_create(scr_users);
+    lv_obj_set_size(users_list, LV_PCT(100), 240);
+    lv_obj_t *r = row(scr_users);
+    button(r, "Add", 120, 60, on_add_user, NULL);
+    button(r, "Rename", 120, 60, on_rename_user, NULL);
+    // Long press: deleting a rider (and their paired HR strap) by accident would be annoying
+    lv_obj_t *del = button(r, "Hold to delete", 170, 60, on_delete_user, NULL);
+    lv_obj_remove_event_cb(del, on_delete_user);
+    lv_obj_add_event_cb(del, on_delete_user, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_set_style_bg_color(del, lv_palette_main(LV_PALETTE_RED), 0);
+    users_msg = label(scr_users, &lv_font_montserrat_16, "");
+}
+
+static void on_name_done(lv_event_t *e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_READY) {
+        settings_t s;
+        app_get_settings(&s);
+        user_t u = *settings_user(&s);
+        const char *name = lv_textarea_get_text(name_ta);
+        bool ok = settings_valid_name(name);
+        if (ok && s_name_add) {
+            ok = app_add_user(name);
+        } else if (ok) {
+            snprintf(u.name, sizeof(u.name), "%s", name);
+            ok = app_edit_user(&u);
+        }
+        if (!ok) {
+            lv_label_set_text(name_title, "Use 1-15 letters, digits or spaces");
+            return;
+        }
+    }
+    open_users(NULL);
+}
+
+static void build_name(void)
+{
+    scr_name = screen(NULL, false);
+    name_title = label(scr_name, &lv_font_montserrat_20, "");
+    name_ta = lv_textarea_create(scr_name);
+    lv_textarea_set_one_line(name_ta, true);
+    lv_textarea_set_max_length(name_ta, SETTINGS_NAME_LEN - 1);
+    lv_obj_set_width(name_ta, LV_PCT(100));
+    lv_obj_t *kb = lv_keyboard_create(scr_name);
+    lv_obj_set_size(kb, LV_PCT(100), 280);
+    lv_keyboard_set_textarea(kb, name_ta);
+    // The keyboard's OK and close keys send READY / CANCEL
+    lv_obj_add_event_cb(kb, on_name_done, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(kb, on_name_done, LV_EVENT_CANCEL, NULL);
 }
 
 // ---- Workouts -----------------------------------------------------------------
@@ -164,24 +281,49 @@ static void update_settings(void)
 {
     settings_t s;
     app_get_settings(&s);
-    lv_label_set_text_fmt(set_ftp, "FTP %u W", s.ftp_w);
-    lv_label_set_text_fmt(set_erg, "Max ERG %u W", s.max_erg_w);
+    const user_t *u = settings_user(&s);
+    lv_label_set_text_fmt(set_title, "Settings: %s", u->name);
+    lv_label_set_text_fmt(set_ftp, "FTP %u W", u->ftp_w);
+    lv_label_set_text_fmt(set_erg, "Max ERG %u W", u->max_erg_w);
+    lv_label_set_text_fmt(set_weight, "Weight %u kg", u->weight_kg);
+    lv_label_set_text_fmt(set_hr, "Max HR %u", u->max_hr);
 }
 
-static void on_ftp(lv_event_t *e)
+// One handler for all +/- buttons: user data = field * 1000 + 500 + step
+enum { F_FTP, F_ERG, F_WEIGHT, F_HR };
+#define STEP(field, step) ((void *)(intptr_t)((field) * 1000 + 500 + (step)))
+
+static void on_step(lv_event_t *e)
 {
+    int v = (int)(intptr_t)lv_event_get_user_data(e);
+    int field = v / 1000, step = v % 1000 - 500;
     settings_t s;
     app_get_settings(&s);
-    app_set_ftp((uint16_t)(s.ftp_w + (intptr_t)lv_event_get_user_data(e)));
+    user_t u = *settings_user(&s);
+    if (field == F_FTP) {
+        u.ftp_w = (uint16_t)(u.ftp_w + step);
+    } else if (field == F_ERG) {
+        u.max_erg_w = (uint16_t)(u.max_erg_w + step);
+    } else if (field == F_WEIGHT) {
+        u.weight_kg = (uint8_t)(u.weight_kg + step);
+    } else {
+        u.max_hr = (uint8_t)(u.max_hr + step);
+    }
+    app_edit_user(&u);  // refuses values out of range
     update_settings();
 }
 
-static void on_erg(lv_event_t *e)
+static void stepper(lv_obj_t *parent, lv_obj_t **value, int field, int step)
 {
-    settings_t s;
-    app_get_settings(&s);
-    app_set_max_erg((uint16_t)(s.max_erg_w + (intptr_t)lv_event_get_user_data(e)));
-    update_settings();
+    lv_obj_t *r = row(parent);
+    char t[8];
+    snprintf(t, sizeof(t), "-%d", step);
+    button(r, t, 80, 56, on_step, STEP(field, -step));
+    *value = label(r, &lv_font_montserrat_28, "");
+    lv_obj_set_width(*value, 230);
+    lv_obj_set_style_text_align(*value, LV_TEXT_ALIGN_CENTER, 0);
+    snprintf(t, sizeof(t), "+%d", step);
+    button(r, t, 80, 56, on_step, STEP(field, step));
 }
 
 static void on_forget(lv_event_t *e)
@@ -198,17 +340,13 @@ static void open_settings(lv_event_t *e)
 
 static void build_settings(void)
 {
-    scr_settings = screen("Settings", true);
-    lv_obj_t *r = row(scr_settings);
-    button(r, "-5", 80, 70, on_ftp, (void *)-5);
-    set_ftp = label(r, &lv_font_montserrat_28, "");
-    button(r, "+5", 80, 70, on_ftp, (void *)5);
-    r = row(scr_settings);
-    button(r, "-50", 80, 70, on_erg, (void *)-50);
-    set_erg = label(r, &lv_font_montserrat_28, "");
-    button(r, "+50", 80, 70, on_erg, (void *)50);
-    r = row(scr_settings);
-    button(r, "Forget paired devices", 300, 70, on_forget, NULL);
+    scr_settings = screen(NULL, true);
+    set_title = label(lv_obj_get_child(scr_settings, 0), &lv_font_montserrat_28, "");
+    stepper(scr_settings, &set_ftp, F_FTP, 5);
+    stepper(scr_settings, &set_erg, F_ERG, 50);
+    stepper(scr_settings, &set_weight, F_WEIGHT, 1);
+    stepper(scr_settings, &set_hr, F_HR, 1);
+    button(row(scr_settings), "Forget paired devices", 300, 56, on_forget, NULL);
     label(scr_settings, &lv_font_montserrat_16, esp_app_get_description()->version);
 }
 
@@ -362,10 +500,14 @@ static void update_ride(const ride_view_t *v)
 
 // ---- Summary ------------------------------------------------------------------
 
+static void on_accept_ftp(lv_event_t *e) { app_accept_ftp(); }
+
 static void build_summary(void)
 {
     scr_summary = screen("Ride finished", false);
     sum_text = label(scr_summary, &lv_font_montserrat_28, "");
+    sum_ftp_btn = button(row(scr_summary), "", 300, 70, on_accept_ftp, NULL);
+    sum_ftp_label = lv_obj_get_child(sum_ftp_btn, 0);
     button(row(scr_summary), "Done", 200, 80, on_action, (void *)ACT_DISMISS);
 }
 
@@ -382,6 +524,9 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
                           st->saving ? "\nSaving..."
                           : st->saved ? "\nSaved"
                                       : "\nNOT saved (shorter than 1 min, or SD card problem)");
+    // 95 % of this ride's best 20 min beat the FTP: offer it, never apply it silently
+    show(sum_ftp_btn, st->ftp_suggest_w > 0);
+    lv_label_set_text_fmt(sum_ftp_label, "Set FTP to %u W", st->ftp_suggest_w);
 }
 
 // ---- Screens + refresh --------------------------------------------------------
@@ -464,6 +609,8 @@ void ui_start(void)
     lv_theme_default_init(disp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_ORANGE), true,
                           &lv_font_montserrat_20);
     build_home();
+    build_users();
+    build_name();
     build_workouts();
     build_settings();
     build_wifi();

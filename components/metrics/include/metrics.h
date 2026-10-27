@@ -49,3 +49,6 @@ extern const uint16_t metrics_best_s[METRICS_N_BESTS]; // 1, 5, 10, ... 3600
 
 // Best average power for each duration in metrics_best_s; -1 if the ride is shorter.
 void metrics_bests(const ride_sample_t *s, size_t n, int16_t out[METRICS_N_BESTS]);
+
+// FTP estimate: 95 % of the best 20 min power; 0 if the ride is shorter than 20 min.
+uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS]);

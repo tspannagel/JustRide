@@ -94,11 +94,122 @@ static void load_gears(gear_table_t *g)
     }
 }
 
+bool settings_valid_name(const char *name)
+{
+    size_t n = strlen(name);
+    bool visible = false;
+    for (const char *c = name; *c; c++) {
+        if (*c < 0x20 || *c > 0x7E) {
+            return false;  // the display font is ASCII only
+        }
+        visible |= *c != ' ';
+    }
+    return n > 0 && n < SETTINGS_NAME_LEN && visible;
+}
+
+static void user_defaults(user_t *u, uint16_t id, const char *name)
+{
+    memset(u, 0, sizeof(*u));
+    snprintf(u->id, sizeof(u->id), "u%u", id);
+    snprintf(u->name, sizeof(u->name), "%s", name);
+    u->ftp_w = 200;
+    u->max_erg_w = 600;
+    u->weight_kg = 75;
+    u->max_hr = 185;
+}
+
+bool settings_add_user(settings_t *s, const char *name)
+{
+    if (s->n_users >= SETTINGS_MAX_USERS || s->next_id > 9999 || !settings_valid_name(name)) {
+        return false;
+    }
+    user_defaults(&s->users[s->n_users], s->next_id++, name);
+    s->user = s->n_users++;
+    return true;
+}
+
+bool settings_delete_user(settings_t *s)
+{
+    if (s->n_users <= 1) {
+        return false;
+    }
+    memmove(&s->users[s->user], &s->users[s->user + 1], (s->n_users - s->user - 1) * sizeof(user_t));
+    s->n_users--;
+    s->user = 0;
+    return true;
+}
+
+// "u<1..9999>", and not used by an earlier entry
+static bool valid_id(const settings_t *s, const char *id, uint16_t *num)
+{
+    char *end;
+    unsigned long n = id[0] == 'u' && id[1] >= '1' && id[1] <= '9' ? strtoul(id + 1, &end, 10) : 0;
+    if (n == 0 || n > 9999 || *end) {
+        return false;
+    }
+    for (int i = 0; i < s->n_users; i++) {
+        if (strcmp(s->users[i].id, id) == 0) {
+            return false;
+        }
+    }
+    *num = (uint16_t)n;
+    return true;
+}
+
+static void load_users(settings_t *s, const cJSON *root)
+{
+    const cJSON *arr = cJSON_GetObjectItem(root, "users");
+    const cJSON *it;
+    for (it = cJSON_IsArray(arr) ? arr->child : NULL; it && s->n_users < SETTINGS_MAX_USERS; it = it->next) {
+        user_t u;
+        uint16_t num;
+        char id[8] = "", name[SETTINGS_NAME_LEN] = "";
+        get_str(it, "id", id, sizeof(id));
+        get_str(it, "name", name, sizeof(name));
+        if (!valid_id(s, id, &num) || !settings_valid_name(name)) {
+            ESP_LOGW(TAG, "skipping invalid user entry");
+            continue;
+        }
+        user_defaults(&u, num, name);
+        u.ftp_w = (uint16_t)get_int(it, "ftp_w", u.ftp_w, 50, 600);
+        u.max_erg_w = (uint16_t)get_int(it, "max_erg_w", u.max_erg_w, 100, 1500);
+        u.weight_kg = (uint8_t)get_int(it, "weight_kg", u.weight_kg, 30, 200);
+        u.max_hr = (uint8_t)get_int(it, "max_hr", u.max_hr, 100, 230);
+        s->users[s->n_users++] = u;
+        if (num >= s->next_id) {
+            s->next_id = num + 1;
+        }
+    }
+    s->next_id = (uint16_t)get_int(root, "next_user_id", s->next_id, s->next_id, 10000);
+    char active[8] = "";
+    get_str(root, "user", active, sizeof(active));
+    for (int i = 0; i < s->n_users; i++) {
+        if (strcmp(s->users[i].id, active) == 0) {
+            s->user = (uint8_t)i;
+        }
+    }
+}
+
+void settings_read_users(settings_t *s)
+{
+    memset(s, 0, sizeof(*s));
+    s->next_id = 1;
+    char *text = read_text(SETTINGS_PATH);
+    if (!text) {
+        text = read_text(SETTINGS_PATH ".tmp");
+    }
+    cJSON *root = text ? cJSON_Parse(text) : NULL;
+    free(text);
+    if (root) {
+        load_users(s, root);
+        cJSON_Delete(root);
+    }
+}
+
 void settings_load(settings_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->ftp_w = 200;
-    s->max_erg_w = 600;
+    s->next_id = 1;
     s->crr = 40;
     s->cw = 51;
 
@@ -111,8 +222,14 @@ void settings_load(settings_t *s)
     free(text);
     bool valid = root != NULL;
     if (root) {
-        s->ftp_w = (uint16_t)get_int(root, "ftp_w", s->ftp_w, 50, 600);
-        s->max_erg_w = (uint16_t)get_int(root, "max_erg_w", s->max_erg_w, 100, 1500);
+        load_users(s, root);
+        if (s->n_users == 0) {
+            // First start, or a settings.json from before multi-user: keep its FTP and ERG limit
+            user_defaults(&s->users[0], s->next_id++, "Rider");
+            s->users[0].ftp_w = (uint16_t)get_int(root, "ftp_w", 200, 50, 600);
+            s->users[0].max_erg_w = (uint16_t)get_int(root, "max_erg_w", 600, 100, 1500);
+            s->n_users = 1;
+        }
         s->crr = (uint8_t)(get_num(root, "crr", 0.004, 0.001, 0.02) * 10000 + 0.5);
         s->cw = (uint8_t)(get_num(root, "cw", 0.51, 0.1, 2.0) * 100 + 0.5);
         get_str(root, "wifi_ssid", s->wifi_ssid, sizeof(s->wifi_ssid));
@@ -122,6 +239,10 @@ void settings_load(settings_t *s)
     } else if (exists) {
         // Never overwrite a file the user is editing: a typo would erase their Wi-Fi settings
         ESP_LOGE(TAG, "settings.json is not valid JSON; using defaults, file left unchanged");
+    }
+    if (s->n_users == 0) {  // no or invalid settings.json
+        user_defaults(&s->users[0], s->next_id++, "Rider");
+        s->n_users = 1;
     }
     load_gears(&s->gears);
 
@@ -139,8 +260,20 @@ bool settings_save(const settings_t *s)
 {
     mkdir(DIR, 0775);
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "ftp_w", s->ftp_w);
-    cJSON_AddNumberToObject(root, "max_erg_w", s->max_erg_w);
+    cJSON_AddStringToObject(root, "user", s->users[s->user].id);
+    cJSON_AddNumberToObject(root, "next_user_id", s->next_id);
+    cJSON *users = cJSON_AddArrayToObject(root, "users");
+    for (int i = 0; i < s->n_users; i++) {
+        const user_t *u = &s->users[i];
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id", u->id);
+        cJSON_AddStringToObject(o, "name", u->name);
+        cJSON_AddNumberToObject(o, "ftp_w", u->ftp_w);
+        cJSON_AddNumberToObject(o, "max_erg_w", u->max_erg_w);
+        cJSON_AddNumberToObject(o, "weight_kg", u->weight_kg);
+        cJSON_AddNumberToObject(o, "max_hr", u->max_hr);
+        cJSON_AddItemToArray(users, o);
+    }
     cJSON_AddNumberToObject(root, "crr", s->crr / 10000.0);
     cJSON_AddNumberToObject(root, "cw", s->cw / 100.0);
     cJSON_AddStringToObject(root, "wifi_ssid", s->wifi_ssid);

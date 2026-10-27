@@ -6,7 +6,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
-- Firmware: everything is written, including Zwift Ride support (unverified button table). **The firmware compiles and links with ESP-IDF 5.3.2 in CI** (`.github/workflows/ci.yml`, since 2026-10-26; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. No `dependencies.lock` yet: run `idf.py build` locally once and commit it to pin component versions.
+- Firmware: everything is written, including Zwift Ride support (unverified button table) and multiple riders (2026-10-27). **The firmware compiles and links with ESP-IDF 5.3.2 in CI and on the user's Mac** (`.github/workflows/ci.yml`; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. `dependencies.lock` is committed (pins component versions).
 - Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.md`.
 
@@ -15,6 +15,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Topic | Decision |
 |---|---|
 | Framework | ESP-IDF ≥ 5.3, C11 (confirmed 2026-10-26) |
+| Riders | Up to 8 in settings.json, picked on the home screen; per rider: rides folder, FTP, max ERG, weight (W/kg only), max HR (HR zones), HR strap. FTP is only suggested after a ride (95 % of best 20 min), never applied automatically (2026-10-27) |
 | Controllers owned | Zwift Ride only → plain ZAP implemented (M4); encrypted ZAP (M5) not needed for now |
 | FIT | Own ~300-line encoder instead of the Garmin SDK (validated with fitdecode) |
 | Stats persistence | No OPFS (needs a secure context; plain-HTTP LAN isn't). Small CSVs per visit, ride CSV on demand |
@@ -73,7 +74,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 ## Next steps
 
-1. User installs ESP-IDF 5.3, runs `idf.py build` (CI already builds it), commits `dependencies.lock`, flashes (M0).
+1. Board arrives: flash (M0).
 2. Bring-up on the board with the `diag` console (I2C scan, pattern, SD), adjust `bsp.c` (M0).
 3. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
 4. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).

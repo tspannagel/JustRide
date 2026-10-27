@@ -97,3 +97,13 @@ void metrics_bests(const ride_sample_t *s, size_t n, int16_t out[METRICS_N_BESTS
         out[b] = (int16_t)(best / w);
     }
 }
+
+uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS])
+{
+    for (int b = 0; b < METRICS_N_BESTS; b++) {
+        if (metrics_best_s[b] == 1200) {
+            return bests[b] > 0 ? (uint16_t)((bests[b] * 95 + 50) / 100) : 0;
+        }
+    }
+    return 0;
+}

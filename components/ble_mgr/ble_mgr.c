@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include "evbus.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
@@ -34,6 +35,7 @@ typedef struct {
     int n_all;
     int sub_idx;      // characteristic being subscribed
     uint16_t cccd;
+    uint32_t user_gen;  // s_user_gen when the connection was started
 } link_t;
 
 static const ble_drv_t *const *s_drv;
@@ -43,19 +45,34 @@ static uint8_t s_own_addr_type;
 static bool s_connecting;
 static int s_fails;
 static struct ble_npl_callout s_rescan;  // runs on the host task, like every other callback here
+static struct ble_npl_event s_user_ev, s_forget_ev;
+static bool s_started;
+static char s_user[8];           // host task only (after start)
+static char s_user_req[8];       // written by other tasks, guarded by s_mux
+static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_user_gen;      // bumped on every user change
+static uint32_t s_connect_gen;   // s_user_gen of the connection being made
 
 static int gap_event(struct ble_gap_event *ev, void *arg);
 static void subscribe_next(link_t *l);
 
 // ---- NVS: remembered device per role ------------------------------------------
 
-static void role_key(uint8_t role, char *key) { snprintf(key, 8, "role%u", role); }
+// "role1" for shared devices, "u3.r2" for the active user's (NVS keys: max 15 chars)
+static void role_key(const ble_drv_t *drv, char *key)
+{
+    if (drv->per_user) {
+        snprintf(key, 16, "%.7s.r%u", s_user, drv->role);
+    } else {
+        snprintf(key, 16, "role%u", drv->role);
+    }
+}
 
-static bool saved_addr(uint8_t role, ble_addr_t *addr)
+static bool saved_addr(const ble_drv_t *drv, ble_addr_t *addr)
 {
     nvs_handle_t h;
-    char key[8];
-    role_key(role, key);
+    char key[16];
+    role_key(drv, key);
     size_t len = sizeof(*addr);
     if (nvs_open("ble", NVS_READONLY, &h) != ESP_OK) {
         return false;
@@ -65,15 +82,15 @@ static bool saved_addr(uint8_t role, ble_addr_t *addr)
     return ok;
 }
 
-static void save_addr(uint8_t role, const ble_addr_t *addr)
+static void save_addr(const ble_drv_t *drv, const ble_addr_t *addr)
 {
     ble_addr_t old;
-    if (saved_addr(role, &old) && memcmp(&old, addr, sizeof(old)) == 0) {
+    if (saved_addr(drv, &old) && memcmp(&old, addr, sizeof(old)) == 0) {
         return;  // no flash write if unchanged
     }
     nvs_handle_t h;
-    char key[8];
-    role_key(role, key);
+    char key[16];
+    role_key(drv, key);
     if (nvs_open("ble", NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_blob(h, key, addr, sizeof(*addr));
         nvs_commit(h);
@@ -174,12 +191,13 @@ static void on_disc(const struct ble_gap_disc_desc *d)
         if (link_by_role(drv->role) || !drv->matches(&f)) {
             continue;
         }
-        if (saved_addr(drv->role, &want) && ble_addr_cmp(&want, &d->addr) != 0) {
+        if (saved_addr(drv, &want) && ble_addr_cmp(&want, &d->addr) != 0) {
             continue;  // a different device of this kind is remembered
         }
         ESP_LOGI(TAG, "connecting %s (rssi %d)", drv->name, d->rssi);
         ble_gap_disc_cancel();
         s_connecting = true;
+        s_connect_gen = s_user_gen;
         if (ble_gap_connect(s_own_addr_type, &d->addr, CONNECT_TIMEOUT_MS, NULL, gap_event, (void *)drv) != 0) {
             s_connecting = false;
             schedule_rescan();
@@ -250,10 +268,14 @@ static void subscribe_next(link_t *l)
         }
         l->sub_idx++;
     }
+    if (drv->per_user && l->user_gen != s_user_gen) {
+        fail_link(l, "user changed");  // never remember it for the wrong user
+        return;
+    }
     l->ready = true;
     s_fails = 0;
     ESP_LOGI(TAG, "%s ready", drv->name);
-    save_addr(drv->role, &l->addr);
+    save_addr(drv, &l->addr);
     drv->on_ready(l->conn);
     post_device(DEV_CONNECTED, drv->role);
     start_scan();  // look for the remaining roles
@@ -350,6 +372,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         l->used = true;
         l->conn = ev->connect.conn_handle;
         l->drv = drv;
+        l->user_gen = s_connect_gen;
         struct ble_gap_conn_desc desc;
         if (ble_gap_conn_find(l->conn, &desc) == 0) {
             l->addr = desc.peer_id_addr;
@@ -420,18 +443,61 @@ int ble_mgr_write(uint16_t conn, const ble_drv_t *drv, int chr_idx, const void *
     return ble_gattc_write_flat(conn, l->val[chr_idx], data, len, NULL, NULL);
 }
 
-void ble_mgr_forget(void)
+static void disconnect_all(bool per_user_only)
+{
+    for (int i = 0; i < MAX_LINKS; i++) {
+        if (s_links[i].used && (!per_user_only || s_links[i].drv->per_user)) {
+            ble_gap_terminate(s_links[i].conn, BLE_ERR_REM_USER_CONN_TERM);
+        }
+    }
+}
+
+static void forget_cb(struct ble_npl_event *ev)
 {
     nvs_handle_t h;
     if (nvs_open("ble", NVS_READWRITE, &h) == ESP_OK) {
-        nvs_erase_all(h);
+        for (int i = 0; i < s_n_drv; i++) {
+            char key[16];
+            role_key(s_drv[i], key);
+            nvs_erase_key(h, key);  // other users' devices stay remembered
+        }
         nvs_commit(h);
         nvs_close(h);
     }
-    for (int i = 0; i < MAX_LINKS; i++) {
-        if (s_links[i].used) {
-            ble_gap_terminate(s_links[i].conn, BLE_ERR_REM_USER_CONN_TERM);
-        }
+    disconnect_all(false);
+}
+
+static void user_cb(struct ble_npl_event *ev)
+{
+    portENTER_CRITICAL(&s_mux);
+    bool changed = strcmp(s_user, s_user_req) != 0;
+    memcpy(s_user, s_user_req, sizeof(s_user));
+    portEXIT_CRITICAL(&s_mux);
+    if (changed) {
+        s_user_gen++;
+        ESP_LOGI(TAG, "user %s", s_user);
+        disconnect_all(true);
+        start_scan();
+    }
+}
+
+void ble_mgr_forget(void)
+{
+    if (s_started) {
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_forget_ev);
+    }
+}
+
+void ble_mgr_set_user(const char *id)
+{
+    portENTER_CRITICAL(&s_mux);
+    snprintf(s_user_req, sizeof(s_user_req), "%s", id);
+    if (!s_started) {
+        memcpy(s_user, s_user_req, sizeof(s_user));
+    }
+    portEXIT_CRITICAL(&s_mux);
+    if (s_started) {
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_user_ev);
     }
 }
 
@@ -458,6 +524,9 @@ void ble_mgr_start(const ble_drv_t *const *drivers, int n)
     s_n_drv = n;
     ESP_ERROR_CHECK(nimble_port_init());
     ble_npl_callout_init(&s_rescan, nimble_port_get_dflt_eventq(), rescan_cb, NULL);
+    ble_npl_event_init(&s_user_ev, user_cb, NULL);
+    ble_npl_event_init(&s_forget_ev, forget_cb, NULL);
+    s_started = true;
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.reset_cb = on_reset;
     nimble_port_freertos_init(host_task);

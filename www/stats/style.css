@@ -24,3 +24,4 @@ tbody tr:hover { background: var(--card); }
 .scroll { overflow-x: auto; }
 textarea { width: 100%; font: 13px ui-monospace, monospace; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
 .u-legend { color: var(--fg); }
+select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }

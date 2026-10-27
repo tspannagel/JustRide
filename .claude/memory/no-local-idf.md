@@ -1,13 +1,13 @@
 ---
 name: no-local-idf
-description: Firmware builds only in GitHub Actions CI; no ESP-IDF on the dev Mac or in Claude cloud sessions
+description: ESP-IDF v5.3.2 is installed on the dev Mac (~/esp/esp-idf) since 2026-10-27; cloud sessions still can't install it
 metadata:
   type: project
 ---
 
-As of 2026-10-26 the dev Mac has no ESP-IDF. In Claude cloud sessions, installing ESP-IDF (`install.sh`) is refused by the permission policy and components.espressif.com / dl.espressif.com are blocked. The firmware is built by `.github/workflows/ci.yml` (espressif/esp-idf-ci-action, IDF v5.3.2) on every PR; read the job log via the GitHub tools to fix compile errors.
+Since 2026-10-27 the dev Mac has ESP-IDF v5.3.2 in `~/esp/esp-idf`. Build locally with `. ~/esp/esp-idf/export.sh >/dev/null 2>&1 && idf.py build` (run in the repo; `| grep -E "error:|warning:|Project build complete"` keeps the output short). CI (`.github/workflows/ci.yml`) builds every PR too. In Claude cloud sessions installing ESP-IDF is refused and Espressif's servers are blocked: use the CI log there.
 
-Off-device checks that work locally: host tests (`test/host`, gcc + ASan/UBSan/float-cast-overflow); FIT validation with fitdecode in a scratch venv; the stats app in headless Chrome.
+Off-device checks: host tests (`test/host`, ASan/UBSan); FIT validation with fitdecode in a scratch venv; the stats app in headless Chrome (puppeteer-core + local Chrome).
 
-**Why:** First successful firmware build was in CI (PR #1); IDF component versions float because there is no `dependencies.lock` yet.
-**How to apply:** Push and read CI logs instead of trying to install IDF; ask the user to commit `dependencies.lock` from a local build.
+**Why:** The first build happened only in CI; the user then installed IDF locally. ESP-IDF warnings are errors here (-Werror=format-truncation bit twice: bound `%s` with `%.Ns`).
+**How to apply:** Always run a local `idf.py build` before committing firmware changes; no board is attached yet, so never `flash`.

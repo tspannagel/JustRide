@@ -157,16 +157,18 @@ Rider leaves the real chain in one gear (default 34×17, ratio 2.0). 24-gear vir
 | Path | Content |
 |---|---|
 | `/workouts/*.zwo` | Zwift workouts (Warmup, Ramp, SteadyState, IntervalsT, FreeRide, Cooldown, Cadence attr) |
-| `/rides/<YYYY-MM-DD_HHMM>.fit` | file_id, device_info, event, record 1 Hz, lap, session, activity |
-| `/rides/<id>.csv` | `t_s, ts_utc, power_w, cadence_rpm, speed_kmh, hr_bpm, target_w, grade_pct, gear, interval_idx, mode, lap` |
-| `/rides/summary.csv` | append-only: `ride_id, start_utc, duration_s, moving_s, workout, ftp_w, avg_w, np_w, if, tss, kj, avg_hr, max_hr, avg_cad, distance_km, fw` |
-| `/rides/bests.csv` | append-only: `ride_id, duration_s, watts` for 1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600 s |
-| `/rides/.journal` | crash recovery; rebuild FIT/CSV on next boot |
-| `/config/settings.json`, `/config/gears.json` | settings, gear table |
+| `/rides/<user>/<YYYY-MM-DD_HHMM>.fit` | file_id, device_info, event, record 1 Hz, lap, session, activity |
+| `/rides/<user>/<id>.csv` | `t_s, ts_utc, power_w, cadence_rpm, speed_kmh, hr_bpm, target_w, grade_pct, gear, interval_idx, mode, lap` |
+| `/rides/<user>/summary.csv` | append-only: `ride_id, start_utc, duration_s, moving_s, workout, ftp_w, avg_w, np_w, if, tss, kj, avg_hr, max_hr, avg_cad, distance_km, fw, weight_kg, user_max_hr` |
+| `/rides/<user>/bests.csv` | append-only: `ride_id, duration_s, watts` for 1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600 s |
+| `/rides/.journal` | crash recovery (ride id, start, user id, FTP, weight, max HR, workout); rebuild FIT/CSV on next boot |
+| `/config/settings.json`, `/config/gears.json` | settings incl. riders (`users[]`: id `u<n>` never reused, name, ftp_w, max_erg_w, weight_kg, max_hr; `user` = active id), gear table |
 | `/www/stats/` | statistics app, pre-gzipped |
-| NVS | remembered BLE device per role (written only when it changes). Wi-Fi credentials live in `settings.json`; Wi-Fi driver storage is RAM-only (no flash wear) |
+| NVS | remembered BLE device per role (written only when it changes); per-user roles (HR strap) keyed `<user>.r<role>`. Wi-Fi credentials live in `settings.json`; Wi-Fi driver storage is RAM-only (no flash wear) |
 
 Recorder: buffer in PSRAM, flush every 10 s, fsync, journal. Summary + best efforts computed on device at ride end (sliding window over the in-memory ride).
+
+Riders: up to 8, chosen on the home screen (only while idle). FTP is never changed automatically: if 95 % of a ride's best 20 min beats the rider's FTP, the summary screen offers "Set FTP to X W". Weight is recorded for W/kg only (FTMS SIM has no mass field).
 
 ## Statistics app (www/stats)
 
@@ -174,8 +176,8 @@ Recorder: buffer in PSRAM, flush every 10 s, fsync, journal. Summary + best effo
 - DuckDB-WASM 1.32.0 (EH bundle + worker, bundled with apache-arrow by esbuild) and uPlot 1.6.32 are served from the SD card under versioned `vendor/` paths, never from a CDN: the app must work with no internet. `tools/vendor_stats.sh` produces them.
 - Pre-gzipped files (`*.gz`, served with `Content-Encoding: gzip`), `vendor/` cached `immutable`, everything else `no-cache` + ETag.
 - **No OPFS:** it needs a secure context and `http://trainer.local` isn't one. `summary.csv` + `bests.csv` load on each visit; a ride's CSV loads when opened. DuckDB-WASM has no ICU: don't use `now() - INTERVAL` in SQL, pass UTC `TIMESTAMP` literals (`ago()` in app.js).
-- Views: overview (CTL 42 d / ATL 7 d / TSB from daily TSS, computed in JS), power curve (all-time vs 90 d, FTP = 95 % of best 20 min), ride detail (time series, zones, interval compliance, HR drift), SQL console.
-- Endpoints: `GET /` (start page), `GET /stats/*`, `GET /api/rides`, `GET /rides/<file>`, `POST /workouts/<file>.zwo` (raw body, ≤ 64 KiB), `POST /ota` (raw .bin; one upload per tap of "Allow firmware update" on the device, within 5 min). Every request needs `Host` = `trainer.local` or an IPv4 address (DNS rebinding); every POST needs an `X-JustRide` header (CSRF: forces a CORS preflight the device never grants).
+- Rider picker (default: active rider). Views: overview (CTL 42 d / ATL 7 d / TSB from daily TSS, computed in JS), power curve (all-time vs 90 d, FTP = 95 % of best 20 min), ride detail (time series, W/kg, power + HR zones, interval compliance, HR drift), SQL console.
+- Endpoints: `GET /` (start page), `GET /stats/*`, `GET /api/users` (id, name, active only), `GET /api/rides`, `GET /rides/<user>/<file>`, `POST /workouts/<file>.zwo` (raw body, ≤ 64 KiB), `POST /ota` (raw .bin; one upload per tap of "Allow firmware update" on the device, within 5 min). Every request needs `Host` = `trainer.local` or an IPv4 address (DNS rebinding); every POST needs an `X-JustRide` header (CSRF: forces a CORS preflight the device never grants).
 
 ## Testing
 
