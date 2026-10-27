@@ -2,7 +2,7 @@
 
 Standalone ESP32-S3 head unit for a Wahoo KICKR Core: free rides with virtual gears, ERG workouts from `.zwo` files, FIT/CSV recording on microSD and a browser statistics app served by the device. No cloud.
 
-- **Manual (setup and operation):** [docs/manual.md](docs/manual.md)
+- **Manual (setup and operation):** [docs/manual.html](docs/manual.html) (open in a browser; screenshots in `docs/img/`)
 - Project overview and rules: [CLAUDE.md](CLAUDE.md) · status: [HANDOVER.md](HANDOVER.md) · plan: `docs/plan.html`
 
 ## Build (ESP-IDF ≥ 5.3)

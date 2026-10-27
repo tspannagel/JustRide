@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustRide Manual</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1d2025; --muted: #5f6672; --line: #e3e5e9; --card: #f4f5f7;
+  --accent: #2563eb; --warn-bg: #fff4e5; --warn-line: #f59e0b; --code: #f1f2f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14161a; --fg: #e8eaed; --muted: #9aa0a6; --line: #2c2f35; --card: #1c1f24;
+    --accent: #60a5fa; --warn-bg: #2a2111; --warn-line: #b7791f; --code: #1f2228;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 40px; max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+nav.toc { position: sticky; top: 16px; align-self: start; font-size: 14px; }
+nav.toc b { display: block; margin-bottom: 6px; }
+nav.toc ol { margin: 0; padding-left: 20px; }
+nav.toc li { margin: 3px 0; }
+nav.toc a { color: var(--fg); text-decoration: none; }
+nav.toc a:hover { color: var(--accent); }
+main { min-width: 0; }
+h1 { font-size: 32px; line-height: 1.2; margin: 0 0 8px; }
+h2 { font-size: 24px; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+h3 { font-size: 18px; margin: 28px 0 8px; }
+a { color: var(--accent); }
+p, ul, ol { margin: 10px 0; }
+li { margin: 4px 0; }
+.lead { font-size: 18px; color: var(--muted); }
+.note { background: var(--warn-bg); border-left: 4px solid var(--warn-line); padding: 10px 14px; border-radius: 4px; margin: 16px 0; }
+code { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code); padding: 12px 14px; border-radius: 6px; overflow-x: auto; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre code { background: none; padding: 0; }
+pre .c { color: var(--muted); }
+.scroll { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { background: var(--card); }
+kbd { font: 13px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--card); }
+.shots { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; }
+figure { margin: 0; }
+figure img { display: block; border-radius: 10px; border: 1px solid var(--line); }
+.device img { width: 240px; height: 240px; image-rendering: auto; }
+.wide img { width: 100%; max-width: 760px; height: auto; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 240px; }
+.wide figcaption { max-width: none; }
+.btn { font-weight: 600; white-space: nowrap; }
+@media (max-width: 820px) {
+  .layout { grid-template-columns: 1fr; gap: 0; }
+  nav.toc { position: static; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+  .device img { width: min(240px, 100%); height: auto; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#need">What you need</a></li>
+    <li><a href="#safety">Safety</a></li>
+    <li><a href="#setup">One-time setup</a></li>
+    <li><a href="#riders">Riders</a></li>
+    <li><a href="#riding">Riding</a></li>
+    <li><a href="#workouts">Workouts</a></li>
+    <li><a href="#wifi">Wi-Fi, statistics, files</a></li>
+    <li><a href="#updates">Firmware updates</a></li>
+    <li><a href="#settings">Settings reference</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>JustRide manual</h1>
+<p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a statistics page in your browser. No cloud, no account.</p>
+
+<p class="note"><b>Status:</b> the firmware compiles but has not run on real hardware yet. Expect to fix things during the first bring-up (see <a href="#trouble">Troubleshooting</a>) and send logs back. The screenshots are rendered from the firmware's own screen code on a computer; on the device they should look the same.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="need">1. What you need</h2>
+<div class="scroll"><table>
+  <tr><th>Item</th><th>Notes</th></tr>
+  <tr><td>Waveshare ESP32-S3-Touch-LCD-4 (V3)</td><td>Check the version printed on the board. V4 may need pin changes.</td></tr>
+  <tr><td>microSD card, 32 GB or smaller</td><td>Formatted <b>FAT32</b>. Any speed class is fine.</td></tr>
+  <tr><td>Plain 5 V USB-A power supply + USB-A to USB-C cable</td><td>An old phone charger (5 V, 1–2 A) is ideal. See <a href="#safety">Safety</a>.</td></tr>
+  <tr><td>Wahoo KICKR Core</td><td>Bluetooth FTMS is used. Update its firmware with the Wahoo app once.</td></tr>
+  <tr><td>Heart-rate strap (optional)</td><td>Any Bluetooth strap (standard heart-rate service). Each rider can have their own.</td></tr>
+  <tr><td>Zwift Ride (optional)</td><td>Shifting and ride control from the handlebar.</td></tr>
+  <tr><td>A Mac or PC</td><td>For building/flashing the firmware and preparing the SD card.</td></tr>
+</table></div>
+<p>No soldering, no extra wires.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="safety">2. Safety</h2>
+<p class="note"><b>Power the board only from a plain 5 V USB supply or your computer's USB port.</b> Never use a laptop or phone <i>fast charger</i> (USB-C PD, up to 20 V): Waveshare reports that these burn protection parts on this board.</p>
+<p>Built-in limits you can rely on while riding:</p>
+<ul>
+  <li>ERG targets are capped at the rider's <i>Max ERG</i> setting (default 600 W) and never exceed 1500 W, whatever a workout file says.</li>
+  <li>When you <b>pause</b>, <b>stop</b>, or are on the home screen, the trainer is set to its <b>lowest resistance</b>.</li>
+  <li><b>Stop needs a long press</b>, so a stray tap mid-interval doesn't end the ride.</li>
+  <li>Simulated gradients are limited to −10 … +20 %.</li>
+  <li>Your FTP is never raised automatically; the device only <i>offers</i> a new value after a ride.</li>
+  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts.</li>
+  <li>The firmware never runs a trainer spin-down and never writes to the board's battery/power chip.</li>
+</ul>
+<p>Before a hard session, make sure the trainer and bike are set up as usual: the head unit only sends targets, it can't make the trainer itself safer.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="setup">3. One-time setup</h2>
+
+<h3 id="tools">3.1 Install the tools (macOS)</h3>
+<pre><code>xcode-select --install        <span class="c"># Apple's compiler and git (skip if already installed)</span>
+brew install cmake ninja dfu-util python3 node
+mkdir -p ~/esp &amp;&amp; cd ~/esp
+git clone -b v5.3.2 --recursive https://github.com/espressif/esp-idf.git
+./esp-idf/install.sh esp32s3</code></pre>
+<p>This puts the ESP-IDF toolchain in <code>~/esp/esp-idf</code> (about 3 GB, 10–20 minutes). You only do this once and never need to work inside that folder afterwards.</p>
+<p>(Windows/Linux: follow Espressif's “ESP-IDF Get Started” guide for v5.3, then continue below.)</p>
+
+<h3 id="build">3.2 Build and flash</h3>
+<p>You can build without the board; it only proves the code compiles. For flashing, connect the board to your computer with the USB-C cable.</p>
+<p>In <b>every new terminal</b>, load the tools first, then change into <b>this repository</b> (not <code>~/esp</code>), because <code>idf.py</code> builds the project in the current folder:</p>
+<pre><code>. ~/esp/esp-idf/export.sh     <span class="c"># makes idf.py available in this terminal (works from any folder)</span>
+cd ~/Workspace/JustRide       <span class="c"># the repository: wherever you cloned it</span>
+idf.py set-target esp32s3     <span class="c"># first time only</span>
+idf.py build
+idf.py -p /dev/cu.usbmodem* flash monitor</code></pre>
+<ul>
+  <li>The first build downloads LVGL, the display/touch drivers and mDNS (needs internet once). Build output goes to <code>build/</code> inside the repository (ignored by git).</li>
+  <li>If flashing fails with “no serial port”: hold the <b>BOOT</b> button, plug the cable in, release BOOT, and flash again.</li>
+  <li><code>monitor</code> shows the log. Leave it with <kbd>Ctrl</kbd>+<kbd>]</kbd>.</li>
+</ul>
+
+<h3 id="sd">3.3 Prepare the SD card</h3>
+<p>On your computer, with the card inserted (here it's mounted as <code>/Volumes/JUSTRIDE</code>):</p>
+<pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
+tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistics app and sample workouts</span></code></pre>
+<p>The card then contains:</p>
+<pre><code>/www/stats/     statistics app
+/workouts/      .zwo workout files (two samples)
+/rides/         one folder per rider, filled by the device
+/config/        settings.json, gears.json (created on first boot)</code></pre>
+<p>Eject the card and put it in the board's microSD slot (contacts facing the board). Insert or remove the card only while the board is <b>unplugged</b>.</p>
+
+<h3 id="first">3.4 First start</h3>
+<div class="shots">
+  <figure class="device"><img src="img/home.png" alt="Home screen: rider button, connection status, Free ride, Workouts, Settings and Wi-Fi buttons"><figcaption>Home screen with everything connected.</figcaption></figure>
+</div>
+<p>Power the board. The home screen shows the active <b>rider</b>, the connection status, and <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>.</p>
+<p>On first boot the device writes <code>/config/settings.json</code> with one rider called “Rider” and a random password for its own Wi-Fi hotspot. Rename the rider and set your values on the device (<a href="#riders">Riders</a>). Your home Wi-Fi is set in <code>settings.json</code> on your computer: unplug the board, move the card, edit, move it back:</p>
+<pre><code>"wifi_ssid": "MyHomeWifi",
+"wifi_password": "secret",</code></pre>
+<p><code>settings.json</code> is a plain text file, so anyone with the card can read the Wi-Fi password in it. The full file is described in the <a href="#settings">Settings reference</a>.</p>
+
+<h3 id="pair">3.5 Connect the trainer, heart-rate strap and Zwift Ride</h3>
+<ol>
+  <li><b>Close Zwift, the Wahoo app and any other app</b> that might connect to the KICKR or the Zwift Ride.</li>
+  <li>Pedal a few strokes to wake the KICKR.</li>
+  <li>The status changes from <i>Trainer: searching…</i> to <i>Trainer: connected</i> (usually within a few seconds).</li>
+  <li>Put on the heart-rate strap (moisten the contacts); it connects the same way.</li>
+  <li>Wake the Zwift Ride by pressing a button. The home screen shows <i>Zwift Ride: connected</i>.</li>
+</ol>
+<p>The device remembers the first trainer and Zwift controller it finds and from then on connects only to those. The <b>heart-rate strap is remembered per rider</b>: when you switch riders, the device disconnects the previous strap and looks for the new rider's. A rider without a strap gets the first one it finds, so have only your own strap on when pairing it.</p>
+<p>To pair different devices: <span class="btn">Settings → Forget paired devices</span>. This forgets the trainer, the controller and the <i>active</i> rider's strap; other riders keep theirs.</p>
+
+<h3 id="clock">3.6 Set the clock</h3>
+<p>Ride files are named after the start time. The board has a battery-backed clock, but it has to be set once: turn on <b>Wi-Fi</b> with your home network configured (see <a href="#wifi">Wi-Fi</a>). The device fetches the time from the internet and stores it. Until then the home screen shows <i>Clock not set</i>. Rides still record, but with wrong dates.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="riders">4. Riders</h2>
+<p>Up to 8 people can share the device. Each rider has their own:</p>
+<ul>
+  <li>rides and statistics (folder <code>/rides/&lt;id&gt;/</code> on the card),</li>
+  <li>FTP, Max ERG, weight and max heart rate,</li>
+  <li>heart-rate strap.</li>
+</ul>
+<p>The trainer and the Zwift Ride are shared.</p>
+
+<div class="shots">
+  <figure class="device"><img src="img/riders.png" alt="Riders screen: list with Sam (selected) and Anna, buttons Add, Rename, Hold to delete"><figcaption>Riders: tap a name to switch.</figcaption></figure>
+  <figure class="device"><img src="img/rider-name.png" alt="On-screen keyboard to enter a rider name"><figcaption>Adding or renaming a rider.</figcaption></figure>
+  <figure class="device"><img src="img/settings.png" alt="Settings for Sam: FTP, Max ERG, Weight, Max HR with minus and plus buttons, Forget paired devices"><figcaption>Settings always belong to the active rider.</figcaption></figure>
+</div>
+
+<h3>Switch, add, rename, delete</h3>
+<ul>
+  <li><b>Switch:</b> tap the <span class="btn">Rider: …</span> button on the home screen, then a name. Only possible while no ride is running.</li>
+  <li><b>Add:</b> <span class="btn">Add</span>, type a name (1–15 letters, digits or spaces), confirm with <span class="btn">✓</span>. The new rider becomes active and starts with FTP 200 W, Max ERG 600 W, 75 kg, max HR 185.</li>
+  <li><b>Rename:</b> renames the active rider.</li>
+  <li><b>Delete:</b> press and hold <span class="btn">Hold to delete</span>. This deletes the active rider; the last rider can't be deleted. Their ride files stay on the SD card.</li>
+</ul>
+
+<h3>Per-rider settings</h3>
+<div class="scroll"><table>
+  <tr><th>Setting</th><th>Steps</th><th>Range</th><th>Used for</th></tr>
+  <tr><td>FTP</td><td>±5 W</td><td>50–600 W</td><td>Workout targets, zones, IF and TSS</td></tr>
+  <tr><td>Max ERG</td><td>±50 W</td><td>100–1500 W</td><td>Highest ERG target the device will ever send for this rider</td></tr>
+  <tr><td>Weight</td><td>±1 kg</td><td>30–200 kg</td><td>W/kg in the statistics</td></tr>
+  <tr><td>Max HR</td><td>±1 bpm</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>
+</table></div>
+<p>Weight doesn't change how hard the trainer feels: the trainer's simulation protocol has no weight field.</p>
+
+<h3 id="ftp">FTP from your rides</h3>
+<p>After every ride of 20 minutes or longer, the device takes 95 % of your best 20-minute power in that ride. If that is higher than your current FTP, the summary screen offers <span class="btn">Set FTP to … W</span> (see <a href="#after">After the ride</a>). One tap accepts it; otherwise nothing changes. It is never applied on its own, because a single bad power reading would otherwise raise every future ERG target.</p>
+<p>The statistics app shows the same estimate over all your rides (<a href="#wifi">Power curve</a>).</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="riding">5. Riding</h2>
+
+<h3>Free ride</h3>
+<div class="shots">
+  <figure class="device"><img src="img/ride-free.png" alt="Free ride screen: time, gear 14 of 24, 231 W, road gradient, cadence, heart rate, speed, buttons"><figcaption>Free ride: virtual gear 14 of 24 on a 3.5 % road.</figcaption></figure>
+</div>
+<p>Tap <span class="btn">Free ride</span>. The trainer simulates a road; you change <b>virtual gears</b> with <span class="btn">−</span> and <span class="btn">+</span> and the road's gradient with <span class="btn">Grade −</span> / <span class="btn">Grade +</span> (0.5 % steps). <i>Road</i> is the gradient you chose, <i>Sent</i> is what the trainer gets after the virtual gear is applied.</p>
+<p>Leave the bike's real chain in one gear, by default <b>34 × 17</b> (front × rear). Virtual gears make the trainer harder or easier as if you shifted. If your real gear is different, set <code>real_ratio</code> in <code>gears.json</code> (see <a href="#settings">Settings reference</a>).</p>
+
+<h3>Ride screen controls</h3>
+<div class="shots">
+  <figure class="device"><img src="img/ride-workout.png" alt="Workout ride screen: interval 4 of 9, 247 W, target 250 W at 100 percent, 90 rpm"><figcaption>ERG workout: interval 4 of 9, target 250 W.</figcaption></figure>
+  <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with orange PAUSED banner at the bottom and a Resume button"><figcaption>Paused: the trainer is at its lowest resistance.</figcaption></figure>
+</div>
+<div class="scroll"><table>
+  <tr><th>Control</th><th>Free ride / free segment</th><th>ERG workout segment</th></tr>
+  <tr><td class="btn">− / +</td><td>virtual gear down / up</td><td>intensity −5 % / +5 % (50–150 %)</td></tr>
+  <tr><td class="btn">Grade − / +</td><td>road gradient</td><td>hidden</td></tr>
+  <tr><td class="btn">Skip</td><td>–</td><td>jump to the next interval</td></tr>
+  <tr><td class="btn">Pause</td><td>timer stops, lowest resistance</td><td>same</td></tr>
+  <tr><td class="btn">Lap</td><td>starts a new lap in the ride file</td><td>same</td></tr>
+  <tr><td class="btn">Hold to stop</td><td>press and hold to end the ride</td><td>same</td></tr>
+</table></div>
+
+<h3>Zwift Ride buttons</h3>
+<div class="scroll"><table>
+  <tr><th>Button</th><th>Action</th></tr>
+  <tr><td>Shift up / down (either side)</td><td>same as <span class="btn">+</span> / <span class="btn">−</span> on screen: virtual gear, or ERG intensity ±5 %</td></tr>
+  <tr><td>D-pad up / down</td><td>road gradient +/− 0.5 % (free ride)</td></tr>
+  <tr><td><b>A</b> (short)</td><td>pause / resume; on the summary screen: done</td></tr>
+  <tr><td><b>A</b> (hold 1 s) on the home screen</td><td>start a free ride</td></tr>
+  <tr><td><b>Y</b> (short)</td><td>lap</td></tr>
+  <tr><td>D-pad right (hold 1 s)</td><td>skip to the next interval</td></tr>
+  <tr><td><b>B</b> (hold 1 s)</td><td>stop the ride</td></tr>
+</table></div>
+<p>Menus (riders, workout list, settings, Wi-Fi) are touch-only.</p>
+<p class="note">The button layout is based on other people's reverse-engineering and is <b>not yet verified on a real Zwift Ride</b>. If a button does the wrong thing or nothing, see <a href="#trouble">Troubleshooting</a>.</p>
+<p>Beeps: <b>1</b> = next interval in 3 seconds, <b>2</b> = new interval started, <b>3</b> = workout finished (you continue in free ride until you stop).</p>
+
+<h3 id="after">After the ride</h3>
+<div class="shots">
+  <figure class="device"><img src="img/summary.png" alt="Ride finished screen: time, average power, NP, TSS, IF, kJ, distance, average heart rate, Saved, Set FTP to 262 W button, Done button"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
+</div>
+<p>The summary shows time, average power, NP, TSS, IF, kJ, distance and average heart rate. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a>). Tap <span class="btn">Done</span>.</p>
+<p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
+<p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="workouts">6. Workouts</h2>
+<div class="shots">
+  <figure class="device"><img src="img/workouts.png" alt="Workouts screen listing sweet_spot_3x10.zwo and endurance_60.zwo"><figcaption>Tap a workout to start it.</figcaption></figure>
+</div>
+<p>Workouts are Zwift <code>.zwo</code> files in <code>/workouts/</code> on the SD card, shared by all riders. Supported: <code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code>, <code>SteadyState</code>, <code>IntervalsT</code>, <code>FreeRide</code>, <code>MaxEffort</code> (as free ride), and <code>Cadence</code> targets. Power values are fractions of the active rider's FTP (<code>0.9</code> = 90 %).</p>
+<p>Add workouts by copying <code>.zwo</code> files to the card, or over Wi-Fi from the device's start page (see below). A minimal example:</p>
+<pre><code>&lt;workout_file&gt;
+  &lt;name&gt;Threshold 2x20&lt;/name&gt;
+  &lt;workout&gt;
+    &lt;Warmup Duration="600" PowerLow="0.5" PowerHigh="0.75"/&gt;
+    &lt;IntervalsT Repeat="2" OnDuration="1200" OffDuration="300" OnPower="0.95" OffPower="0.55" Cadence="90"/&gt;
+    &lt;Cooldown Duration="300" PowerLow="0.6" PowerHigh="0.4"/&gt;
+  &lt;/workout&gt;
+&lt;/workout_file&gt;</code></pre>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="wifi">7. Wi-Fi, statistics and ride files</h2>
+<div class="shots">
+  <figure class="device"><img src="img/wifi.png" alt="Wi-Fi screen: addresses http://trainer.local/ and an IP, Turn off and Allow firmware update buttons"><figcaption>Wi-Fi on, connected to the home network.</figcaption></figure>
+</div>
+<p>Wi-Fi is only for when you're <b>not</b> riding. On the home screen tap <span class="btn">Wi-Fi → Turn on</span>. The screen shows how to reach the device:</p>
+<ul>
+  <li><b>Home network</b> (if <code>wifi_ssid</code> is set): open <code>http://trainer.local/</code> (or the IP address shown) in a browser on the same network.</li>
+  <li><b>Own hotspot</b> (if no home network is set, or it isn't reachable within 15 seconds): connect your phone/laptop to the Wi-Fi <b>JustRide</b> with the password shown on the screen, then open <code>http://192.168.4.1/</code>.</li>
+</ul>
+<p>The start page lists every rider's ride files (click to download; the <code>.fit</code> files can be uploaded to intervals.icu, Strava, Garmin Connect, …), lets you upload <code>.zwo</code> workouts, and links to the <b>statistics app</b>. It runs entirely in your browser and needs no internet connection. Pick the rider at the top; it starts with the rider who is active on the device.</p>
+
+<div class="shots">
+  <figure class="wide"><img src="img/stats-overview.png" alt="Statistics overview: rider picker, totals cards, fitness fatigue and form chart"><figcaption><b>Overview:</b> rides and hours, fitness (CTL), fatigue (ATL) and form (TSB) over time.</figcaption></figure>
+  <figure class="wide"><img src="img/stats-curve.png" alt="Power curve chart all time versus last 90 days with FTP estimate and W/kg"><figcaption><b>Power curve:</b> best power for 1 s … 60 min, all-time vs. last 90 days, and an FTP estimate (95 % of best 20 min) with W/kg.</figcaption></figure>
+  <figure class="wide"><img src="img/stats-ride.png" alt="Ride detail: summary cards including W/kg and HR drift, power and heart-rate chart, power zones and heart-rate zones tables"><figcaption><b>Rides:</b> click a ride for the power/HR chart, W/kg, time in power and heart-rate zones, HR drift and how well you hit each interval.</figcaption></figure>
+</div>
+<p><b>SQL:</b> query <code>summary</code>, <code>bests</code> and <code>ride</code> (the last opened ride) of the selected rider yourself.</p>
+<p>The screenshots show generated sample rides. Wi-Fi turns off automatically when you start a ride.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="updates">8. Firmware updates</h2>
+<p><b>Over USB:</b> <code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.2</a>.</p>
+<p><b>Over Wi-Fi:</b></p>
+<ol>
+  <li>Build on your computer: <code>idf.py build</code> → the file is <code>build/justride.bin</code>.</li>
+  <li>On the device: <span class="btn">Wi-Fi → Turn on → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
+  <li>On the device's start page choose the <code>.bin</code> under <i>Firmware update</i>. Don't unplug the board while it says “flashing”.</li>
+  <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.</li>
+</ol>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="settings">9. Settings reference</h2>
+<h3><code>/config/settings.json</code></h3>
+<p>Riders are easiest to manage on the device; the file is mainly for Wi-Fi. An example:</p>
+<pre><code>{
+  "user": "u1",
+  "next_user_id": 3,
+  "users": [
+    { "id": "u1", "name": "Sam",  "ftp_w": 250, "max_erg_w": 600, "weight_kg": 75, "max_hr": 185 },
+    { "id": "u2", "name": "Anna", "ftp_w": 190, "max_erg_w": 450, "weight_kg": 62, "max_hr": 178 }
+  ],
+  "crr": 0.004,
+  "cw": 0.51,
+  "wifi_ssid": "MyHomeWifi",
+  "wifi_password": "secret",
+  "ap_password": "k7m2xq9fha"
+}</code></pre>
+<div class="scroll"><table>
+  <tr><th>Key</th><th>Default</th><th>Range</th><th>Meaning</th></tr>
+  <tr><td><code>user</code></td><td>first rider</td><td></td><td>Id of the active rider</td></tr>
+  <tr><td><code>users[].id</code></td><td></td><td><code>u1</code> … <code>u9999</code></td><td>Folder name under <code>/rides/</code> and key for the paired strap. Ids are never reused, so a new rider never inherits someone's rides. Don't change it by hand.</td></tr>
+  <tr><td><code>users[].name</code></td><td>Rider</td><td>1–15 chars, ASCII</td><td>Shown on the device and in the statistics</td></tr>
+  <tr><td><code>users[].ftp_w</code></td><td>200</td><td>50–600</td><td>FTP; workouts are scaled to it</td></tr>
+  <tr><td><code>users[].max_erg_w</code></td><td>600</td><td>100–1500</td><td>Highest ERG target the device will ever send</td></tr>
+  <tr><td><code>users[].weight_kg</code></td><td>75</td><td>30–200</td><td>W/kg in the statistics</td></tr>
+  <tr><td><code>users[].max_hr</code></td><td>185</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>
+  <tr><td><code>crr</code></td><td>0.004</td><td>0.001–0.02</td><td>Rolling resistance sent to the trainer in free ride</td></tr>
+  <tr><td><code>cw</code></td><td>0.51</td><td>0.1–2.0</td><td>Wind resistance coefficient (kg/m) in free ride</td></tr>
+  <tr><td><code>wifi_ssid</code>, <code>wifi_password</code></td><td>empty</td><td></td><td>Your home Wi-Fi</td></tr>
+  <tr><td><code>ap_password</code></td><td>random</td><td>8–63 chars</td><td>Password of the device's own hotspot</td></tr>
+</table></div>
+<p>Invalid or out-of-range values are ignored and the default is used; an invalid rider entry is skipped. If the file is not valid JSON (a missing quote or comma), the device uses defaults for everything, logs <code>settings.json is not valid JSON</code> and leaves your file unchanged so you can fix it.</p>
+<p>A <code>settings.json</code> from before riders existed (with <code>ftp_w</code> and <code>max_erg_w</code> at the top level) is taken over automatically: those values become the first rider's.</p>
+
+<h3><code>/config/gears.json</code> (optional)</h3>
+<p>Without this file there are 24 virtual gears from ratio 0.75 to 5.5, and the real gear is assumed to be 34 × 17 (ratio 2.0).</p>
+<pre><code>{ "real_ratio": 2.0, "ratios": [0.75, 0.9, 1.05, 1.2, 1.4, 1.6, 1.8, 2.0, 2.25, 2.5, 2.8, 3.1, 3.5, 4.0, 4.6, 5.5] }</code></pre>
+<p><code>real_ratio</code> = front teeth ÷ rear teeth of the gear your chain is actually in. <code>ratios</code>: 2–30 values, ascending. The gear table is shared by all riders.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="trouble">10. Troubleshooting</h2>
+<p>Keep the USB cable connected to your computer and run <code>idf.py -p /dev/cu.usbmodem* monitor</code>: the log explains most problems. At the <code>jr&gt;</code> prompt these commands help:</p>
+<div class="scroll"><table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>help</code></td><td>list commands</td></tr>
+  <tr><td><code>i2c</code></td><td>list chips on the internal bus (expect 0x20 or 0x38, 0x51, 0x5D or 0x14)</td></tr>
+  <tr><td><code>pattern 0</code> / <code>1</code> / <code>2</code></td><td>colour bars / white / black on the screen</td></tr>
+  <tr><td><code>sd</code></td><td>SD card write/read speed test</td></tr>
+  <tr><td><code>buzz</code></td><td>short beep</td></tr>
+  <tr><td><code>mem</code></td><td>free memory</td></tr>
+  <tr><td><code>zap dump on</code> / <code>off</code></td><td>log every packet from the Zwift Ride as hex</td></tr>
+</table></div>
+
+<div class="scroll"><table>
+  <tr><th>Problem</th><th>What to try</th></tr>
+  <tr><td>Screen stays dark</td><td>Check the log for <code>TCA9554 not found</code> or I2C errors and send it. Run <code>i2c</code>.</td></tr>
+  <tr><td>Colours wrong, image shifted or flickering</td><td>Run <code>pattern 0</code> (should be white, yellow, cyan, green, magenta, red, blue, black from left to right). Send a photo; the display settings in <code>bsp.c</code> need adjusting.</td></tr>
+  <tr><td>Touch doesn't react</td><td>Log says <code>GT911 not found</code>? Send the <code>i2c</code> output.</td></tr>
+  <tr><td><i>No SD card</i> on the home screen</td><td>Card must be FAT32, 32 GB or smaller, inserted with the board unplugged. Run <code>sd</code>.</td></tr>
+  <tr><td>Trainer stays <i>searching</i></td><td>Close every other app connected to the KICKR, pedal to wake it, then try <span class="btn">Settings → Forget paired devices</span>.</td></tr>
+  <tr><td>Wrong heart-rate strap connects</td><td>Switch to the right rider, take the other strap off (or out of range), then <span class="btn">Settings → Forget paired devices</span>.</td></tr>
+  <tr><td>Zwift Ride doesn't connect</td><td>Close the Zwift app (on phone, tablet and PC), press a button to wake it, check the log for <code>zap</code>.</td></tr>
+  <tr><td>Zwift Ride button does the wrong thing / nothing</td><td>Run <code>zap dump on</code>, press each button once slowly (note the order), and send the log. The button table is then corrected from your recording.</td></tr>
+  <tr><td>Trainer connects but resistance doesn't change</td><td>Check the log for <code>request control refused</code> or <code>rejected</code>; another app may still have control.</td></tr>
+  <tr><td>Board switches itself off</td><td>A known issue of this board's power chip at low load; the fix isn't implemented yet. Use the computer's USB port for now and report it.</td></tr>
+  <tr><td><i>Clock not set</i></td><td>Turn on Wi-Fi with your home network configured (needs internet).</td></tr>
+  <tr><td><code>trainer.local</code> doesn't open</td><td>Use the IP address shown on the device instead (some Android phones don't support <code>.local</code> names).</td></tr>
+  <tr><td>Firmware update refused</td><td>Tap <span class="btn">Allow firmware update</span> on the device first (valid 5 minutes, one upload per tap). Upload from the device's own start page; other pages and tools without the <code>X-JustRide</code> header are refused.</td></tr>
+</table></div>
+<p>Not supported yet: Zwift Click and Play (encrypted protocol), menu navigation with the Zwift Ride, power meters and cadence sensors other than the trainer, intervals.icu upload.</p>
+
+<h3>Regenerating the screenshots</h3>
+<p>The device screenshots come from <code>tools/ui_shots/shots.sh</code>, which compiles <code>main/ui.c</code> with LVGL on the computer and writes <code>docs/img/*.png</code> (needs one <code>idf.py build</code> first). Run it after changing the screens.</p>
+</main>
+</div>
+</body>
+</html>
