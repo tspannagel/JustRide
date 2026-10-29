@@ -295,32 +295,22 @@ static void fill(lv_layer_t *layer, int x1, int y1, int x2, int y2, uint32_t col
     lv_draw_rect(layer, &d, &a);
 }
 
-// A block: zone colour fading towards the floor, rounded top, light top edge
-static void block(lv_layer_t *layer, int x1, int y1, int x2, int y2, uint32_t color, lv_opa_t opa)
+// Two box blurs: steps become a short S-curve, ramps stay straight
+static void blur(const int16_t *in, int16_t *out, int n, int r)
 {
-    lv_draw_rect_dsc_t d;
-    lv_draw_rect_dsc_init(&d);
-    d.radius = x2 - x1 >= 6 ? 3 : 0;
-    d.bg_opa = opa;
-    d.bg_grad.dir = LV_GRAD_DIR_VER;
-    d.bg_grad.stops_count = 2;
-    d.bg_grad.stops[0] = (lv_grad_stop_t){.color = rgb(color), .opa = LV_OPA_COVER, .frac = 0};
-    d.bg_grad.stops[1] = (lv_grad_stop_t){.color = rgb(color), .opa = LV_OPA_30, .frac = 255};
-    lv_area_t a = {x1, y1, x2, y2};
-    lv_draw_rect(layer, &d, &a);
-    if (y2 - y1 >= 3) {
-        lv_color_t edge = lv_color_mix(lv_color_white(), rgb(color), 110);
-        lv_draw_rect_dsc_init(&d);
-        d.radius = x2 - x1 >= 6 ? 1 : 0;
-        d.bg_color = edge;
-        d.bg_opa = opa;
-        a = (lv_area_t){x1 + d.radius, y1, x2 - d.radius, y1 + 1};
-        lv_draw_rect(layer, &d, &a);
+    for (int x = 0; x < n; x++) {
+        int32_t sum = 0;
+        for (int k = x - r; k <= x + r; k++) {
+            sum += in[k < 0 ? 0 : k >= n ? n - 1 : k];
+        }
+        out[x] = (int16_t)(sum / (2 * r + 1));
     }
 }
 
-// Blocks of equal height and zone; ramps become one column per pixel. Free
-// segments are drawn flat and dark. Done part dimmed, marker at pos_s.
+// The workout as one continuous curve, as in the web app: one column per pixel,
+// softened at steps, zone colours blended at zone changes, fading towards the
+// floor, with a light line along the top. Free segments are grey. Done part
+// dimmed, marker at pos_s.
 static void draw_profile(lv_event_t *e)
 {
     const profile_t *p = lv_event_get_user_data(e);
@@ -336,33 +326,65 @@ static void draw_profile(lv_event_t *e)
     if (width <= 0 || width > BSP_LCD_W || height <= 0) {
         return;
     }
-    static uint16_t col[BSP_LCD_W];
-    static bool free_col[BSP_LCD_W];
-    uint16_t top = 1000;
+    static int16_t col[BSP_LCD_W], tmp[BSP_LCD_W], y[BSP_LCD_W];
+    static uint8_t rgb3[3][BSP_LCD_W];
+    int top = 1000;
     for (int x = 0; x < width; x++) {
         uint32_t t = (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * width));
         workout_pos_t pos;
         workout_at(w, t, &pos);
-        col[x] = workout_profile_at(w, t);
-        free_col[x] = pos.kind == SEG_FREE;
+        col[x] = (int16_t)workout_profile_at(w, t);
+        uint32_t c = pos.kind == SEG_FREE ? C_MUTED : zone_color((uint16_t)col[x]);
+        rgb3[0][x] = c >> 16;
+        rgb3[1][x] = c >> 8;
+        rgb3[2][x] = c;
         top = col[x] > top ? col[x] : top;
     }
     top = top + top / 10;  // headroom
-    int marker = p->pos_s < 0 ? -1 : (int)((uint64_t)p->pos_s * width / w->total_s);
-    for (int x = 0, end; x < width; x = end) {
-        // Run of equal columns, split at the marker; a 1 px gap between blocks
-        for (end = x + 1; end < width && col[end] == col[x] && free_col[end] == free_col[x] && end != marker; end++) {
+    int r = width >= 200 ? 2 : 1;
+    blur(col, tmp, width, r);
+    blur(tmp, col, width, r);
+    for (int x = 0; x < width; x++) {
+        y[x] = (int16_t)(a.y2 - col[x] * (height - 2) / top);
+    }
+    // Blend colours over a few pixels at zone changes
+    for (int c = 0; c < 3; c++) {
+        for (int x = 0; x < width; x++) {
+            tmp[x] = rgb3[c][x];
         }
-        int h = col[x] * height / top;
-        lv_opa_t opa = x < marker ? LV_OPA_40 : LV_OPA_COVER;
-        int gap = end < width && end != marker && end - x > 2 ? 1 : 0;
-        if (free_col[x]) {
-            fill(layer, a.x1 + x, a.y2 - h + 1, a.x1 + end - 1 - gap, a.y2, C_BTN, opa);
-        } else {
-            block(layer, a.x1 + x, a.y2 - h + 1, a.x1 + end - 1 - gap, a.y2, zone_color(col[x]), opa);
+        blur(tmp, col, width, 3);
+        for (int x = 0; x < width; x++) {
+            rgb3[c][x] = (uint8_t)col[x];
         }
     }
-    int ftp_y = a.y2 - 1000 * height / top;  // 100 % FTP line
+    int marker = p->pos_s < 0 ? -1 : (int)((uint64_t)p->pos_s * width / w->total_s);
+    lv_draw_rect_dsc_t d;
+    for (int x = 0; x < width; x++) {
+        lv_color_t c = lv_color_make(rgb3[0][x], rgb3[1][x], rgb3[2][x]);
+        lv_opa_t opa = x < marker ? LV_OPA_40 : LV_OPA_COVER;
+        lv_draw_rect_dsc_init(&d);
+        d.bg_opa = opa;
+        d.bg_grad.dir = LV_GRAD_DIR_VER;
+        d.bg_grad.stops_count = 2;
+        // Fade by screen row, not per column: start at this column's share of the full fade
+        lv_opa_t top_opa = (lv_opa_t)(LV_OPA_10 + (LV_OPA_90 - LV_OPA_10) * (a.y2 - y[x]) / height);
+        d.bg_grad.stops[0] = (lv_grad_stop_t){.color = c, .opa = top_opa, .frac = 0};
+        d.bg_grad.stops[1] = (lv_grad_stop_t){.color = c, .opa = LV_OPA_10, .frac = 255};
+        lv_area_t col_a = {a.x1 + x, y[x], a.x1 + x, a.y2};
+        lv_draw_rect(layer, &d, &col_a);
+        // Top line, joined to the neighbour so steep steps have no holes
+        int y1 = y[x], y2 = y[x] + 1;
+        if (x > 0) {
+            y1 = LV_MIN(y1, y[x - 1] + 1);
+            y2 = LV_MAX(y2, y[x - 1]);
+        }
+        lv_draw_rect_dsc_init(&d);
+        d.bg_color = lv_color_mix(lv_color_white(), c, 90);
+        d.bg_opa = opa;
+        col_a = (lv_area_t){a.x1 + x, y1, a.x1 + x, y2};
+        lv_draw_rect(layer, &d, &col_a);
+    }
+    int ftp_y = a.y2 - 1000 * (height - 2) / top;  // 100 % FTP line
     fill(layer, a.x1, ftp_y, a.x2, ftp_y, C_TEXT, LV_OPA_20);
     if (marker >= 0) {
         fill(layer, a.x1 + marker - 1, a.y1, a.x1 + marker, a.y2, C_TEXT, LV_OPA_COVER);
