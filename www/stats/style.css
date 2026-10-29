@@ -303,11 +303,12 @@ tr:last-child td { border-bottom: 0; }
 .profile .area { stroke: none; }
 .profile .line { fill: none; stroke-width: 2.5px; stroke-linejoin: round; }
 .profile .shine { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 1px; }
-.profile .glow { fill: none; stroke-width: 6px; opacity: 0.55; }
-@media (prefers-color-scheme: light) { .profile .glow { opacity: 0.3; } .profile .shine { display: none; } }
+@media (prefers-color-scheme: light) { .profile .shine { display: none; } }
 .profile.compact .line { stroke-width: 1.5px; }
 .profile .ftp-line { stroke: var(--text-3); stroke-dasharray: 4 4; stroke-width: 1px; vector-effect: non-scaling-stroke; opacity: 0.6; }
 .profile.compact { height: 28px; margin-top: auto; }
+.profile .adapt-band { fill: rgba(255, 255, 255, 0.05); stroke: rgba(255, 255, 255, 0.35); stroke-width: 1px; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.field.check div { gap: 8px; } .field.check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .zone-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 12px; color: var(--text-3); }
 .zone-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .zone-legend span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--zc); }

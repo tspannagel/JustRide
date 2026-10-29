@@ -11,8 +11,8 @@
 </head>
 <body>
 <div class="aurora" aria-hidden="true"></div>
-<!-- Workout profile: fade towards the floor, and the glow along the curve -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pg-fade-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient><mask id="pg-fade" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#pg-fade-g)"/></mask><filter id="pg-glow" x="-5%" y="-50%" width="110%" height="200%"><feGaussianBlur stdDeviation="5"/></filter></defs></svg>
+<!-- Workout profile: fade towards the floor -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pg-fade-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient><mask id="pg-fade" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#pg-fade-g)"/></mask></defs></svg>
 
 <aside class="rail">
   <a class="brand" href="#today"><span class="logo" data-icon="zap"></span><span>JustRide</span></a>
@@ -110,6 +110,7 @@
           <button class="btn chip-btn" data-add="ramp">Ramp</button>
           <button class="btn chip-btn" data-add="free">Free ride</button>
           <button class="btn chip-btn" data-add="cooldown">Cool-down</button>
+          <button class="btn chip-btn" data-add="adaptive">Adaptive</button>
         </div>
         <div class="save-bar">
           <button class="btn danger ghost" id="wo-delete" data-icon="trash" hidden>Delete from device</button>

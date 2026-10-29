@@ -5,6 +5,8 @@ import { $, $$, api, esc, fmt, icon, toast, tile, zoneOf, zoneColor, ZONES } fro
 
 // ---- Model ------------------------------------------------------------------------
 // Block: {type, dur, p, lo, hi, reps, on, off, onP, offP, cad, cadRest}
+// Adaptive block: {type: 'adaptive', dur, p, avg, hrLo, hrHi, cadLo, cadHi, min, max}: the device
+// steers the power (start p, or hold p on average) within min..max to meet the goals.
 
 export const BLOCK_TYPES = {
   warmup: { label: 'Warm-up', fields: ['dur', 'lo', 'hi'] },
@@ -13,11 +15,17 @@ export const BLOCK_TYPES = {
   ramp: { label: 'Ramp', fields: ['dur', 'lo', 'hi'] },
   free: { label: 'Free ride', fields: ['dur'] },
   cooldown: { label: 'Cool-down', fields: ['dur', 'hi', 'lo'] },
+  adaptive: { label: 'Adaptive', fields: ['dur', 'p', 'avg', 'hr', 'cadR', 'bounds'] },
 };
+export const MAX_ADAPTIVE = 16;  // WORKOUT_MAX_GOALS on the device
+// Default bounds as on the device (workout_add_goal): -30 % / +15 %, at least 30 % FTP
+export const adaptMin = (b) => b.min || Math.max(0.3, b.p * 0.7);
+export const adaptMax = (b) => Math.max(adaptMin(b), b.max || b.p * 1.15);
 const NEW_BLOCK = {
   warmup: { dur: 600, lo: 0.45, hi: 0.75 }, steady: { dur: 600, p: 0.75 },
   intervals: { reps: 4, on: 240, onP: 1.1, off: 240, offP: 0.5 }, ramp: { dur: 300, lo: 0.6, hi: 0.9 },
   free: { dur: 600 }, cooldown: { dur: 300, hi: 0.65, lo: 0.4 },
+  adaptive: { dur: 1800, p: 0.65, avg: false, hrLo: 0, hrHi: 0 },
 };
 
 export const blockDur = (b) => (b.type === 'intervals' ? b.reps * (b.on + b.off) : b.dur);
@@ -35,7 +43,7 @@ function expand(w) {
       }
     } else if (b.type === 'free') {
       for (let i = 0; i < b.dur; i++) out.push(null);
-    } else if (b.type === 'steady') {
+    } else if (b.type === 'steady' || b.type === 'adaptive') {
       for (let i = 0; i < b.dur; i++) out.push(b.p);
     } else {
       // Warm-up and ramp climb from lo to hi; a cool-down starts at hi and ends at lo
@@ -75,6 +83,9 @@ export function toZwo(w) {
       case 'cooldown': return `<Cooldown Duration="${b.dur}" PowerLow="${p3(b.hi)}" PowerHigh="${p3(b.lo)}"${cad(b)}/>`;
       case 'ramp': return `<Ramp Duration="${b.dur}" PowerLow="${p3(b.lo)}" PowerHigh="${p3(b.hi)}"${cad(b)}/>`;
       case 'steady': return `<SteadyState Duration="${b.dur}" Power="${p3(b.p)}"${cad(b)}/>`;
+      case 'adaptive': return `<SteadyState Duration="${b.dur}" Power="${p3(b.p)}"${b.avg ? ' JrAvg="1"' : ''}${
+        b.hrLo && b.hrHi ? ` JrHrLow="${b.hrLo}" JrHrHigh="${b.hrHi}"` : ''}${b.cadLo && b.cadHi ? ` JrCadLow="${b.cadLo}" JrCadHigh="${b.cadHi}"` : ''}${
+        b.min ? ` JrMin="${p3(b.min)}"` : ''}${b.max ? ` JrMax="${p3(b.max)}"` : ''}/>`;
       case 'free': return `<FreeRide Duration="${b.dur}"/>`;
       case 'intervals': return `<IntervalsT Repeat="${b.reps}" OnDuration="${b.on}" OffDuration="${b.off}" ` +
         `OnPower="${p3(b.onP)}" OffPower="${p3(b.offP)}"${cad(b)}${b.cadRest ? ` CadenceResting="${Math.round(b.cadRest)}"` : ''}/>`;
@@ -106,7 +117,13 @@ export function fromZwo(xml, fallbackName = 'Workout') {
       case 'Warmup': blocks.push({ type: 'warmup', dur: n(el, 'Duration'), lo: n(el, 'PowerLow'), hi: n(el, 'PowerHigh'), cad }); break;
       case 'Cooldown': blocks.push({ type: 'cooldown', dur: n(el, 'Duration'), hi: n(el, 'PowerLow'), lo: n(el, 'PowerHigh'), cad }); break;
       case 'Ramp': blocks.push({ type: 'ramp', dur: n(el, 'Duration'), lo: n(el, 'PowerLow'), hi: n(el, 'PowerHigh'), cad }); break;
-      case 'SteadyState': blocks.push({ type: 'steady', dur: n(el, 'Duration'), p: n(el, 'Power'), cad }); break;
+      case 'SteadyState': {
+        const g = { avg: n(el, 'JrAvg') >= 0.5, hrLo: n(el, 'JrHrLow'), hrHi: n(el, 'JrHrHigh'), cadLo: n(el, 'JrCadLow'), cadHi: n(el, 'JrCadHigh') };
+        const adaptive = g.avg || (g.hrLo && g.hrHi) || (g.cadLo && g.cadHi);
+        blocks.push(adaptive ? { type: 'adaptive', dur: n(el, 'Duration'), p: n(el, 'Power'), ...g, min: n(el, 'JrMin') || undefined, max: n(el, 'JrMax') || undefined }
+          : { type: 'steady', dur: n(el, 'Duration'), p: n(el, 'Power'), cad });
+        break;
+      }
       case 'FreeRide': blocks.push({ type: 'free', dur: n(el, 'Duration') }); break;
       case 'IntervalsT': blocks.push({ type: 'intervals', reps: n(el, 'Repeat', 1), on: n(el, 'OnDuration'), off: n(el, 'OffDuration'),
         onP: n(el, 'OnPower'), offP: n(el, 'OffPower'), cad, cadRest: n(el, 'CadenceResting') || undefined }); break;
@@ -127,7 +144,7 @@ export const fileName = (name) => `${name.replace(/[^A-Za-z0-9 ._-]/g, '-').repl
 
 // One continuous curve: the power target per pixel, softened at steps so intervals
 // flow into each other; the colour follows the zone along the curve and blends at
-// zone changes. Drawn at the element's pixel width (drawProfile).
+// zone changes; a crisp line along the top. Drawn at the element's pixel width (drawProfile).
 let gradId = 0;
 export function profileSvg(w, { height = 180, width = 1000, compact = false } = {}) {
   const total = totalDur(w);
@@ -161,11 +178,21 @@ export function profileSvg(w, { height = 180, width = 1000, compact = false } = 
   const id = `pg${++gradId}`;
   const grad = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="0">${
     stops.map(([x, c]) => `<stop offset="${(x / W).toFixed(4)}" style="stop-color:${c}"/>`).join('')}</linearGradient>`;
+  // Adaptive blocks: a band where the device may steer the power
+  let t0 = 0;
+  const bands = [];
+  for (const b of w.blocks) {
+    const d = blockDur(b);
+    if (b.type === 'adaptive') {
+      const xa = (t0 / total) * W, xb = ((t0 + d) / total) * W, ya = y(adaptMax(b)), yb = y(adaptMin(b));
+      bands.push(`<rect x="${xa}" y="${ya}" width="${xb - xa}" height="${yb - ya}" rx="${compact ? 1 : 4}" class="adapt-band"/>`);
+    }
+    t0 += d;
+  }
   const ftp = y(1);
   return `<svg class="profile${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
     aria-label="Workout profile, ${fmt.hm(total)}"><defs>${grad}</defs>
-    ${compact ? '' : `<path d="${line}" class="glow" style="stroke:url(#${id})" filter="url(#pg-glow)"/>`}
-    <path d="${line}L${W} ${H}L0 ${H}Z" class="area" fill="url(#${id})" mask="url(#pg-fade)"/>
+    <path d="${line}L${W} ${H}L0 ${H}Z" class="area" fill="url(#${id})" mask="url(#pg-fade)"/>${bands.join('')}
     <path d="${line}" class="line" style="stroke:url(#${id})"/>
     ${compact ? '' : `<path d="${line}" class="shine"/><line x1="0" x2="${W}" y1="${ftp}" y2="${ftp}" class="ftp-line"/>`}</svg>`;
 }
@@ -193,6 +220,8 @@ export const GEN_TYPES = {
   vo2: { label: 'VO2max', zone: 4, about: 'Hard 2–5 minute efforts for top-end aerobic power.' },
   anaerobic: { label: 'Sprints', zone: 5, about: 'Short all-out efforts with long recovery.' },
   ramptest: { label: 'FTP ramp test', zone: 6, about: '1-minute steps until you can\'t hold the power. FTP ≈ 75 % of your best minute.' },
+  hrsteady: { label: 'HR steady', zone: 1, about: 'Endurance steered by heart rate: the power follows to keep you in your HR range.' },
+  holdavg: { label: 'Steady average', zone: 2, about: 'Holds an average power; an HR ceiling and a cadence range keep it honest.' },
 };
 
 export function adaptation(ctx) {
@@ -220,6 +249,7 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
   const d = Math.min(5, Math.max(1, difficulty));
   const k = (d - 3) * 0.02;            // intensity shift per difficulty step
   const P = (v) => Math.round(v * a.factor * 1000) / 1000;
+  const maxHr = ctx?.maxHr || 185;
   const total = minutes * 60;
   const blocks = [];
   let name;
@@ -254,6 +284,14 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
     case 'threshold': { const on = [360, 480, 600, 720, 900][d - 1]; sets(on, Math.round(on / 2), 0.98 + k / 2, 0.55, 'Threshold'); break; }
     case 'vo2': { const on = [120, 180, 180, 240, 300][d - 1]; sets(on, on, a.vo2 + k / 2, 0.5, 'VO2max', 100); break; }
     case 'anaerobic': sets(30, [210, 180, 150, 120, 90][d - 1], a.an + k, 0.5, 'Sprints', 110); break;
+    case 'hrsteady': {
+      const lo = Math.round(maxHr * (0.68 + k));
+      blocks.push({ type: 'adaptive', dur: main, p: P(0.65 + k), avg: false, hrLo: lo, hrHi: lo + 10 });
+      name = `HR steady ${minutes}min`; break;
+    }
+    case 'holdavg':
+      blocks.push({ type: 'adaptive', dur: main, p: P(0.75 + k), avg: true, hrLo: Math.round(maxHr * 0.72), hrHi: Math.round(maxHr * (0.85 + k)), cadLo: 85, cadHi: 95 });
+      name = `Steady average ${minutes}min`; break;
     case 'ramptest': {
       const steps = 25;  // 50 % up to 194 %: nobody finishes, stop when you can't hold it
       for (let i = 0; i < steps; i++) blocks.push({ type: 'steady', dur: 60, p: Math.round((0.5 + i * 0.06) * 1000) / 1000 });
@@ -262,7 +300,8 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
     default: throw new Error(`unknown type ${type}`);
   }
   if (cd) blocks.push({ type: 'cooldown', dur: cd, hi: 0.6, lo: 0.4 });
-  const about = GEN_TYPES[type].about + (a.notes.length ? ` Adapted: ${a.notes.join('; ')}.` : '');
+  const notes = a.notes.filter((n) => type === 'vo2' || !n.startsWith('VO2max'));
+  const about = GEN_TYPES[type].about + (notes.length ? ` Adapted: ${notes.join('; ')}.` : '');
   return { name, description: about, blocks, generated: { type, minutes, difficulty: d } };
 }
 
@@ -332,7 +371,8 @@ function renderStats() {
     tile('Intensity', fmt.num(L.if, 2), 'IF', 'load', 'target'),
     tile('Average', fmt.num(L.avgW), 'W', 'power', 'zap'),
     tile('Work', fmt.num(L.kj), 'kJ', 'power', 'energy'),
-  ].join('') + (segments(w) > 200 ? '<p class="error wide">Too long for the device: it runs the first 200 steps only (an interval repeat counts as two).</p>' : '');
+  ].join('') + (segments(w) > 200 ? '<p class="error wide">Too long for the device: it runs the first 200 steps only (an interval repeat counts as two).</p>' : '')
+    + (w.blocks.filter((b) => b.type === 'adaptive').length > MAX_ADAPTIVE ? `<p class="error wide">The device steers at most ${MAX_ADAPTIVE} adaptive blocks; the others run at their fixed power.</p>` : '');
   $('#wo-save').classList.toggle('pulse', state.dirty);
 }
 
@@ -346,13 +386,20 @@ function blockRow(b, i) {
       case 'off': return field('Off', `<input data-k="off" value="${mmss(b.off)}" inputmode="numeric" class="t">`);
       case 'reps': return field('Repeats', `<input data-k="reps" type="number" min="1" max="50" value="${b.reps}" class="n">`);
       case 'cad': return field('Cadence', `<input data-k="cad" type="number" min="0" max="150" placeholder="any" value="${b.cad || ''}" class="n">`);
+      case 'avg': return `<label class="field check"><span>Power is</span><div><input data-k="avg" type="checkbox"${b.avg ? ' checked' : ''}><i>an average to hold</i></div></label>`;
+      case 'hr': return field('Heart rate', `<input data-k="hrLo" type="number" min="0" max="230" placeholder="off" value="${b.hrLo || ''}" class="n"><i>–</i>
+        <input data-k="hrHi" type="number" min="0" max="230" placeholder="off" value="${b.hrHi || ''}" class="n"><i>bpm</i>`);
+      case 'cadR': return field('Cadence cue', `<input data-k="cadLo" type="number" min="0" max="150" placeholder="off" value="${b.cadLo || ''}" class="n"><i>–</i>
+        <input data-k="cadHi" type="number" min="0" max="150" placeholder="off" value="${b.cadHi || ''}" class="n"><i>rpm</i>`);
+      case 'bounds': return field('Steer between', `<input data-k="min" type="number" min="30" max="300" placeholder="${pct(adaptMin(b))}" value="${b.min ? pct(b.min) : ''}" class="n"><i>–</i>
+        <input data-k="max" type="number" min="30" max="300" placeholder="${pct(adaptMax(b))}" value="${b.max ? pct(b.max) : ''}" class="n"><i>%</i>`);
       default: {
         const label = { p: 'Power', lo: b.type === 'cooldown' ? 'End' : 'From', hi: b.type === 'cooldown' ? 'Start' : 'To', onP: 'On power', offP: 'Off power' }[key];
         return field(label, `<input data-k="${key}" type="number" min="0" max="300" step="1" value="${pct(b[key])}" class="n"><i>%</i>${watts(b[key])}`);
       }
     }
   };
-  const z = b.type === 'free' ? -1 : zoneOf(b.type === 'intervals' ? b.onP : b.type === 'steady' ? b.p : Math.max(b.lo, b.hi));
+  const z = b.type === 'free' ? -1 : zoneOf(b.type === 'intervals' ? b.onP : b.type === 'steady' || b.type === 'adaptive' ? b.p : Math.max(b.lo, b.hi));
   return `<div class="block" data-i="${i}" style="--zc:${z < 0 ? 'var(--text-3)' : zoneColor(z)}">
     <div class="block-head"><span class="chip">${esc(T.label)}</span><span class="block-dur">${fmt.dur(blockDur(b))}${z >= 0 ? ` · ${ZONES[z].name}` : ''}</span>
       <span class="block-tools">
@@ -380,6 +427,9 @@ function onInput(e) {
     b[k] = Math.min(s, 4 * 3600);
   } else if (k === 'reps') b.reps = Math.min(50, Math.max(1, Math.round(Number(t.value) || 1)));
   else if (k === 'cad') b.cad = Number(t.value) || undefined;
+  else if (k === 'avg') b.avg = t.checked;
+  else if (['hrLo', 'hrHi', 'cadLo', 'cadHi'].includes(k)) b[k] = Math.max(0, Math.round(Number(t.value) || 0));
+  else if (k === 'min' || k === 'max') b[k] = t.value === '' ? undefined : Math.min(3, Math.max(0.3, Number(t.value) / 100));
   else b[k] = Math.min(3, Math.max(0, (Number(t.value) || 0) / 100));
   state.dirty = true;
   renderStats();
@@ -395,7 +445,11 @@ async function onClick(e) {
   if (!b) return;
   const blocks = state.w?.blocks;
   if (b.dataset.open) return openFile(b.dataset.open);
-  if (b.dataset.add) { blocks.push({ type: b.dataset.add, ...NEW_BLOCK[b.dataset.add] }); state.dirty = true; return refreshRows(); }
+  if (b.dataset.add) {
+    const nb = { type: b.dataset.add, ...NEW_BLOCK[b.dataset.add] };
+    if (nb.type === 'adaptive') { const hr = state.ctx?.maxHr || 185; nb.hrLo = Math.round(hr * 0.7); nb.hrHi = nb.hrLo + 10; }
+    blocks.push(nb); state.dirty = true; return refreshRows();
+  }
   if (b.dataset.act) {
     const i = Number(b.closest('.block').dataset.i);
     if (b.dataset.act === 'del') blocks.splice(i, 1);

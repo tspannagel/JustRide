@@ -23,7 +23,7 @@ async function loadUser(u) {
 function ctx() {
   const ftp = S.user.ftp_w || S.rides.find((r) => r.ftp_w)?.ftp_w || null;
   const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
-  return { ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg };
+  return { ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
 }
 
 // Best watts per duration for rides in the last `days` (null: all time)
