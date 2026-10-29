@@ -19,6 +19,8 @@ static const char *TAG = "ble";
 #define BACKOFF_MAX_S 30
 #define UUID_CCCD 0x2902
 #define NO_CONN 0xFFFF
+#define COOLDOWN_MS 60000  // a device that failed setup is skipped this long
+#define MAX_COOL 4
 
 typedef struct {
     bool used;
@@ -43,6 +45,23 @@ static int s_n_drv;
 static link_t s_links[MAX_LINKS];
 static uint8_t s_own_addr_type;
 static bool s_connecting;
+// Devices that just failed setup; skipped so they can't keep other roles from connecting
+static struct {
+    ble_addr_t addr;
+    TickType_t until;
+} s_cool[MAX_COOL];
+static int s_cool_next;
+
+static bool cooling(const ble_addr_t *a)
+{
+    for (int i = 0; i < MAX_COOL; i++) {
+        if (s_cool[i].until && ble_addr_cmp(&s_cool[i].addr, a) == 0 &&
+            (int32_t)(s_cool[i].until - xTaskGetTickCount()) > 0) {
+            return true;
+        }
+    }
+    return false;
+}
 static int s_fails;
 static struct ble_npl_callout s_rescan;  // runs on the host task, like every other callback here
 static struct ble_npl_event s_user_ev, s_forget_ev;
@@ -149,7 +168,9 @@ static void start_scan(void)
     if (s_connecting || all_roles_linked() || ble_gap_disc_active()) {
         return;
     }
-    struct ble_gap_disc_params p = {.filter_duplicates = 1};
+    // 30 ms every 100 ms (units of 0.625 ms). The default (10 of 10 ms) keeps the shared
+    // radio busy all the time and Wi-Fi clients lose the access point.
+    struct ble_gap_disc_params p = {.itvl = 160, .window = 48, .filter_duplicates = 1};
     int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &p, gap_event, NULL);
     if (rc != 0) {
         ESP_LOGW(TAG, "scan start failed: %d", rc);
@@ -179,8 +200,31 @@ bool ble_adv_has_company(const struct ble_hs_adv_fields *f, uint16_t company)
     return f->mfg_data && f->mfg_data_len >= 2 && (f->mfg_data[0] | f->mfg_data[1] << 8) == company;
 }
 
+static volatile bool s_dump;
+
+void ble_mgr_dump(bool on)
+{
+    s_dump = on;
+    if (on && ble_gap_disc_active()) {
+        ble_gap_disc_cancel();  // restart so the duplicate filter reports every device again
+        start_scan();
+    }
+}
+
 static void on_disc(const struct ble_gap_disc_desc *d)
 {
+    if (s_dump) {
+        // Raw advertising / scan-response bytes: ad structures are length, type, data
+        char hex[2 * BLE_HS_ADV_MAX_SZ + 1];
+        int n = d->length_data < BLE_HS_ADV_MAX_SZ ? d->length_data : BLE_HS_ADV_MAX_SZ;
+        for (int i = 0; i < n; i++) {
+            sprintf(&hex[2 * i], "%02x", d->data[i]);
+        }
+        hex[2 * n] = 0;
+        const uint8_t *a = d->addr.val;
+        ESP_LOGI(TAG, "adv %02x:%02x:%02x:%02x:%02x:%02x type %u rssi %d %s", a[5], a[4], a[3], a[2], a[1], a[0],
+                 d->event_type, d->rssi, hex);
+    }
     struct ble_hs_adv_fields f;
     if (ble_hs_adv_parse_fields(&f, d->data, d->length_data) != 0) {
         return;
@@ -193,6 +237,9 @@ static void on_disc(const struct ble_gap_disc_desc *d)
         }
         if (saved_addr(drv, &want) && ble_addr_cmp(&want, &d->addr) != 0) {
             continue;  // a different device of this kind is remembered
+        }
+        if (cooling(&d->addr)) {
+            continue;
         }
         ESP_LOGI(TAG, "connecting %s (rssi %d)", drv->name, d->rssi);
         ble_gap_disc_cancel();
@@ -210,8 +257,29 @@ static void on_disc(const struct ble_gap_disc_desc *d)
 
 static void fail_link(link_t *l, const char *why)
 {
-    ESP_LOGW(TAG, "%s: %s, disconnecting", l->drv->name, why);
+    ESP_LOGW(TAG, "%s: %s, disconnecting (skipped for %d s)", l->drv->name, why, COOLDOWN_MS / 1000);
+    s_cool[s_cool_next].addr = l->addr;
+    s_cool[s_cool_next].until = (xTaskGetTickCount() + pdMS_TO_TICKS(COOLDOWN_MS)) | 1;  // 0 = free slot
+    s_cool_next = (s_cool_next + 1) % MAX_COOL;
     ble_gap_terminate(l->conn, BLE_ERR_REM_USER_CONN_TERM);
+}
+
+// The expected service is missing (e.g. after a firmware update): log what the device
+// offers so the driver can be fixed from the log, then give up on it.
+static int on_any_svc(uint16_t conn, const struct ble_gatt_error *err, const struct ble_gatt_svc *svc, void *arg)
+{
+    link_t *l = link_by_conn(conn);
+    if (!l) {
+        return 0;
+    }
+    if (err->status == 0) {
+        char u[BLE_UUID_STR_LEN];
+        ESP_LOGI(TAG, "%s offers service %s (handles %u-%u)", l->drv->name, ble_uuid_to_str(&svc->uuid.u, u),
+                 svc->start_handle, svc->end_handle);
+        return 0;
+    }
+    fail_link(l, "service not found");
+    return 0;
 }
 
 static int on_cccd_written(uint16_t conn, const struct ble_gatt_error *err, struct ble_gatt_attr *attr, void *arg)
@@ -288,6 +356,9 @@ static int on_chr(uint16_t conn, const struct ble_gatt_error *err, const struct 
         return 0;
     }
     if (err->status == 0) {
+        char u[BLE_UUID_STR_LEN];
+        ESP_LOGI(TAG, "%s characteristic %s handle %u props 0x%02x", l->drv->name, ble_uuid_to_str(&chr->uuid.u, u),
+                 chr->val_handle, chr->properties);
         if (l->n_all < MAX_ALL_CHRS) {
             l->all_def[l->n_all++] = chr->def_handle;
         }
@@ -333,12 +404,34 @@ static int on_svc(uint16_t conn, const struct ble_gatt_error *err, const struct 
         l->svc_end = svc->end_handle;
         return 0;
     }
-    if (err->status != BLE_HS_EDONE || l->svc_start == 0) {
-        fail_link(l, "service not found");
+    if (err->status == BLE_HS_EDONE && l->svc_start == 0) {
+        if (ble_gattc_disc_all_svcs(conn, on_any_svc, NULL) != 0) {
+            fail_link(l, "service not found");
+        }
+        return 0;
+    }
+    if (err->status != BLE_HS_EDONE) {
+        fail_link(l, "service discovery failed");
         return 0;
     }
     if (ble_gattc_disc_all_chrs(conn, l->svc_start, l->svc_end, on_chr, NULL) != 0) {
         fail_link(l, "characteristic discovery");
+    }
+    return 0;
+}
+
+// Discovery starts only after the MTU exchange: run in parallel, it stalled until the
+// 30 s GATT timeout on the Zwift Ride.
+static int on_mtu(uint16_t conn, const struct ble_gatt_error *err, uint16_t mtu, void *arg)
+{
+    link_t *l = link_by_conn(conn);
+    if (!l) {
+        return 0;
+    }
+    ESP_LOGI(TAG, "%s: MTU %u (status %d)", l->drv->name, mtu, err->status);
+    // A procedure that fails to start never calls back: drop the link, or this role stays blocked
+    if (ble_gattc_disc_svc_by_uuid(conn, &l->drv->service.u, on_svc, NULL) != 0) {
+        fail_link(l, "service discovery");
     }
     return 0;
 }
@@ -377,9 +470,10 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (ble_gap_conn_find(l->conn, &desc) == 0) {
             l->addr = desc.peer_id_addr;
         }
-        // A procedure that fails to start never calls back: drop the link, or this role stays blocked
-        if (ble_gattc_disc_svc_by_uuid(l->conn, &drv->service.u, on_svc, NULL) != 0) {
-            fail_link(l, "service discovery");
+        // Ask for a bigger MTU (CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU); at the default 23 bytes
+        // notifications carry only 20. on_mtu then starts service discovery.
+        if (ble_gattc_exchange_mtu(l->conn, on_mtu, NULL) != 0) {
+            fail_link(l, "MTU exchange");
         }
         break;
     }
@@ -406,9 +500,10 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (!l || !l->ready) {
             break;
         }
-        uint8_t buf[64];
+        uint8_t buf[256];
         uint16_t len = 0;
         if (ble_hs_mbuf_to_flat(ev->notify_rx.om, buf, sizeof(buf), &len) != 0) {
+            ESP_LOGW(TAG, "%s: notification over %u bytes dropped", l->drv->name, (unsigned)sizeof(buf));
             break;
         }
         for (int i = 0; i < l->drv->n_chrs; i++) {

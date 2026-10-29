@@ -46,6 +46,9 @@ bool ble_mgr_connected(uint8_t role);
 // disconnect; the next match is paired.
 void ble_mgr_forget(void);
 
+// Diagnostics: log every advertisement and scan response as raw hex.
+void ble_mgr_dump(bool on);
+
 // Active user id (settings user_t.id). Per-user devices are disconnected and
 // the new user's remembered device is looked for. Call once before ble_mgr_start.
 void ble_mgr_set_user(const char *id);
