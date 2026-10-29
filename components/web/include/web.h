@@ -10,6 +10,8 @@ void web_init(void);
 void web_start(const settings_t *s);
 void web_stop(void);
 bool web_running(void);
+// Diagnostics: print nearby networks (name, signal, channel, security). Only while Wi-Fi is off.
+void web_scan_print(void);
 // One-line status for the UI
 void web_status(char *buf, size_t size);
 

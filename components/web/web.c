@@ -513,8 +513,16 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && s_running && !s_is_ap) {
+        // 201 no AP found (wrong name, 5 GHz only), 15/204/210 wrong password
+        wifi_event_sta_disconnected_t *e = data;
+        ESP_LOGW(TAG, "home Wi-Fi: disconnected, reason %d", e->reason);
         s_got_ip = false;
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
+        ESP_LOGI(TAG, "access point: device joined");
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t *e = data;
+        ESP_LOGW(TAG, "access point: device left, reason %d", e->reason);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data;
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&e->ip_info.ip));
@@ -556,6 +564,12 @@ void web_start(const settings_t *s)
         wifi_config_t sta = {0};
         memcpy(sta.sta.ssid, s->wifi_ssid, strlen(s->wifi_ssid));  // a 32-byte SSID has no NUL
         snprintf((char *)sta.sta.password, sizeof(sta.sta.password), "%s", s->wifi_pass);
+        // WPA3 routers often require SAE hash-to-element; without it auth fails (reason 202)
+        sta.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+        sta.sta.pmf_cfg.capable = true;
+        // Length only, never the password: catches stray spaces or a truncated value
+        ESP_LOGI(TAG, "connecting to \"%.32s\" (password %u characters)", s->wifi_ssid,
+                 (unsigned)strlen(s->wifi_pass));
         esp_wifi_set_mode(WIFI_MODE_STA);
         esp_wifi_set_config(WIFI_IF_STA, &sta);
         esp_wifi_start();
@@ -596,6 +610,31 @@ void web_stop(void)
     esp_wifi_stop();
     xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "Wi-Fi off");
+}
+
+void web_scan_print(void)
+{
+    static const char *auth[] = {"open", "WEP", "WPA", "WPA2", "WPA/WPA2", "WPA2-Enterprise", "WPA3",
+                                 "WPA2/WPA3", "WAPI", "OWE", "WPA3-Enterprise-192", "WPA3-ext", "WPA3-ext-mixed"};
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_running) {
+        xSemaphoreGive(s_lock);
+        printf("turn Wi-Fi off first\n");
+        return;
+    }
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
+    wifi_ap_record_t recs[20];
+    uint16_t n = sizeof(recs) / sizeof(recs[0]);
+    if (esp_wifi_scan_start(NULL, true) == ESP_OK && esp_wifi_scan_get_ap_records(&n, recs) == ESP_OK) {
+        for (uint16_t i = 0; i < n; i++) {
+            unsigned a = recs[i].authmode;
+            printf("%-32.32s %4d dBm  ch %2u  %s\n", (const char *)recs[i].ssid, recs[i].rssi, recs[i].primary,
+                   a < sizeof(auth) / sizeof(auth[0]) ? auth[a] : "?");
+        }
+    }
+    esp_wifi_stop();
+    xSemaphoreGive(s_lock);
 }
 
 void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
