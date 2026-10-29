@@ -9,7 +9,7 @@ static const char *TAG = "zap";
 #define CHR_ASYNC 0
 #define CHR_SYNC_RX 1
 #define CHR_SYNC_TX 2
-#define ZAP_UUID16 0xFC82  // Zwift 16-bit service UUID in some adverts (unverified)
+#define ZAP_UUID16 0xFC82  // Zwift service: in the Ride's advert and, on its current firmware, the GATT service
 
 // 0000000n-19CA-4651-86E5-FA29DCDD09D1, little-endian
 #define ZAP_UUID(n) \
@@ -79,7 +79,8 @@ const ble_drv_t drv_zap = {
     .name = "zwift ride",
     .role = SRC_CONTROLLER,
     .matches = matches,
-    .service = ZAP_UUID(0x01),
+    // The user's Ride (2026-10-29) has no 00000001-19CA-... service, only 0xFC82 (handles 23-34)
+    .service = {.u16 = BLE_UUID16_INIT(ZAP_UUID16)},
     .chrs = {
         {ZAP_UUID(0x02), BLE_CHR_NOTIFY | BLE_CHR_REQUIRED},    // Async
         {ZAP_UUID(0x03), BLE_CHR_REQUIRED},                     // SyncRX (write)

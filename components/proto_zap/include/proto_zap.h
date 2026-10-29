@@ -1,7 +1,6 @@
 // Zwift Accessory Protocol, plain variant (Zwift Ride, Click v2). Pure C.
-// Community reverse-engineered, NOT verified on the user's devices yet:
-// button bits, polarity and message ids must be checked against raw dumps
-// (diag: `zap dump on`) and turned into fixtures in test/host/fixtures/.
+// Button bits, polarity and the 0x23 message are verified against the user's
+// Zwift Ride (test/host/fixtures/zap_ride_2026-10-29.txt); Click v2 is not.
 #pragma once
 
 #include <stdbool.h>
@@ -28,21 +27,20 @@ uint32_t zap_ride_pressed(uint32_t button_map);
 // input_id_t for one ZAP_RIDE_* bit, -1 if the button isn't used
 int zap_ride_input(uint32_t bit);
 
-// Button bits (from community projects: SHIFTR, qdomyos-zwift; unverified)
-#define ZAP_RIDE_LEFT 0x00001
-#define ZAP_RIDE_UP 0x00002
-#define ZAP_RIDE_RIGHT 0x00004
-#define ZAP_RIDE_DOWN 0x00008
-#define ZAP_RIDE_A 0x00010
-#define ZAP_RIDE_B 0x00020
-#define ZAP_RIDE_Y 0x00040
-#define ZAP_RIDE_Z 0x00100
-#define ZAP_RIDE_SHIFT_UP_L 0x00200
-#define ZAP_RIDE_SHIFT_DOWN_L 0x00400
-#define ZAP_RIDE_POWERUP_L 0x00800
-#define ZAP_RIDE_ONOFF_L 0x01000
-#define ZAP_RIDE_SHIFT_UP_R 0x02000
-#define ZAP_RIDE_SHIFT_DOWN_R 0x04000
-#define ZAP_RIDE_POWERUP_R 0x10000
-#define ZAP_RIDE_ONOFF_R 0x20000
-#define ZAP_RIDE_ALL 0x37FFF
+// Button bits, measured on the user's Ride (2026-10-29). The community table
+// (SHIFTR, qdomyos-zwift) was one bit off from Z upwards. The paddles are not
+// bits but analog values (field 3), not used yet. Bits 10, 11 and 14+ were not
+// pressed in the capture and are ignored.
+#define ZAP_RIDE_LEFT 0x0001          // left controller
+#define ZAP_RIDE_UP 0x0002
+#define ZAP_RIDE_RIGHT 0x0004
+#define ZAP_RIDE_DOWN 0x0008
+#define ZAP_RIDE_A 0x0010             // right controller
+#define ZAP_RIDE_B 0x0020
+#define ZAP_RIDE_Y 0x0040
+#define ZAP_RIDE_Z 0x0080
+#define ZAP_RIDE_SHIFT_UP_L 0x0100    // left, upper button on the back
+#define ZAP_RIDE_SHIFT_DOWN_L 0x0200  // left, lower button on the back
+#define ZAP_RIDE_SHIFT_UP_R 0x1000    // right, upper button on the back
+#define ZAP_RIDE_SHIFT_DOWN_R 0x2000  // right, lower button on the back
+#define ZAP_RIDE_ALL 0x33FF

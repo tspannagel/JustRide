@@ -12,7 +12,8 @@ add_link_options(-fsanitize=address,undefined,float-cast-overflow)
 enable_testing()
 
 set(C ${CMAKE_CURRENT_SOURCE_DIR}/../../components)
-add_compile_definitions(TOOLS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools")
+add_compile_definitions(TOOLS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tools"
+                        FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 include_directories(${C}/evbus/include)
 
 # jr_test(<name> <sources...>): test_<name>.c plus the component sources

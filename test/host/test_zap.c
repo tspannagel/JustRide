@@ -1,5 +1,6 @@
-// Hand-built packets following the community docs. Replace with captures from
-// the user's Zwift Ride (test/host/fixtures/) once recorded.
+// Keypad decoding against packets captured from the user's Zwift Ride
+// (fixtures/zap_ride_2026-10-29.txt), plus hand-built edge cases.
+#include <stdlib.h>
 #include "input_map.h"
 #include "proto_zap.h"
 #include "ride.h"
@@ -44,7 +45,7 @@ static void test_keypad(void)
     CHECK_EQ(zap_ride_pressed(map), ZAP_RIDE_SHIFT_UP_R | ZAP_RIDE_A);
     CHECK_EQ(zap_ride_input(ZAP_RIDE_SHIFT_UP_R), IN_SHIFT_UP);
     CHECK_EQ(zap_ride_input(ZAP_RIDE_SHIFT_DOWN_L), IN_SHIFT_DOWN);
-    CHECK_EQ(zap_ride_input(ZAP_RIDE_ONOFF_R), -1);
+    CHECK_EQ(zap_ride_input(0x0400), -1);  // not a known button
 
     // Other message types and broken protobuf are rejected
     uint8_t battery[] = {0x19, 0x08, 0x5A};
@@ -63,6 +64,70 @@ static int press(input_map_t *m, uint8_t id, uint32_t t, uint32_t hold, uint8_t 
     *on_press = input_map(m, &e, t, state);
     e.kind = IN_RELEASE;
     return input_map(m, &e, t + hold, state);
+}
+
+// Each fixture line: label, hex. Every captured press must decode to exactly its button.
+static void test_ride_capture(void)
+{
+    static const struct {
+        const char *label;
+        uint32_t pressed;
+        int input;
+    } want[] = {
+        {"idle", 0, -1},
+        {"L_up", ZAP_RIDE_UP, IN_UP},
+        {"L_left", ZAP_RIDE_LEFT, IN_LEFT},
+        {"L_down", ZAP_RIDE_DOWN, IN_DOWN},
+        {"L_right", ZAP_RIDE_RIGHT, IN_RIGHT},
+        {"L_paddle_-", 0, -1},  // paddles are analog, not buttons
+        {"L_paddle_+", 0, -1},
+        {"L_back_up", ZAP_RIDE_SHIFT_UP_L, IN_SHIFT_UP},
+        {"L_back_down", ZAP_RIDE_SHIFT_DOWN_L, IN_SHIFT_DOWN},
+        {"R_Y", ZAP_RIDE_Y, IN_Y},
+        {"R_Z", ZAP_RIDE_Z, IN_Z},
+        {"R_B", ZAP_RIDE_B, IN_B},
+        {"R_A", ZAP_RIDE_A, IN_A},
+        {"R_paddle_-", 0, -1},
+        {"R_paddle_+", 0, -1},
+        {"R_back_up", ZAP_RIDE_SHIFT_UP_R, IN_SHIFT_UP},
+        {"R_back_down", ZAP_RIDE_SHIFT_DOWN_R, IN_SHIFT_DOWN},
+    };
+    FILE *f = fopen(FIXTURES_DIR "/zap_ride_2026-10-29.txt", "r");
+    CHECK(f != NULL);
+    if (!f) {
+        return;
+    }
+    char line[256], label[32], hex[160];
+    int seen = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (line[0] == '#' || sscanf(line, "%31s %159s", label, hex) != 2) {
+            continue;
+        }
+        uint8_t pkt[80];
+        size_t n = strlen(hex) / 2;
+        for (size_t i = 0; i < n; i++) {
+            char b[3] = {hex[2 * i], hex[2 * i + 1], 0};
+            pkt[i] = (uint8_t)strtoul(b, NULL, 16);
+        }
+        for (size_t k = 0; k < sizeof(want) / sizeof(want[0]); k++) {
+            if (strcmp(label, want[k].label) != 0) {
+                continue;
+            }
+            uint32_t map = 0;
+            CHECK(zap_parse_ride_keypad(pkt, n, &map));
+            uint32_t pressed = zap_ride_pressed(map);
+            if (pressed != want[k].pressed) {
+                printf("fixture %s: pressed 0x%x, expected 0x%x\n", label, pressed, want[k].pressed);
+            }
+            CHECK_EQ(pressed, want[k].pressed);
+            if (want[k].pressed) {
+                CHECK_EQ(zap_ride_input(pressed), want[k].input);
+            }
+            seen++;
+        }
+    }
+    fclose(f);
+    CHECK_EQ(seen, (int)(sizeof(want) / sizeof(want[0])));
 }
 
 static void test_input_map(void)

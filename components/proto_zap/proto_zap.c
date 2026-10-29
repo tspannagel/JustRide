@@ -86,6 +86,6 @@ int zap_ride_input(uint32_t bit)
     case ZAP_RIDE_SHIFT_UP_R: return IN_SHIFT_UP;
     case ZAP_RIDE_SHIFT_DOWN_L:
     case ZAP_RIDE_SHIFT_DOWN_R: return IN_SHIFT_DOWN;
-    default: return -1;  // power-up and on/off buttons are not used
+    default: return -1;
     }
 }
