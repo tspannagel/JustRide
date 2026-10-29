@@ -48,9 +48,8 @@ void app_main(void)
     ESP_ERROR_CHECK(bsp_init());
     clock_init();
 
-    // 7. Something visible before the backlight comes on
+    // 7. Black until LVGL draws (the backlight is on from power-up)
     diag_test_pattern(2);
-    bsp_backlight(true);
 
     evbus_init();
     drv_ftms_init();  // before app_start: the control task feeds its mailbox

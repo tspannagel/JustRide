@@ -2,6 +2,7 @@
 #pragma once
 #define BSP_LCD_W 480
 #define BSP_LCD_H 480
+#define BSP_ROTATE_180 1
 #ifndef BSP_SD_MOUNT
 #error "set BSP_SD_MOUNT"
 #endif

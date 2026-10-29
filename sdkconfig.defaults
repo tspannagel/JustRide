@@ -18,6 +18,10 @@ CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 
 # RGB panel
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+# 64-byte data cache lines: the panel's PSRAM reads otherwise starve and the
+# picture shifts/ghosts (Espressif RGB LCD FAQ; Waveshare V4 examples). Cache stays
+# 32 KB: 64 KB costs internal RAM that BLE needs (BLE_INIT malloc failed).
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 
 # Console on native USB
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
@@ -52,3 +56,9 @@ CONFIG_LV_FONT_MONTSERRAT_16=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
+
+# LVGL: system malloc (internal RAM, then PSRAM) instead of the fixed 64 KB pool,
+# which all screens built at start-up overflow (as in Waveshare's V4 examples)
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y

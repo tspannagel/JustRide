@@ -1,13 +1,15 @@
-// Bring-up for the Waveshare ESP32-S3-Touch-LCD-4 (V3).
+// Bring-up for the Waveshare ESP32-S3-Touch-LCD-4 V4.0.
 // GPIO 1/2 are shared between the ST7701 init bus and the SD card, so the
 // order in bsp_init() is mandatory (see CLAUDE.md "Bring-up order").
+// Pins, CH32V003 registers, the ST7701 init table and the RGB timing are taken
+// from Waveshare's V4 BSP (waveshare/esp32_s3_touch_lcd_4 3.0.0) and the
+// waveshare/custom_io_expander_ch32v003 2.0.0 driver.
 
 #include "bsp.h"
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
-#include "driver/sdspi_host.h"
-#include "driver/spi_common.h"
+#include "driver/sdmmc_host.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_io_additions.h"
 #include "esp_lcd_panel_ops.h"
@@ -25,7 +27,6 @@ static const char *TAG = "bsp";
 
 #define PIN_I2C_SDA 15
 #define PIN_I2C_SCL 7
-#define PIN_TOUCH_INT 16
 
 #define PIN_LCD_CS 42
 #define PIN_LCD_SCL 2
@@ -35,19 +36,27 @@ static const char *TAG = "bsp";
 #define PIN_LCD_DE 40
 #define PIN_LCD_PCLK 41
 
-#define PIN_SD_MOSI 1
-#define PIN_SD_SCK 2
-#define PIN_SD_MISO 4
+// 1-bit SDMMC
+#define PIN_SD_CMD 1
+#define PIN_SD_CLK 2
+#define PIN_SD_D0 4
 
-// TODO verify: Waveshare benchmark runs 21 MHz; start lower until the image is stable.
-#define LCD_PCLK_HZ (16 * 1000 * 1000)
-
-#define TCA9554_ADDR 0x20
-#define TCA9554_ADDR_A 0x38 // TCA9554A variant
-#define TCA9554_REG_OUTPUT 0x01
-#define TCA9554_REG_CONFIG 0x03
-// 1 = input. EXIO4 (BLC, unknown), EXIO6 (RTC int), EXIO7 (DO1, unknown) stay inputs.
-#define TCA9554_CONFIG 0xD0
+// CH32V003 helper controller: Waveshare firmware emulating an 8-bit expander
+#define CH32_ADDR 0x24
+#define CH32_REG_DIR 0x02 // 1 = output
+#define CH32_REG_OUTPUT 0x03
+#define CH32_REG_PWM 0x05 // backlight duty
+// Pin table from the V4.0 schematic
+#define CH32_TOUCH_RST 1
+#define CH32_TOUCH_INT 2 // GT911 latches its I2C address and starts from INT's level at reset
+#define CH32_LCD_RST 3
+#define CH32_SD_CS 4 // card CS/D3: high selects SD mode at power-up (low = SPI mode)
+#define CH32_SYS_EN 5 // system power enable; Waveshare drives it high in every example
+#define CH32_BUZZER 6
+// EXIO7 is the RTC interrupt (input); EXIO0 is the CH32's ADC input and stays untouched.
+#define CH32_DIR_RUN \
+    ((1u << CH32_TOUCH_RST) | (1u << CH32_LCD_RST) | (1u << CH32_SD_CS) | (1u << CH32_SYS_EN) | (1u << CH32_BUZZER))
+#define CH32_DIR_RESET (CH32_DIR_RUN | (1u << CH32_TOUCH_INT))
 
 #define PCF85063_ADDR 0x51
 #define PCF85063_REG_SECONDS 0x04
@@ -63,10 +72,10 @@ static i2c_master_dev_handle_t s_rtc;
 static esp_timer_handle_t s_beep_timer;
 static esp_lcd_touch_handle_t s_touch;
 static esp_lcd_panel_handle_t s_panel;
-static uint16_t *s_fb[2];
+static uint16_t *s_fb;
 static sdmmc_card_t *s_card;
 
-// ---- I2C + expander ---------------------------------------------------------
+// ---- I2C + CH32V003 helper --------------------------------------------------
 
 static esp_err_t i2c_init(void)
 {
@@ -102,30 +111,25 @@ static esp_err_t exio_write(uint8_t reg, uint8_t val)
 
 static esp_err_t exio_init(void)
 {
-    uint8_t addr = TCA9554_ADDR;
-    if (i2c_master_probe(s_i2c, addr, 50) != ESP_OK) {
-        addr = TCA9554_ADDR_A;
-        ESP_RETURN_ON_ERROR(i2c_master_probe(s_i2c, addr, 50), TAG, "TCA9554 not found at 0x20/0x38");
-    }
+    ESP_RETURN_ON_ERROR(i2c_master_probe(s_i2c, CH32_ADDR, 50), TAG, "CH32V003 not found at 0x24");
     i2c_device_config_t dev = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = addr,
+        .device_address = CH32_ADDR,
         .scl_speed_hz = 400000,
     };
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c, &dev, &s_exio), TAG, "add TCA9554");
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(s_i2c, &dev, &s_exio), TAG, "add CH32V003");
     s_exio_lock = xSemaphoreCreateMutex();
 
     // Output register first, then direction, so no pin glitches.
-    // Backlight off, resets asserted, buzzer off. SD CS high (deselected): the
-    // ST7701 init that follows clocks GPIO 1/2, which are also the card's SCK/MOSI.
-    s_exio_out = 1u << BSP_EXIO_SD_CS;
-    ESP_RETURN_ON_ERROR(exio_write(TCA9554_REG_OUTPUT, s_exio_out), TAG, "TCA9554 output");
-    ESP_RETURN_ON_ERROR(exio_write(TCA9554_REG_CONFIG, TCA9554_CONFIG), TAG, "TCA9554 config");
-    ESP_LOGI(TAG, "TCA9554 at 0x%02x", addr);
+    // Power enabled, LCD and touch held in reset with touch INT low, buzzer off.
+    s_exio_out = (1u << CH32_SYS_EN) | (1u << CH32_SD_CS);
+    ESP_RETURN_ON_ERROR(exio_write(CH32_REG_OUTPUT, s_exio_out), TAG, "CH32 output");
+    ESP_RETURN_ON_ERROR(exio_write(CH32_REG_DIR, CH32_DIR_RESET), TAG, "CH32 direction");
+    ESP_LOGI(TAG, "CH32V003 at 0x%02x", CH32_ADDR);
     return ESP_OK;
 }
 
-esp_err_t bsp_exio_set(bsp_exio_t pin, bool level)
+static esp_err_t exio_set(int pin, bool level)
 {
     xSemaphoreTake(s_exio_lock, portMAX_DELAY);
     if (level) {
@@ -133,14 +137,20 @@ esp_err_t bsp_exio_set(bsp_exio_t pin, bool level)
     } else {
         s_exio_out &= ~(1u << pin);
     }
-    esp_err_t err = exio_write(TCA9554_REG_OUTPUT, s_exio_out);
+    esp_err_t err = exio_write(CH32_REG_OUTPUT, s_exio_out);
     xSemaphoreGive(s_exio_lock);
     return err;
 }
 
-void bsp_backlight(bool on) { bsp_exio_set(BSP_EXIO_BACKLIGHT, on); }
+esp_err_t bsp_backlight_pwm(uint8_t duty)
+{
+    xSemaphoreTake(s_exio_lock, portMAX_DELAY);
+    esp_err_t err = exio_write(CH32_REG_PWM, duty);
+    xSemaphoreGive(s_exio_lock);
+    return err;
+}
 
-static void beep_off(void *arg) { bsp_exio_set(BSP_EXIO_BUZZER, 0); }
+static void beep_off(void *arg) { exio_set(CH32_BUZZER, 0); }
 
 void bsp_beep(uint32_t ms)
 {
@@ -149,7 +159,7 @@ void bsp_beep(uint32_t ms)
     }
     ms = ms < BEEP_MIN_MS ? BEEP_MIN_MS : ms > BEEP_MAX_MS ? BEEP_MAX_MS : ms;
     esp_timer_stop(s_beep_timer);
-    bsp_exio_set(BSP_EXIO_BUZZER, 1);
+    exio_set(CH32_BUZZER, 1);
     esp_timer_start_once(s_beep_timer, ms * 1000);
 }
 
@@ -231,12 +241,13 @@ static void touch_init(void)
     if (esp_lcd_new_panel_io_i2c(s_i2c, &io_cfg, &io) != ESP_OK) {
         return;
     }
-    // Reset is on EXIO0 (already released); INT is only read, never driven.
+    // Reset is on CH32 EXIO1 (already released); INT is not wired to the ESP32.
     esp_lcd_touch_config_t cfg = {
         .x_max = BSP_LCD_W,
         .y_max = BSP_LCD_H,
         .rst_gpio_num = GPIO_NUM_NC,
         .int_gpio_num = GPIO_NUM_NC,
+        .flags = {.mirror_x = BSP_ROTATE_180, .mirror_y = BSP_ROTATE_180},
     };
     if (esp_lcd_touch_new_i2c_gt911(io, &cfg, &s_touch) != ESP_OK) {
         s_touch = NULL;
@@ -246,6 +257,45 @@ static void touch_init(void)
 esp_lcd_touch_handle_t bsp_touch(void) { return s_touch; }
 
 // ---- LCD --------------------------------------------------------------------
+
+// Waveshare's V4 init table (BSP 3.0.0); ends with sleep out, inversion on, display on.
+static const st7701_lcd_init_cmd_t lcd_init_cmds[] = {
+    {0x11, (uint8_t[]){0x00}, 0, 120},
+    {0xFF, (uint8_t[]){0x77, 0x01, 0x00, 0x00, 0x10}, 5, 0},
+    {0xC0, (uint8_t[]){0x3B, 0x00}, 2, 0},
+    {0xC1, (uint8_t[]){0x0D, 0x02}, 2, 0},
+    {0xC2, (uint8_t[]){0x21, 0x08}, 2, 0},
+    {0xCD, (uint8_t[]){0x08}, 1, 0},
+    {0xB0, (uint8_t[]){0x00, 0x11, 0x18, 0x0E, 0x11, 0x06, 0x07, 0x08, 0x07, 0x22, 0x04, 0x12, 0x0F, 0xAA, 0x31, 0x18}, 16, 0},
+    {0xB1, (uint8_t[]){0x00, 0x11, 0x19, 0x0E, 0x12, 0x07, 0x08, 0x08, 0x08, 0x22, 0x04, 0x11, 0x11, 0xA9, 0x32, 0x18}, 16, 0},
+    {0xFF, (uint8_t[]){0x77, 0x01, 0x00, 0x00, 0x11}, 5, 0},
+    {0xB0, (uint8_t[]){0x60}, 1, 0},
+    {0xB1, (uint8_t[]){0x30}, 1, 0},
+    {0xB2, (uint8_t[]){0x87}, 1, 0},
+    {0xB3, (uint8_t[]){0x80}, 1, 0},
+    {0xB5, (uint8_t[]){0x49}, 1, 0},
+    {0xB7, (uint8_t[]){0x85}, 1, 0},
+    {0xB8, (uint8_t[]){0x21}, 1, 0},
+    {0xC1, (uint8_t[]){0x78}, 1, 0},
+    {0xC2, (uint8_t[]){0x78}, 1, 20},
+    {0xE0, (uint8_t[]){0x00, 0x1B, 0x02}, 3, 0},
+    {0xE1, (uint8_t[]){0x08, 0xA0, 0x00, 0x00, 0x07, 0xA0, 0x00, 0x00, 0x00, 0x44, 0x44}, 11, 0},
+    {0xE2, (uint8_t[]){0x11, 0x11, 0x44, 0x44, 0xED, 0xA0, 0x00, 0x00, 0xEC, 0xA0, 0x00, 0x00}, 12, 0},
+    {0xE3, (uint8_t[]){0x00, 0x00, 0x11, 0x11}, 4, 0},
+    {0xE4, (uint8_t[]){0x44, 0x44}, 2, 0},
+    {0xE5, (uint8_t[]){0x0A, 0xE9, 0xD8, 0xA0, 0x0C, 0xEB, 0xD8, 0xA0, 0x0E, 0xED, 0xD8, 0xA0, 0x10, 0xEF, 0xD8, 0xA0}, 16, 0},
+    {0xE6, (uint8_t[]){0x00, 0x00, 0x11, 0x11}, 4, 0},
+    {0xE7, (uint8_t[]){0x44, 0x44}, 2, 0},
+    {0xE8, (uint8_t[]){0x09, 0xE8, 0xD8, 0xA0, 0x0B, 0xEA, 0xD8, 0xA0, 0x0D, 0xEC, 0xD8, 0xA0, 0x0F, 0xEE, 0xD8, 0xA0}, 16, 0},
+    {0xEB, (uint8_t[]){0x02, 0x00, 0xE4, 0xE4, 0x88, 0x00, 0x40}, 7, 0},
+    {0xEC, (uint8_t[]){0x3C, 0x00}, 2, 0},
+    {0xED, (uint8_t[]){0xAB, 0x89, 0x76, 0x54, 0x02, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x45, 0x67, 0x98, 0xBA}, 16, 0},
+    {0xFF, (uint8_t[]){0x77, 0x01, 0x00, 0x00, 0x00}, 5, 0},
+    {0x36, (uint8_t[]){0x00}, 1, 0},
+    {0x3A, (uint8_t[]){0x66}, 1, 0},
+    {0x21, (uint8_t[]){0x00}, 0, 120},
+    {0x29, (uint8_t[]){0x00}, 0, 0},
+};
 
 static esp_err_t lcd_init(void)
 {
@@ -268,8 +318,8 @@ static esp_err_t lcd_init(void)
         .clk_src = LCD_CLK_SRC_DEFAULT,
         .data_width = 16,
         .bits_per_pixel = 16,
-        .num_fbs = 2,
-        .bounce_buffer_size_px = BSP_LCD_W * 10,
+        .num_fbs = 1,
+        .bounce_buffer_size_px = BSP_LCD_W * 10, // two of these in internal RAM
         .de_gpio_num = PIN_LCD_DE,
         .pclk_gpio_num = PIN_LCD_PCLK,
         .vsync_gpio_num = PIN_LCD_VSYNC,
@@ -277,28 +327,18 @@ static esp_err_t lcd_init(void)
         .disp_gpio_num = GPIO_NUM_NC,
         // B1-B5, G0-G5, R1-R5
         .data_gpio_nums = {5, 45, 48, 47, 21, 14, 13, 12, 11, 10, 9, 46, 3, 8, 18, 17},
-        // TODO verify porches against the Waveshare demo if the image is shifted.
-        .timings = {
-            .pclk_hz = LCD_PCLK_HZ,
-            .h_res = BSP_LCD_W,
-            .v_res = BSP_LCD_H,
-            .hsync_pulse_width = 10,
-            .hsync_back_porch = 10,
-            .hsync_front_porch = 20,
-            .vsync_pulse_width = 10,
-            .vsync_back_porch = 10,
-            .vsync_front_porch = 10,
-        },
+        // 16 MHz PCLK, same as Waveshare's V4 BSP
+        .timings = ST7701_480_480_PANEL_60HZ_RGB_TIMING(),
         .flags.fb_in_psram = 1,
     };
-    // TODO verify: uses the driver's default ST7701 init sequence. If colours or
-    // gamma look wrong, copy the init_cmds table from Waveshare's demo here.
     st7701_vendor_config_t vendor = {
         .rgb_config = &rgb_cfg,
+        .init_cmds = lcd_init_cmds,
+        .init_cmds_size = sizeof(lcd_init_cmds) / sizeof(lcd_init_cmds[0]),
         .flags.enable_io_multiplex = 1,
     };
     esp_lcd_panel_dev_config_t panel_cfg = {
-        .reset_gpio_num = GPIO_NUM_NC, // reset is on EXIO2
+        .reset_gpio_num = GPIO_NUM_NC, // reset is on CH32 EXIO3
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
         .vendor_config = &vendor,
@@ -311,45 +351,33 @@ static esp_err_t lcd_init(void)
     gpio_config(&cs);
     gpio_set_level(PIN_LCD_CS, 1);
 
-    void *fb0, *fb1;
-    ESP_RETURN_ON_ERROR(esp_lcd_rgb_panel_get_frame_buffer(s_panel, 2, &fb0, &fb1), TAG, "frame buffers");
-    s_fb[0] = fb0;
-    s_fb[1] = fb1;
+    void *fb;
+    ESP_RETURN_ON_ERROR(esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, &fb), TAG, "frame buffer");
+    s_fb = fb;
     return ESP_OK;
 }
 
 esp_lcd_panel_handle_t bsp_panel(void) { return s_panel; }
-uint16_t *bsp_framebuffer(int idx) { return s_fb[idx & 1]; }
+uint16_t *bsp_framebuffer(void) { return s_fb; }
 
 // ---- SD ---------------------------------------------------------------------
 
 static esp_err_t sd_init(void)
 {
-    spi_bus_config_t bus = {
-        .mosi_io_num = PIN_SD_MOSI,
-        .miso_io_num = PIN_SD_MISO,
-        .sclk_io_num = PIN_SD_SCK,
-        .quadwp_io_num = GPIO_NUM_NC,
-        .quadhd_io_num = GPIO_NUM_NC,
-        .max_transfer_sz = 4096,
-    };
-    ESP_RETURN_ON_ERROR(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO), TAG, "SD SPI bus");
-
-    // CS is EXIO3, selected (low) from here on, after the pins became the SPI
-    // bus; the SPI driver gets no CS pin.
-    ESP_RETURN_ON_ERROR(bsp_exio_set(BSP_EXIO_SD_CS, 0), TAG, "SD CS");
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = SPI2_HOST;
-    sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot.host_id = SPI2_HOST;
-    slot.gpio_cs = GPIO_NUM_NC;
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t slot = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot.width = 1;
+    slot.clk = PIN_SD_CLK;
+    slot.cmd = PIN_SD_CMD;
+    slot.d0 = PIN_SD_D0;
+    slot.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP; // the board is wired for SPI: no CMD/D0 pull-ups
 
     esp_vfs_fat_sdmmc_mount_config_t mount = {
         .format_if_mount_failed = false,
         .max_files = 8,
         .allocation_unit_size = 16 * 1024,
     };
-    return esp_vfs_fat_sdspi_mount(BSP_SD_MOUNT, &host, &slot, &mount, &s_card);
+    return esp_vfs_fat_sdmmc_mount(BSP_SD_MOUNT, &host, &slot, &mount, &s_card);
 }
 
 bool bsp_sd_mounted(void) { return s_card != NULL; }
@@ -358,22 +386,29 @@ bool bsp_sd_mounted(void) { return s_card != NULL; }
 
 esp_err_t bsp_init(void)
 {
-    // 1. I2C + expander
+    // 1. I2C + CH32V003 helper
     ESP_RETURN_ON_ERROR(i2c_init(), TAG, "I2C");
-    ESP_RETURN_ON_ERROR(exio_init(), TAG, "expander");
+    ESP_RETURN_ON_ERROR(exio_init(), TAG, "CH32V003");
     esp_timer_create_args_t beep = {.callback = beep_off, .name = "beep"};
     ESP_RETURN_ON_ERROR(esp_timer_create(&beep, &s_beep_timer), TAG, "beep timer");
     rtc_init();
 
-    // 2. TODO SW6106 light-load fix (Waveshare FAQ). Deliberately not done:
-    //    never write power-chip registers that aren't confirmed from the datasheet/FAQ.
+    // 2. V4 has no SW6106; power is handled by the CH32 (SYS_EN set above).
 
-    // 3. Resets were asserted by exio_init(); release them.
-    vTaskDelay(pdMS_TO_TICKS(20));
-    bsp_exio_set(BSP_EXIO_LCD_RST, 1);
-    bsp_exio_set(BSP_EXIO_TOUCH_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(120));
+    // 3. Resets were asserted by exio_init(); release them (Waveshare: 200 ms each).
+    //    GT911 datasheet: INT low while RST rises selects address 0x5D; hold it
+    //    > 50 ms, then release INT so the GT911 can drive it.
+    vTaskDelay(pdMS_TO_TICKS(200));
+    exio_set(CH32_LCD_RST, 1);
+    exio_set(CH32_TOUCH_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_RETURN_ON_ERROR(exio_write(CH32_REG_DIR, CH32_DIR_RUN), TAG, "CH32 direction");
+    vTaskDelay(pdMS_TO_TICKS(100));
 
+    // 4 + 5. ST7701 init, RGB panel
+    ESP_RETURN_ON_ERROR(lcd_init(), TAG, "LCD");
+
+    // Touch after the panel, like Waveshare's BSP: the GT911 needs time after reset.
     uint8_t found[16];
     size_t n = bsp_i2c_scan(found, sizeof(found));
     for (size_t i = 0; i < n; i++) {
@@ -381,10 +416,7 @@ esp_err_t bsp_init(void)
     }
     touch_init();
 
-    // 4 + 5. ST7701 init, RGB panel
-    ESP_RETURN_ON_ERROR(lcd_init(), TAG, "LCD");
-
-    // 6. SD on the now-free 1/2/4
+    // 6. SD (SDMMC) on the now-free 1/2/4
     esp_err_t err = sd_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SD not mounted: %s", esp_err_to_name(err));

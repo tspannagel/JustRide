@@ -9,7 +9,9 @@ typedef struct { int task_affinity, task_stack; } lvgl_port_cfg_t;
 typedef struct {
     void *panel_handle;
     unsigned buffer_size, hres, vres;
+    bool double_buffer;
     lv_color_format_t color_format;
+    struct { bool swap_xy, mirror_x, mirror_y; } rotation;
     struct { bool buff_spiram, direct_mode; } flags;
 } lvgl_port_display_cfg_t;
 typedef struct { struct { bool bb_mode, avoid_tearing; } flags; } lvgl_port_display_rgb_cfg_t;

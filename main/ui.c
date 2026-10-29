@@ -21,6 +21,7 @@ static const char *TAG = "ui";
 
 #define WORKOUT_DIR BSP_SD_MOUNT "/workouts"
 #define MAX_LIST 40
+#define UI_DRAW_LINES 48 // LVGL draw buffer height (two buffers in PSRAM)
 #define PAD 12
 #define GAP 10
 
@@ -1028,14 +1029,20 @@ void ui_start(void)
 
     lvgl_port_display_cfg_t disp_cfg = {
         .panel_handle = bsp_panel(),
-        .buffer_size = BSP_LCD_W * BSP_LCD_H,
+        .buffer_size = BSP_LCD_W * UI_DRAW_LINES,
+        .double_buffer = true,
         .hres = BSP_LCD_W,
         .vres = BSP_LCD_H,
         .color_format = LV_COLOR_FORMAT_RGB565,
-        .flags = {.buff_spiram = true, .direct_mode = true},
+        // esp_lvgl_port sets the panel mirror from this at start-up (the RGB driver mirrors
+        // while copying into the frame buffer); touch is flipped in bsp.c.
+        .rotation = {.mirror_x = BSP_ROTATE_180, .mirror_y = BSP_ROTATE_180},
+        .flags = {.buff_spiram = true},
     };
-    // Draw straight into the panel's two frame buffers, swap on vsync
-    lvgl_port_display_rgb_cfg_t rgb_cfg = {.flags = {.bb_mode = true, .avoid_tearing = true}};
+    // Partial rendering copied into the panel's single frame buffer, as Waveshare's V4
+    // BSP does. Direct mode on two frame buffers (avoid_tearing) showed a shifted,
+    // flickering second image on the V4 board.
+    lvgl_port_display_rgb_cfg_t rgb_cfg = {0};
     lv_display_t *disp = lvgl_port_add_disp_rgb(&disp_cfg, &rgb_cfg);
     if (bsp_touch()) {
         lvgl_port_touch_cfg_t touch = {.disp = disp, .handle = bsp_touch()};
