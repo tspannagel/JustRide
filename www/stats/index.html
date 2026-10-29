@@ -11,8 +11,8 @@
 </head>
 <body>
 <div class="aurora" aria-hidden="true"></div>
-<!-- Workout profile paints: one gradient per power zone, and the glow under hard efforts -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pg-z1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z1) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z1)"/><stop offset="1" style="stop-color:var(--z1);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z2) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z2)"/><stop offset="1" style="stop-color:var(--z2);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z3) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z3)"/><stop offset="1" style="stop-color:var(--z3);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z4) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z4)"/><stop offset="1" style="stop-color:var(--z4);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z5) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z5)"/><stop offset="1" style="stop-color:var(--z5);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z6" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z6) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z6)"/><stop offset="1" style="stop-color:var(--z6);stop-opacity:.12"/></linearGradient><linearGradient id="pg-z7" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:color-mix(in srgb, var(--z7) 65%, #fff)"/><stop offset=".12" style="stop-color:var(--z7)"/><stop offset="1" style="stop-color:var(--z7);stop-opacity:.12"/></linearGradient><filter id="pg-glow" x="-5%" y="-40%" width="110%" height="180%"><feGaussianBlur stdDeviation="7"/></filter></defs></svg>
+<!-- Workout profile: fade towards the floor, and the glow along the curve -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pg-fade-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient><mask id="pg-fade" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#pg-fade-g)"/></mask><filter id="pg-glow" x="-5%" y="-50%" width="110%" height="200%"><feGaussianBlur stdDeviation="5"/></filter></defs></svg>
 
 <aside class="rail">
   <a class="brand" href="#today"><span class="logo" data-icon="zap"></span><span>JustRide</span></a>
@@ -127,7 +127,7 @@
         <label class="field wide"><span>Difficulty <b id="gen-diff-v"></b></span><input type="range" id="gen-diff" min="1" max="5" step="1"></label>
       </div>
       <label class="switch"><input type="checkbox" id="gen-adapt"><span></span><div><b>Adapt to me</b><small id="gen-adapt-note"></small></div></label>
-      <div id="gen-preview" class="gen-preview"></div>
+      <div id="gen-preview" class="gen-preview"><div id="gen-prof"></div><div id="gen-sum" class="gen-sum"></div></div>
       <div class="sheet-foot"><button class="btn primary" id="wo-gen-apply" data-icon="sparkles">Use this workout</button></div>
     </dialog>
   </section>

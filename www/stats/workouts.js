@@ -125,47 +125,61 @@ export const fileName = (name) => `${name.replace(/[^A-Za-z0-9 ._-]/g, '-').repl
 
 // ---- Profile drawing ------------------------------------------------------------------
 
-export function profileSvg(w, { height = 180, compact = false } = {}) {
+// One continuous curve: the power target per pixel, softened at steps so intervals
+// flow into each other; the colour follows the zone along the curve and blends at
+// zone changes. Drawn at the element's pixel width (drawProfile).
+let gradId = 0;
+export function profileSvg(w, { height = 180, width = 1000, compact = false } = {}) {
   const total = totalDur(w);
   if (!total) return `<svg class="profile" viewBox="0 0 100 ${height}" preserveAspectRatio="none"></svg>`;
   const s = expand(w);
   const top = Math.max(1.3, ...s.filter((v) => v != null).map((v) => v + 0.1));
-  const W = 1000, y = (f) => height - (f / top) * (height - 6);
-  const shapes = [], edges = [], glow = [], gaps = [];
-  // Shapes of equal zone; a step change (interval edge) starts a new one, ramps split per zone
-  let i = 0, prevTop = null;
-  while (i < s.length) {
-    const free = s[i] == null;
-    const z = free ? -1 : zoneOf(s[i]);
-    let j = i;
-    while (j < s.length && (s[j] == null) === free && (free || zoneOf(s[j]) === z) && (j === i || !isEdge(s, j))) j++;
-    const x0 = (i / total) * W, x1 = (j / total) * W;
-    const a = free ? y(0.6) : y(s[i]), b = free ? a : y(s[j - 1]);
-    // A thin gap between blocks, up to the lower of the two tops
-    if (prevTop != null && (isEdge(s, i) || (s[i] == null) !== (s[i - 1] == null))) gaps.push(`<line x1="${x0}" x2="${x0}" y1="${Math.max(prevTop, a)}" y2="${height}" class="gap"/>`);
-    prevTop = b;
-    if (free) {
-      shapes.push(`<rect x="${x0}" y="${a}" width="${x1 - x0}" height="${height - a}" class="free"/>`);
-      edges.push(`<path d="M${x0} ${a + 1}H${x1}" class="free-edge"/>`);
-    } else {
-      const d = `M${x0} ${height}L${x0} ${a}L${x1} ${b}L${x1} ${height}Z`;
-      shapes.push(`<path d="${d}" fill="url(#pg-z${z + 1})"/>`);
-      if (!compact) {
-        // Light edge inside the top of the block
-        edges.push(`<path d="M${x0} ${a + 1.5}L${x1} ${b + 1.5}" class="edge" style="stroke:color-mix(in srgb, var(--z${z + 1}) 50%, #fff)"/>`);
-        if (z >= 3) glow.push(`<path d="${d}" style="fill:var(--z${z + 1})"/>`);
-      }
-    }
-    i = j;
+  const W = Math.max(20, Math.round(width)), H = height, y = (f) => H - 2 - (f / top) * (H - 8);
+  // Target per pixel column (free ride: 60 % FTP, drawn grey)
+  const raw = [], free = [];
+  for (let x = 0; x < W; x++) {
+    const v = s[Math.min(s.length - 1, Math.floor(((x + 0.5) / W) * total))];
+    raw.push(v == null ? 0.6 : v);
+    free.push(v == null);
   }
+  // Two box blurs ≈ a smooth S-curve at every step; ramps stay straight
+  const blur = (a, r) => a.map((_, x) => { let sum = 0, n = 0; for (let k = x - r; k <= x + r; k++) { sum += a[Math.max(0, Math.min(W - 1, k))]; n++; } return sum / n; });
+  const r = compact ? 1 : Math.max(2, Math.round(W / 200));
+  const v = blur(blur(raw, r), r);
+  const pts = v.map((f, x) => `${x + 0.5} ${y(f).toFixed(1)}`);
+  const line = `M0 ${y(v[0]).toFixed(1)}L${pts.join('L')}L${W} ${y(v[W - 1]).toFixed(1)}`;
+  // Horizontal colour: a stop pair around every zone change
+  const color = (x) => (free[x] ? 'var(--text-3)' : `var(--z${zoneOf(raw[x]) + 1})`);
+  const blend = compact ? 2 : 6;
+  const stops = [[0, color(0)]];
+  for (let x = 1; x < W; x++) {
+    if (color(x) === color(x - 1)) continue;
+    const a = Math.max(stops[stops.length - 1][0], x - blend), b = Math.min(W, x + blend);
+    stops.push([a, color(x - 1)], [b, color(x)]);
+  }
+  stops.push([W, color(W - 1)]);
+  const id = `pg${++gradId}`;
+  const grad = `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="0">${
+    stops.map(([x, c]) => `<stop offset="${(x / W).toFixed(4)}" style="stop-color:${c}"/>`).join('')}</linearGradient>`;
   const ftp = y(1);
-  return `<svg class="profile${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${height}" preserveAspectRatio="none" role="img"
-    aria-label="Workout profile, ${fmt.hm(total)}">${glow.length ? `<g class="glow" filter="url(#pg-glow)">${glow.join('')}</g>` : ''}
-    ${shapes.join('')}${edges.join('')}${gaps.join('')}
-    ${compact ? '' : `<line x1="0" x2="${W}" y1="${ftp}" y2="${ftp}" class="ftp-line"/>`}</svg>`;
+  return `<svg class="profile${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+    aria-label="Workout profile, ${fmt.hm(total)}"><defs>${grad}</defs>
+    ${compact ? '' : `<path d="${line}" class="glow" style="stroke:url(#${id})" filter="url(#pg-glow)"/>`}
+    <path d="${line}L${W} ${H}L0 ${H}Z" class="area" fill="url(#${id})" mask="url(#pg-fade)"/>
+    <path d="${line}" class="line" style="stroke:url(#${id})"/>
+    ${compact ? '' : `<path d="${line}" class="shine"/><line x1="0" x2="${W}" y1="${ftp}" y2="${ftp}" class="ftp-line"/>`}</svg>`;
 }
-// A step change (interval edge) starts a new shape even within one zone
-const isEdge = (s, j) => s[j] != null && s[j - 1] != null && Math.abs(s[j] - s[j - 1]) > 0.02;
+
+// Draws into el at its current width and again whenever el is resized
+const profileRedraw = new Map();
+let profileObserver = null;
+export function drawProfile(el, w, opts = {}) {
+  const render = () => { el.innerHTML = profileSvg(w, { ...opts, width: el.clientWidth || 1000 }); };
+  profileObserver ??= new ResizeObserver((entries) => entries.forEach((e) => profileRedraw.get(e.target)?.()));
+  if (!profileRedraw.has(el)) profileObserver.observe(el);
+  profileRedraw.set(el, render);
+  render();
+}
 
 // ---- Generator ------------------------------------------------------------------------
 // ctx: {ftp, tsb, best: {60, 300, 1200}} from the rider's history (all optional).
@@ -311,7 +325,7 @@ function render() {
 
 function renderStats() {
   const w = state.w, L = load(w, state.ftp);
-  $('#wo-profile').innerHTML = profileSvg(w, { height: 200 });
+  drawProfile($('#wo-profile'), w, { height: 200 });
   $('#wo-stats').innerHTML = [
     tile('Duration', fmt.dur(L.secs), '', '', 'clock'),
     tile('Load', fmt.num(L.tss), 'TSS', 'load', 'bars'),
@@ -491,8 +505,9 @@ function previewGen() {
   $('#gen-min').disabled = gen.type === 'ramptest';
   const w = generate(gen.type, gen.minutes, gen.difficulty, state.ctx, gen.adapt);
   const L = load(w, state.ftp);
-  $('#gen-preview').innerHTML = `${profileSvg(w, { height: 120 })}<div class="gen-sum"><b>${esc(w.name)}</b>
-    <span>${fmt.dur(L.secs)} · TSS ${fmt.num(L.tss)} · IF ${fmt.num(L.if, 2)}</span><p>${esc(w.description)}</p></div>`;
+  drawProfile($('#gen-prof'), w, { height: 120 });
+  $('#gen-sum').innerHTML = `<b>${esc(w.name)}</b>
+    <span>${fmt.dur(L.secs)} · TSS ${fmt.num(L.tss)} · IF ${fmt.num(L.if, 2)}</span><p>${esc(w.description)}</p>`;
 }
 
 function applyGenerator() {

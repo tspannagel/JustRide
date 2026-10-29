@@ -190,7 +190,7 @@ function calendar(plan, preview = false) {
       return `<div class="${cls} has ${state}" style="--zc:var(--z${GEN_TYPES[s.type].zone + 1})" title="${esc(wk.name)}">
         <span class="cal-date">${Number(date.slice(8))}${state === 'done' ? icon('check') : ''}</span>
         <b>${esc(GEN_TYPES[s.type].label)}</b><span class="cal-meta">${s.minutes} min · ${fmt.num(L.tss)}</span>
-        ${profileSvg(wk, { height: 28, compact: true })}</div>`;
+        ${profileSvg(wk, { height: 28, width: 140, compact: true })}</div>`;
     }).join('');
     const max = Math.max(planned, actual, 1);
     const recovery = (w + 1) % 4 === 0 && w !== plan.weeks - 1;
