@@ -34,6 +34,9 @@ static const char *TAG = "web";
 #define STA_TIMEOUT_US (15 * 1000000)
 #define CHUNK 4096
 #define OTA_WINDOW_US (5 * 60 * 1000000LL)
+#define PLAN_MAX_BYTES (32 * 1024)
+#define WWW_MAX_BYTES (16 * 1024 * 1024)  // DuckDB's wasm is ~8 MB gzipped
+#define APP_INDEX BSP_SD_MOUNT "/www/stats/index.html"
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
@@ -70,9 +73,9 @@ static bool host_ok(httpd_req_t *req)
     return dots == 3;
 }
 
-// Answers and returns false if the request must not be served. POSTs need a
-// custom header: browsers send one cross-origin only after a CORS preflight,
-// which this server never grants, so other web pages can't upload or flash.
+// Answers and returns false if the request must not be served. POSTs and DELETEs
+// need a custom header: browsers send one cross-origin only after a CORS preflight,
+// which this server never grants, so other web pages can't upload, delete or flash.
 static bool allowed(httpd_req_t *req)
 {
     char v[8];
@@ -80,7 +83,7 @@ static bool allowed(httpd_req_t *req)
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown host");
         return false;
     }
-    if (req->method == HTTP_POST && httpd_req_get_hdr_value_str(req, "X-JustRide", v, sizeof(v)) != ESP_OK) {
+    if (req->method != HTTP_GET && httpd_req_get_hdr_value_str(req, "X-JustRide", v, sizeof(v)) != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "missing X-JustRide header");
         return false;
     }
@@ -185,30 +188,25 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *cache
 
 // ---- Handlers -------------------------------------------------------------------
 
+// Shown only when the web app is missing from the SD card
 static const char INDEX_HTML[] =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
-    "<title>JustRide</title><style>body{font-family:system-ui;max-width:40em;margin:1em auto;padding:0 1em}"
-    "li{margin:.2em 0}</style><h1>JustRide</h1><p><a href='/stats/'>Statistics</a></p>"
-    "<h2>Ride files</h2><ul id=r></ul>"
-    "<h2>Upload workout (.zwo)</h2><input type=file id=w accept='.zwo' multiple> <span id=ws></span>"
-    "<h2>Firmware update</h2><input type=file id=o accept='.bin'> <span id=os></span>"
-    "<script>"
-    "Promise.all([fetch('/api/users').then(r=>r.json()),fetch('/api/rides').then(r=>r.json())]).then(([u,l])=>{"
-    "const n=Object.fromEntries(u.map(x=>[x.id,x.name]));"
-    "for(const f of l.sort((a,b)=>b.mtime-a.mtime)){const li=document.createElement('li'),a=document.createElement('a');"
-    "a.href='/rides/'+f.name;a.textContent=f.name.split('/')[1];li.append(a,` ${n[f.name.split('/')[0]]||'?'} "
-    "(${(f.size/1024).toFixed(0)} kB)`);r.append(li)}});"
-    "w.onchange=async()=>{for(const f of w.files){ws.textContent='uploading '+f.name;"
-    "const r=await fetch('/workouts/'+encodeURIComponent(f.name),{method:'POST',headers:{'X-JustRide':'1'},body:f});"
-    "ws.textContent=r.ok?'saved':await r.text()}};"
-    "o.onchange=async()=>{if(!confirm('Flash '+o.files[0].name+'?'))return;os.textContent='flashing, do not unplug';"
-    "const r=await fetch('/ota',{method:'POST',headers:{'X-JustRide':'1'},body:o.files[0]});os.textContent=await r.text()};"
-    "</script>";
+    "<title>JustRide</title><style>body{font:16px/1.5 system-ui;max-width:36em;margin:3em auto;padding:0 1em;"
+    "background:#0b0d12;color:#e7e9ee}code{background:#1b1f29;padding:2px 6px;border-radius:6px}</style>"
+    "<h1>JustRide</h1><p>The web app is not on the SD card. Put the card in your computer and run "
+    "<code>tools/sd_deploy.sh /Volumes/JUSTRIDE</code>, then put it back and reload this page.</p>"
+    "<p>Ride files: <a href='/api/rides'>/api/rides</a></p>";
 
 static esp_err_t h_index(httpd_req_t *req)
 {
     if (!allowed(req)) {
         return ESP_OK;
+    }
+    struct stat st;
+    if (stat(APP_INDEX, &st) == 0 || stat(APP_INDEX ".gz", &st) == 0) {
+        httpd_resp_set_status(req, "302 Found");
+        httpd_resp_set_hdr(req, "Location", "/stats/");
+        return httpd_resp_send(req, NULL, 0);
     }
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
@@ -326,24 +324,13 @@ static esp_err_t h_api_users(httpd_req_t *req)
     return err;
 }
 
-static esp_err_t h_workout_upload(httpd_req_t *req)
+// Request body -> path, via a temp file so a broken upload never replaces a good file
+static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
 {
-    if (!allowed(req)) {
-        return ESP_OK;
-    }
-    // The browser sends encodeURIComponent(name): "My Workout.zwo" -> "My%20Workout.zwo"
-    char name[80];
-    snprintf(name, sizeof(name), "%s", req->uri + strlen("/workouts/"));
-    size_t len = url_decode(name) ? strlen(name) : 0;
-    if (!safe_name(name) || strchr(name, '/') || len < 5 || strcasecmp(name + len - 4, ".zwo") != 0) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <name>.zwo");
-    }
-    if (req->content_len == 0 || req->content_len > ZWO_MAX_BYTES) {
+    if (req->content_len == 0 || req->content_len > max) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "file empty or too large");
     }
-    mkdir(BSP_SD_MOUNT "/workouts", 0775);
-    char path[128], tmp[132];
-    snprintf(path, sizeof(path), BSP_SD_MOUNT "/workouts/%s", name);
+    char tmp[136];
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "wb");
     if (!f) {
@@ -367,6 +354,147 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
         remove(tmp);
     }
     return ok ? httpd_resp_sendstr(req, "saved") : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "failed");
+}
+
+// /workouts/<name>.zwo -> SD path. The browser sends encodeURIComponent(name).
+static bool workout_path(httpd_req_t *req, char *path, size_t size)
+{
+    char name[80];
+    snprintf(name, sizeof(name), "%.*s", (int)strcspn(req->uri + strlen("/workouts/"), "?#"),
+             req->uri + strlen("/workouts/"));
+    size_t len = url_decode(name) ? strlen(name) : 0;
+    if (!safe_name(name) || strchr(name, '/') || len < 5 || strcasecmp(name + len - 4, ".zwo") != 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <name>.zwo");
+        return false;
+    }
+    snprintf(path, size, BSP_SD_MOUNT "/workouts/%s", name);
+    return true;
+}
+
+static esp_err_t h_workout_upload(httpd_req_t *req)
+{
+    char path[128];
+    if (!allowed(req) || !workout_path(req, path, sizeof(path))) {
+        return ESP_OK;
+    }
+    mkdir(BSP_SD_MOUNT "/workouts", 0775);
+    return receive_file(req, path, ZWO_MAX_BYTES);
+}
+
+static esp_err_t h_workout_get(httpd_req_t *req)
+{
+    char path[128];
+    if (!allowed(req) || !workout_path(req, path, sizeof(path))) {
+        return ESP_OK;
+    }
+    return send_file(req, path, "no-cache");
+}
+
+static esp_err_t h_workout_delete(httpd_req_t *req)
+{
+    char path[128];
+    if (!allowed(req) || !workout_path(req, path, sizeof(path))) {
+        return ESP_OK;
+    }
+    return remove(path) == 0 ? httpd_resp_sendstr(req, "deleted")
+                             : httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+}
+
+// [{"name":"Sweet Spot 3x10.zwo","size":512,"mtime":...}]
+static esp_err_t h_api_workouts(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_sendstr_chunk(req, "[");
+    bool first = true;
+    DIR *d = opendir(BSP_SD_MOUNT "/workouts");
+    struct dirent *e;
+    while (d && (e = readdir(d))) {
+        size_t len = strlen(e->d_name);
+        if (e->d_name[0] == '.' || !safe_name(e->d_name) || len < 5 || strcasecmp(e->d_name + len - 4, ".zwo") != 0) {
+            continue;
+        }
+        char path[160], item[160];
+        struct stat st;
+        snprintf(path, sizeof(path), BSP_SD_MOUNT "/workouts/%.64s", e->d_name);
+        if (stat(path, &st) != 0) {
+            continue;
+        }
+        snprintf(item, sizeof(item), "%s{\"name\":\"%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
+                 (long)st.st_size, (long)st.st_mtime);
+        httpd_resp_sendstr_chunk(req, item);
+        first = false;
+    }
+    if (d) {
+        closedir(d);
+    }
+    httpd_resp_sendstr_chunk(req, "]");
+    return httpd_resp_sendstr_chunk(req, NULL);
+}
+
+// /plans/<user id>.json: the training plan the web app made for a rider (the app owns its format)
+static bool plan_path(httpd_req_t *req, char *path, size_t size)
+{
+    char name[24];
+    snprintf(name, sizeof(name), "%.*s", (int)strcspn(req->uri + strlen("/plans/"), "?#"), req->uri + strlen("/plans/"));
+    size_t len = strlen(name);
+    bool ok = len > 5 && len <= 8 + 5 && strcmp(name + len - 5, ".json") == 0;
+    for (size_t i = 0; ok && i < len - 5; i++) {
+        ok = isalnum((unsigned char)name[i]);
+    }
+    if (!ok) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <user id>.json");
+        return false;
+    }
+    snprintf(path, size, BSP_SD_MOUNT "/plans/%s", name);
+    return true;
+}
+
+static esp_err_t h_plan_get(httpd_req_t *req)
+{
+    char path[64];
+    if (!allowed(req) || !plan_path(req, path, sizeof(path))) {
+        return ESP_OK;
+    }
+    return send_file(req, path, "no-cache");
+}
+
+static esp_err_t h_plan_upload(httpd_req_t *req)
+{
+    char path[64];
+    if (!allowed(req) || !plan_path(req, path, sizeof(path))) {
+        return ESP_OK;
+    }
+    mkdir(BSP_SD_MOUNT "/plans", 0775);
+    return receive_file(req, path, PLAN_MAX_BYTES);
+}
+
+// Web app update over Wi-Fi (tools/web_deploy.sh): only inside the window opened by
+// "Allow firmware update" on the device, so nobody else on the network can replace the app.
+static esp_err_t h_www_upload(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    if (!web_ota_allowed()) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "Tap 'Allow firmware update' on the device first (valid 5 minutes)");
+    }
+    const char *rel = req->uri + strlen("/www/stats/");
+    if (strncmp(req->uri, "/www/stats/", 11) != 0 || !safe_name(rel) || rel[strlen(rel) - 1] == '/') {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad name");
+    }
+    char path[128];
+    snprintf(path, sizeof(path), BSP_SD_MOUNT "/www/stats/%.64s", rel);  // safe_name: <= 64
+    for (char *p = path + strlen(BSP_SD_MOUNT) + 1; (p = strchr(p, '/')); p++) {  // mkdir -p
+        *p = 0;
+        mkdir(path, 0775);
+        *p = '/';
+    }
+    return receive_file(req, path, WWW_MAX_BYTES);
 }
 
 static void restart_task(void *arg)
@@ -449,6 +577,7 @@ static void http_start(void)
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.stack_size = 8192;
     cfg.lru_purge_enable = true;
+    cfg.max_uri_handlers = 16;
     if (httpd_start(&s_http, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "HTTP server failed");
         return;
@@ -459,8 +588,14 @@ static void http_start(void)
         {.uri = "/api/rides", .method = HTTP_GET, .handler = h_api_rides},
         {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
+        {.uri = "/api/workouts", .method = HTTP_GET, .handler = h_api_workouts},
+        {.uri = "/workouts/*", .method = HTTP_GET, .handler = h_workout_get},
         {.uri = "/workouts/*", .method = HTTP_POST, .handler = h_workout_upload},
+        {.uri = "/workouts/*", .method = HTTP_DELETE, .handler = h_workout_delete},
+        {.uri = "/plans/*", .method = HTTP_GET, .handler = h_plan_get},
+        {.uri = "/plans/*", .method = HTTP_POST, .handler = h_plan_upload},
         {.uri = "/ota", .method = HTTP_POST, .handler = h_ota},
+        {.uri = "/www/*", .method = HTTP_POST, .handler = h_www_upload},
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
         httpd_register_uri_handler(s_http, &uris[i]);

@@ -619,6 +619,14 @@ static void build_preview(void)
                     NAV_START);
 }
 
+// Training-plan workouts ("Plan 2026-11-02 ...", written by the web app) first, by date; then A-Z
+static int cmp_workout(const void *a, const void *b)
+{
+    const char *x = strrchr(a, '/') + 1, *y = strrchr(b, '/') + 1;
+    bool px = strncmp(x, "Plan ", 5) == 0, py = strncmp(y, "Plan ", 5) == 0;
+    return px != py ? py - px : strcasecmp(x, y);
+}
+
 static void open_workouts(lv_event_t *e)
 {
     lv_obj_clean(wo_list);
@@ -632,17 +640,20 @@ static void open_workouts(lv_event_t *e)
         if (de->d_name[0] == '.' || len < 5 || len > 60 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
             continue;
         }
-        snprintf(s_paths[n], sizeof(s_paths[n]), WORKOUT_DIR "/%.60s", de->d_name);
-        char name[64];
-        snprintf(name, sizeof(name), "%.*s", (int)(len - 4), de->d_name);  // without ".zwo"
-        for (char *c = name; *c; c++) {
-            *c = *c == '_' ? ' ' : *c;
-        }
-        list_item(wo_list, LV_SYMBOL_PLAY, name, on_workout, s_paths[n]);
-        n++;
+        snprintf(s_paths[n++], sizeof(s_paths[0]), WORKOUT_DIR "/%.60s", de->d_name);
     }
     if (d) {
         closedir(d);
+    }
+    qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
+    for (int i = 0; i < n; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
+        name[strlen(name) - 4] = 0;  // without ".zwo"
+        for (char *c = name; *c; c++) {
+            *c = *c == '_' ? ' ' : *c;
+        }
+        list_item(wo_list, LV_SYMBOL_PLAY, name, on_workout, s_paths[i]);
     }
     if (n == 0) {
         lv_label_set_text(wo_msg, "No .zwo files in /workouts on the SD card");

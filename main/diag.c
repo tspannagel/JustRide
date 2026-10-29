@@ -185,7 +185,12 @@ static int cmd_wifi(int argc, char **argv)
         web_scan_print();
         return 0;
     }
-    printf("usage: wifi on|off|scan\n");
+    if (argc == 2 && strcmp(argv[1], "allow") == 0) {
+        web_allow_ota();  // as the "Allow firmware update" button: USB access is physical access
+        printf("firmware and web app uploads allowed for 5 minutes\n");
+        return 0;
+    }
+    printf("usage: wifi on|off|scan|allow\n");
     return 1;
 }
 
@@ -218,7 +223,7 @@ void diag_start(void)
         {.command = "touch", .help = "Print raw touch points", .hint = "[seconds]", .func = cmd_touch},
         {.command = "gt911", .help = "Dump GT911 config header and status", .func = cmd_gt911},
         {.command = "ble", .help = "Log every Bluetooth advertisement as hex", .hint = "dump on|off", .func = cmd_ble},
-        {.command = "wifi", .help = "Start/stop Wi-Fi (as the Wi-Fi tile)", .hint = "on|off|scan", .func = cmd_wifi},
+        {.command = "wifi", .help = "Wi-Fi on/off, scan, allow uploads (5 min)", .hint = "on|off|scan|allow", .func = cmd_wifi},
         {.command = "zap", .help = "Log Zwift Ride packets as hex", .hint = "dump on|off", .func = cmd_zap},
     };
 
