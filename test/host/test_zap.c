@@ -151,7 +151,7 @@ static void test_input_map(void)
     CHECK_EQ(press(&m, IN_A, 9000, 100, RIDE_RUNNING, &p), ACT_PAUSE_TOGGLE);
     CHECK_EQ(press(&m, IN_A, 9500, 100, RIDE_PAUSED, &p), ACT_PAUSE_TOGGLE);
     CHECK_EQ(press(&m, IN_A, 10000, 100, RIDE_IDLE, &p), -1);
-    CHECK_EQ(press(&m, IN_A, 11000, 1200, RIDE_IDLE, &p), ACT_START_FREE);
+    CHECK_EQ(press(&m, IN_A, 11000, 1200, RIDE_IDLE, &p), -1);  // idle: menus, see input_nav
     CHECK_EQ(press(&m, IN_A, 13000, 100, RIDE_DONE, &p), ACT_DISMISS);
 
     CHECK_EQ(press(&m, IN_Y, 14000, 100, RIDE_RUNNING, &p), ACT_LAP);
@@ -165,10 +165,50 @@ static void test_input_map(void)
     CHECK_EQ(input_map(&m, &bad, 20000, RIDE_RUNNING), -1);
 }
 
+// input_nav, then input_map, as app.c calls them
+static int nav(input_map_t *m, uint8_t id, uint8_t kind, uint32_t t, uint8_t state)
+{
+    input_evt_t e = {.id = id, .kind = kind};
+    int k = input_nav(m, &e, t, state);
+    input_map(m, &e, t, state);
+    return k;
+}
+
+static void test_input_nav(void)
+{
+    input_map_t m = {0};
+    CHECK_EQ(nav(&m, IN_LEFT, IN_PRESS, 100, RIDE_IDLE), NAV_PREV);
+    CHECK_EQ(nav(&m, IN_UP, IN_PRESS, 100, RIDE_IDLE), NAV_PREV);
+    CHECK_EQ(nav(&m, IN_RIGHT, IN_PRESS, 100, RIDE_IDLE), NAV_NEXT);
+    CHECK_EQ(nav(&m, IN_DOWN, IN_PRESS, 100, RIDE_IDLE), NAV_NEXT);
+    CHECK_EQ(nav(&m, IN_DOWN, IN_RELEASE, 150, RIDE_IDLE), -1);
+
+    // A: short = enter, held = start; B short = back, held = nothing
+    nav(&m, IN_A, IN_PRESS, 1000, RIDE_IDLE);
+    CHECK_EQ(nav(&m, IN_A, IN_RELEASE, 1200, RIDE_IDLE), NAV_ENTER);
+    nav(&m, IN_A, IN_PRESS, 2000, RIDE_IDLE);
+    CHECK_EQ(nav(&m, IN_A, IN_RELEASE, 2000 + INPUT_LONG_MS, RIDE_IDLE), NAV_HOLD);
+    nav(&m, IN_B, IN_PRESS, 4000, RIDE_IDLE);
+    CHECK_EQ(nav(&m, IN_B, IN_RELEASE, 4100, RIDE_IDLE), NAV_BACK);
+    nav(&m, IN_B, IN_PRESS, 5000, RIDE_IDLE);
+    CHECK_EQ(nav(&m, IN_B, IN_RELEASE, 6500, RIDE_IDLE), -1);
+
+    // Never during or after a ride
+    CHECK_EQ(nav(&m, IN_RIGHT, IN_PRESS, 7000, RIDE_RUNNING), -1);
+    nav(&m, IN_A, IN_PRESS, 8000, RIDE_PAUSED);
+    CHECK_EQ(nav(&m, IN_A, IN_RELEASE, 9500, RIDE_PAUSED), -1);
+    CHECK_EQ(nav(&m, IN_LEFT, IN_PRESS, 10000, RIDE_DONE), -1);
+
+    // A release without a press (reconnect) is not an enter
+    CHECK_EQ(nav(&m, IN_A, IN_RELEASE, 11000, RIDE_IDLE), -1);
+}
+
 int main(void)
 {
     test_handshake();
     test_keypad();
+    test_ride_capture();
     test_input_map();
+    test_input_nav();
     return test_summary("zap");
 }

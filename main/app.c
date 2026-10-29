@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "input_map.h"
 #include "recorder.h"
+#include "ui.h"
 #include "web.h"
 
 static const char *TAG = "app";
@@ -109,6 +110,10 @@ static void handle(const evt_t *e)
         do_action(e->action);
         break;
     case EVT_INPUT: {
+        int k = input_nav(&s_input, &e->input, now_ms(), s_ride.state);  // before input_map
+        if (k >= 0) {
+            ui_nav(k);
+        }
         int a = input_map(&s_input, &e->input, now_ms(), s_ride.state);
         if (a >= 0) {
             do_action((uint8_t)a);

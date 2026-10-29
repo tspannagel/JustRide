@@ -5,6 +5,7 @@
 #include "ui.h"
 
 #include <dirent.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "input_map.h"
 #include "web.h"
 
 static const char *TAG = "ui";
@@ -32,6 +34,7 @@ static const char *TAG = "ui";
 #define C_TEXT 0xE6EDF3
 #define C_MUTED 0x8B949E
 #define C_ACCENT 0x2F81F7
+#define C_FOCUS 0x58A6FF  // controller highlight, lighter than the accent so a focused primary shows
 #define C_OK 0x3FB950
 #define C_WARN 0xE3A21A
 #define C_DANGER 0xDA3633
@@ -55,7 +58,7 @@ LV_FONT_DECLARE(font_icons_18);
 #define I_PERCENT "\xEF\x8A\x95"
 #define I_LINE "\xEF\x88\x81"
 
-static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger;
+static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger, st_focus;
 
 static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_preview, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
 
@@ -110,6 +113,23 @@ static void styles_init(void)
 
     lv_style_init(&st_danger);
     lv_style_set_bg_color(&st_danger, rgb(C_DANGER));
+
+    // Controller highlight (LV_STATE_FOCUS_KEY): blue fill plus outline
+    lv_style_init(&st_focus);
+    lv_style_set_bg_color(&st_focus, rgb(C_FOCUS));
+    lv_style_set_outline_color(&st_focus, rgb(C_TEXT));
+    lv_style_set_outline_width(&st_focus, 3);
+    lv_style_set_outline_pad(&st_focus, 3);
+}
+
+// Object flags for controller navigation
+#define NAV_ITEM LV_OBJ_FLAG_USER_1   // can be highlighted and pressed with A
+#define NAV_START LV_OBJ_FLAG_USER_2  // starts a ride: only a held A presses it
+
+static void navigable(lv_obj_t *o)
+{
+    lv_obj_add_flag(o, NAV_ITEM);
+    lv_obj_add_style(o, &st_focus, LV_STATE_FOCUS_KEY);
 }
 
 static lv_obj_t *screen(const char *title, bool back);
@@ -146,6 +166,7 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, int w, int h, lv_eve
     lv_obj_t *l = label(b, &lv_font_montserrat_20, text);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
+    navigable(b);
     return b;
 }
 
@@ -324,7 +345,13 @@ static void show(lv_obj_t *o, bool on)
     }
 }
 
-static void go(lv_obj_t *scr) { lv_screen_load(scr); }
+static void nav_clear(void);
+
+static void go(lv_obj_t *scr)
+{
+    nav_clear();
+    lv_screen_load(scr);
+}
 
 static void on_back(lv_event_t *e) { go(scr_home); }
 
@@ -375,7 +402,7 @@ static void build_home(void)
     lv_obj_set_style_text_color(home_warn, rgb(C_WARN), 0);
 
     lv_obj_t *r1 = grow(row(scr_home)), *r2 = grow(row(scr_home));  // tiles fill the rest of the screen
-    primary(tile(r1, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE));
+    lv_obj_add_flag(primary(tile(r1, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE)), NAV_START);
     tile(r1, LV_SYMBOL_LIST, "Workouts", open_workouts, NULL);
     tile(r2, LV_SYMBOL_SETTINGS, "Settings", open_settings, NULL);
     tile(r2, LV_SYMBOL_WIFI, "Wi-Fi", open_wifi, NULL);
@@ -472,6 +499,7 @@ static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_e
     lv_obj_add_style(b, &st_btn, 0);
     lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_ACCENT), 0);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
+    navigable(b);
     return b;
 }
 
@@ -573,7 +601,7 @@ static void build_preview(void)
 {
     scr_preview = screen(NULL, false);
     lv_obj_t *top = row(scr_preview);
-    button(top, LV_SYMBOL_LEFT, 56, 44, on_preview_back, NULL);
+    lv_obj_set_user_data(scr_preview, button(top, LV_SYMBOL_LEFT, 56, 44, on_preview_back, NULL));
     pv_title = grow(label(top, &lv_font_montserrat_20, ""));
     lv_label_set_long_mode(pv_title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(pv_title, 0);
@@ -587,7 +615,8 @@ static void build_preview(void)
     pv_note = muted(scr_preview, &lv_font_montserrat_14, "");
     pv_msg = label(scr_preview, &lv_font_montserrat_16, "");
     lv_obj_set_style_text_color(pv_msg, rgb(C_DANGER), 0);
-    primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL));
+    lv_obj_add_flag(primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL)),
+                    NAV_START);
 }
 
 static void open_workouts(lv_event_t *e)
@@ -966,13 +995,123 @@ static lv_obj_t *screen(const char *title, bool back)
     if (title || back) {
         lv_obj_t *r = row(s);
         if (back) {
-            button(r, LV_SYMBOL_LEFT, 56, 44, on_back, NULL);
+            lv_obj_set_user_data(s, button(r, LV_SYMBOL_LEFT, 56, 44, on_back, NULL));  // B presses it
         }
         if (title) {
             label(r, &lv_font_montserrat_28, title);
         }
     }
     return s;
+}
+
+// ---- Controller navigation ----------------------------------------------------
+// Arrows move a highlight over the buttons of the active screen, A presses it, B presses
+// the screen's back button (its user_data). Keys arrive from the control task through a
+// single-producer ring and are handled here, in the LVGL task.
+
+#define NAV_MAX 48
+#define NAV_RING 8
+
+static lv_obj_t *s_focus;  // compared only, never dereferenced: list rows get deleted
+static uint8_t s_ring[NAV_RING];
+static atomic_uint s_ring_head, s_ring_tail;
+
+static void nav_collect(lv_obj_t *o, lv_obj_t **list, int *n)
+{
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) {
+        return;
+    }
+    if (lv_obj_has_flag(o, NAV_ITEM) && *n < NAV_MAX) {
+        list[(*n)++] = o;
+    }
+    uint32_t c = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < c; i++) {
+        nav_collect(lv_obj_get_child(o, i), list, n);
+    }
+}
+
+static int nav_items(lv_obj_t **list, int *cur)
+{
+    int n = 0;
+    nav_collect(lv_screen_active(), list, &n);
+    *cur = -1;
+    for (int i = 0; i < n; i++) {
+        if (list[i] == s_focus) {
+            *cur = i;
+        }
+    }
+    return n;
+}
+
+static void nav_clear(void)
+{
+    lv_obj_t *list[NAV_MAX];
+    int cur;
+    if (nav_items(list, &cur) && cur >= 0) {
+        lv_obj_remove_state(list[cur], LV_STATE_FOCUS_KEY);
+    }
+    s_focus = NULL;
+}
+
+static void nav_key(int key)
+{
+    lv_obj_t *list[NAV_MAX];
+    int cur;
+    int n = nav_items(list, &cur);
+    lv_obj_t *f = cur >= 0 ? list[cur] : NULL;
+    switch (key) {
+    case NAV_PREV:
+    case NAV_NEXT:
+        if (n == 0) {
+            return;
+        }
+        if (f) {
+            lv_obj_remove_state(f, LV_STATE_FOCUS_KEY);
+        }
+        s_focus = list[cur < 0 ? 0 : (cur + (key == NAV_NEXT ? 1 : n - 1)) % n];
+        lv_obj_add_state(s_focus, LV_STATE_FOCUS_KEY);
+        lv_obj_scroll_to_view_recursive(s_focus, LV_ANIM_ON);
+        break;
+    case NAV_ENTER:  // hold buttons only react to a long touch, so they stay touch-only
+        if (f && !lv_obj_has_flag(f, NAV_START)) {
+            lv_obj_send_event(f, LV_EVENT_CLICKED, NULL);
+        }
+        break;
+    case NAV_HOLD:
+        if (f && lv_obj_has_flag(f, NAV_START)) {
+            lv_obj_send_event(f, LV_EVENT_CLICKED, NULL);
+        } else if (!f) {
+            app_post_action(ACT_START_FREE);
+        }
+        break;
+    case NAV_BACK: {
+        lv_obj_t *back = lv_obj_get_user_data(lv_screen_active());
+        if (back) {
+            lv_obj_send_event(back, LV_EVENT_CLICKED, NULL);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void nav_poll(lv_timer_t *t)
+{
+    unsigned tail = atomic_load(&s_ring_tail);
+    while (tail != atomic_load(&s_ring_head)) {
+        nav_key(s_ring[tail % NAV_RING]);
+        atomic_store(&s_ring_tail, ++tail);
+    }
+}
+
+void ui_nav(int key)
+{
+    unsigned head = atomic_load(&s_ring_head);
+    if (head - atomic_load(&s_ring_tail) < NAV_RING) {  // full: drop the key
+        s_ring[head % NAV_RING] = (uint8_t)key;
+        atomic_store(&s_ring_head, head + 1);
+    }
 }
 
 static void refresh(lv_timer_t *t)
@@ -1055,5 +1194,6 @@ void ui_start(void)
     build_all(disp);
     go(scr_home);
     lv_timer_create(refresh, 250, NULL);
+    lv_timer_create(nav_poll, 30, NULL);
     lvgl_port_unlock();
 }

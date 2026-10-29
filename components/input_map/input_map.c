@@ -37,10 +37,7 @@ int input_map(input_map_t *m, const input_evt_t *e, uint32_t now_ms, uint8_t sta
         if (state == RIDE_DONE && !held) {
             return ACT_DISMISS;
         }
-        if (state == RIDE_IDLE && held) {
-            return ACT_START_FREE;
-        }
-        break;
+        break;  // idle: menu navigation, see input_nav()
     case IN_B:
         return riding && held ? ACT_STOP : -1;
     case IN_Y:
@@ -49,6 +46,33 @@ int input_map(input_map_t *m, const input_evt_t *e, uint32_t now_ms, uint8_t sta
         return state == RIDE_RUNNING && held ? ACT_SKIP : -1;
     default:
         break;
+    }
+    return -1;
+}
+
+int input_nav(const input_map_t *m, const input_evt_t *e, uint32_t now_ms, uint8_t state)
+{
+    if (state != RIDE_IDLE || e->id >= INPUT_IDS) {
+        return -1;
+    }
+    if (e->kind == IN_PRESS) {
+        switch (e->id) {
+        case IN_LEFT:
+        case IN_UP: return NAV_PREV;
+        case IN_RIGHT:
+        case IN_DOWN: return NAV_NEXT;
+        default: return -1;
+        }
+    }
+    if (e->kind != IN_RELEASE || m->down_ms[e->id] == 0) {
+        return -1;
+    }
+    bool held = now_ms - m->down_ms[e->id] >= INPUT_LONG_MS;
+    if (e->id == IN_A) {
+        return held ? NAV_HOLD : NAV_ENTER;
+    }
+    if (e->id == IN_B && !held) {
+        return NAV_BACK;
     }
     return -1;
 }

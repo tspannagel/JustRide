@@ -24,7 +24,7 @@ target_include_directories(ui_shots PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stubs ${REPO}/main
     ${REPO}/components/evbus/include ${REPO}/components/ride/include ${REPO}/components/metrics/include
     ${REPO}/components/vshift/include ${REPO}/components/workout/include ${REPO}/components/settings/include
-    ${REPO}/components/web/include)
+    ${REPO}/components/web/include ${REPO}/components/input_map/include)
 # The workouts screen lists BSP_SD_MOUNT/workouts: use the sample workouts
 target_compile_definitions(ui_shots PRIVATE BSP_SD_MOUNT="${REPO}/tools")
 target_link_libraries(ui_shots lvgl m)
