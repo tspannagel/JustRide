@@ -8,6 +8,7 @@
 #include "ble_mgr.h"
 #include "bsp.h"
 #include "drv_ftms.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "evbus.h"
@@ -31,7 +32,7 @@ static ride_t s_ride;
 static ride_view_t s_view;
 static app_status_t s_status;
 static settings_t s_settings;
-static workout_t s_wo;
+EXT_RAM_BSS_ATTR static workout_t s_wo;  // PSRAM: internal RAM is tight
 static input_map_t s_input;
 static bool s_finish_pending;
 static uint8_t s_beeps_left;
@@ -236,20 +237,25 @@ bool app_read_workout(const char *path, workout_t *w)
     return ok;
 }
 
-bool app_start_workout(const char *path)
+bool app_start_workout_mem(const workout_t *w)
 {
-    workout_t *w = malloc(sizeof(*w));
-    bool ok = w && app_read_workout(path, w);
     lock();
-    ok = ok && s_ride.state == RIDE_IDLE;
+    bool ok = w->n > 0 && s_ride.state == RIDE_IDLE;
     if (ok) {
         s_wo = *w;
     }
     unlock();
-    free(w);
     if (ok) {
         app_post_action(ACT_START_WORKOUT);
     }
+    return ok;
+}
+
+bool app_start_workout(const char *path)
+{
+    workout_t *w = malloc(sizeof(*w));
+    bool ok = w && app_read_workout(path, w) && app_start_workout_mem(w);
+    free(w);
     return ok;
 }
 

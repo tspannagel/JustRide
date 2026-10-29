@@ -28,6 +28,8 @@ void app_post_action(action_t a);
 bool app_read_workout(const char *path, workout_t *w);
 // Load a .zwo from the SD card and start it. Only while idle.
 bool app_start_workout(const char *path);
+// Start a workout built in memory (the adaptive quick start). Only while idle.
+bool app_start_workout_mem(const workout_t *w);
 // The workout of the current ride. Only changes while idle, so the UI may read
 // it without a lock during a ride.
 const workout_t *app_workout(void);

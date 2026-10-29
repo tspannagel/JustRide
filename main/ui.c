@@ -14,6 +14,7 @@
 #include "ble_mgr.h"
 #include "bsp.h"
 #include "esp_app_desc.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "input_map.h"
@@ -64,7 +65,8 @@ LV_FONT_DECLARE(font_icons_18);
 
 static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger, st_focus;
 
-static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_preview, *scr_settings, *scr_wifi, *scr_ride, *scr_summary;
+static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_adapt, *scr_preview, *scr_settings, *scr_wifi, *scr_ride,
+    *scr_summary;
 
 static lv_obj_t *home_user, *home_dot[3], *home_state[3], *home_warn;
 static lv_obj_t *users_list, *users_msg;
@@ -72,8 +74,13 @@ static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
 static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_note, *pv_msg;
-static workout_t s_preview;          // workout shown on the preview screen
-static const char *s_preview_path;   // points into s_paths
+EXT_RAM_BSS_ATTR static workout_t s_preview;  // workout shown on the preview screen (PSRAM)
+static const char *s_preview_path;   // points into s_paths; NULL: built in memory (adaptive ride)
+static lv_obj_t *ad_dur, *ad_power, *ad_hr, *ad_avg_label;
+static struct {
+    int min, watts, hr_lo;  // hr_lo 0: no HR range
+    bool hold_avg;
+} s_adapt;
 static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
 static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
 static lv_obj_t *r_profile;
@@ -633,6 +640,9 @@ static void build_name(void)
 
 // ---- Workouts -----------------------------------------------------------------
 
+static void show_preview(void);
+static void open_adapt(lv_event_t *e);
+
 static void open_preview(const char *path)
 {
     if (!app_read_workout(path, &s_preview)) {
@@ -640,6 +650,12 @@ static void open_preview(const char *path)
         return;
     }
     s_preview_path = path;
+    show_preview();
+}
+
+// Fills the preview screen from s_preview and shows it
+static void show_preview(void)
+{
     settings_t s;
     app_get_settings(&s);
     uint32_t ftp = settings_user(&s)->ftp_w;
@@ -664,12 +680,12 @@ static void on_workout(lv_event_t *e) { open_preview(lv_event_get_user_data(e));
 
 static void on_preview_start(lv_event_t *e)
 {
-    if (!s_preview_path || !app_start_workout(s_preview_path)) {
+    if (s_preview_path ? !app_start_workout(s_preview_path) : !app_start_workout_mem(&s_preview)) {
         lv_label_set_text(pv_msg, "Could not start this workout");
     }
 }
 
-static void on_preview_back(lv_event_t *e) { go(scr_workouts); }
+static void on_preview_back(lv_event_t *e) { go(s_preview_path ? scr_workouts : scr_adapt); }
 
 static void build_preview(void)
 {
@@ -720,6 +736,7 @@ static void open_workouts(lv_event_t *e)
         closedir(d);
     }
     qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
+    list_item(wo_list, LV_SYMBOL_SHUFFLE, "Adaptive ride: set goals", open_adapt, NULL);
     for (int i = 0; i < n; i++) {
         char name[64];
         snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
@@ -730,7 +747,7 @@ static void open_workouts(lv_event_t *e)
         list_item(wo_list, LV_SYMBOL_PLAY, name, on_workout, s_paths[i]);
     }
     if (n == 0) {
-        lv_label_set_text(wo_msg, "No .zwo files in /workouts on the SD card");
+        lv_label_set_text(wo_msg, "No .zwo files in /workouts on the SD card yet");
     }
     go(scr_workouts);
 }
@@ -781,7 +798,7 @@ static void on_step(lv_event_t *e)
 }
 
 // Card: caption + value on the left, - and + on the right
-static void stepper(lv_obj_t *parent, lv_obj_t **value, const char *name, int field, int step)
+static void stepper(lv_obj_t *parent, lv_obj_t **value, const char *name, lv_event_cb_t cb, int field, int step)
 {
     lv_obj_t *c = card(parent, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -790,8 +807,8 @@ static void stepper(lv_obj_t *parent, lv_obj_t **value, const char *name, int fi
     lv_obj_set_style_pad_row(col, 0, 0);
     caption(col, name, C_MUTED);
     *value = label(col, &lv_font_montserrat_28, "");
-    button(c, LV_SYMBOL_MINUS, 76, 52, on_step, STEP(field, -step));
-    button(c, LV_SYMBOL_PLUS, 76, 52, on_step, STEP(field, step));
+    button(c, LV_SYMBOL_MINUS, 76, 52, cb, STEP(field, -step));
+    button(c, LV_SYMBOL_PLUS, 76, 52, cb, STEP(field, step));
 }
 
 static void on_forget(lv_event_t *e)
@@ -810,13 +827,111 @@ static void build_settings(void)
 {
     scr_settings = screen(NULL, true);
     set_title = label(lv_obj_get_child(scr_settings, 0), &lv_font_montserrat_28, "");
-    stepper(scr_settings, &set_ftp, "FTP", F_FTP, 5);
-    stepper(scr_settings, &set_erg, "MAX ERG", F_ERG, 50);
-    stepper(scr_settings, &set_weight, "WEIGHT", F_WEIGHT, 1);
-    stepper(scr_settings, &set_hr, "MAX HEART RATE", F_HR, 1);
+    stepper(scr_settings, &set_ftp, "FTP", on_step, F_FTP, 5);
+    stepper(scr_settings, &set_erg, "MAX ERG", on_step, F_ERG, 50);
+    stepper(scr_settings, &set_weight, "WEIGHT", on_step, F_WEIGHT, 1);
+    stepper(scr_settings, &set_hr, "MAX HEART RATE", on_step, F_HR, 1);
     lv_obj_t *r = row(scr_settings);
     grow(button(r, "Forget paired devices", 0, 52, on_forget, NULL));
     muted(r, &lv_font_montserrat_14, esp_app_get_description()->version);
+}
+
+// ---- Adaptive ride (quick start) ------------------------------------------------
+// Warm-up, one adaptive part with these goals, cool-down. "Next" shows it on the
+// preview screen, which starts it. The ride steers the power (ride.c, goal_t).
+
+enum { AD_DUR, AD_POWER, AD_HR };
+#define AD_HR_WIDTH 10
+
+static void update_adapt(void)
+{
+    lv_label_set_text_fmt(ad_dur, "%d min", s_adapt.min);
+    lv_label_set_text_fmt(ad_power, "%d W", s_adapt.watts);
+    if (s_adapt.hr_lo) {
+        lv_label_set_text_fmt(ad_hr, "%d-%d bpm", s_adapt.hr_lo, s_adapt.hr_lo + AD_HR_WIDTH);
+    } else {
+        lv_label_set_text(ad_hr, "Off");
+    }
+    lv_label_set_text(ad_avg_label, s_adapt.hold_avg ? LV_SYMBOL_OK " Hold average" : "Hold average: off");
+}
+
+static void on_adapt_step(lv_event_t *e)
+{
+    int v = (int)(intptr_t)lv_event_get_user_data(e);
+    int field = v / 1000, step = v % 1000 - 500;
+    if (field == AD_DUR) {
+        s_adapt.min = LV_CLAMP(20, s_adapt.min + step, 180);
+    } else if (field == AD_POWER) {
+        s_adapt.watts = LV_CLAMP(50, s_adapt.watts + step, RIDE_ERG_CAP_W);  // Max ERG still applies in the ride
+    } else {
+        // Below 100 bpm: off; + from off: 100
+        int h = s_adapt.hr_lo ? s_adapt.hr_lo + step : 100;
+        s_adapt.hr_lo = h < 100 ? 0 : LV_MIN(h, 200);
+    }
+    update_adapt();
+}
+
+static void on_adapt_avg(lv_event_t *e)
+{
+    s_adapt.hold_avg = !s_adapt.hold_avg;
+    update_adapt();
+}
+
+static void open_adapt(lv_event_t *e)
+{
+    if (s_adapt.min == 0) {
+        settings_t s;
+        app_get_settings(&s);
+        const user_t *u = settings_user(&s);
+        s_adapt.min = 60;
+        s_adapt.watts = (u->ftp_w * 65 / 100 + 2) / 5 * 5;    // endurance
+        s_adapt.hr_lo = (u->max_hr * 70 / 100 + 2) / 5 * 5;   // 70-75 % of max HR, roughly
+    }
+    update_adapt();
+    go(scr_adapt);
+}
+
+static void on_adapt_next(lv_event_t *e)
+{
+    settings_t s;
+    app_get_settings(&s);
+    uint32_t ftp = settings_user(&s)->ftp_w;
+    uint16_t pm = (uint16_t)LV_MIN(s_adapt.watts * 1000 / ftp, 3000);
+    workout_t *w = &s_preview;
+    memset(w, 0, sizeof(*w));
+    snprintf(w->name, sizeof(w->name), "Adaptive %d min", s_adapt.min);
+    uint16_t easy = (uint16_t)LV_MIN(450, pm * 7 / 10);
+    w->seg[0] = (segment_t){.dur_s = 600, .p_start = easy, .p_end = pm, .kind = SEG_ERG};
+    w->seg[1] = (segment_t){.dur_s = (uint16_t)((s_adapt.min - 15) * 60), .p_start = pm, .p_end = pm, .kind = SEG_ERG};
+    w->seg[1].goal = workout_add_goal(w, pm, (goal_t){.hr_lo = (uint8_t)s_adapt.hr_lo,
+                                                      .hr_hi = (uint8_t)(s_adapt.hr_lo ? s_adapt.hr_lo + AD_HR_WIDTH : 0),
+                                                      .hold_avg = s_adapt.hold_avg});
+    w->seg[2] = (segment_t){.dur_s = 300, .p_start = pm, .p_end = easy, .kind = SEG_ERG};
+    w->n = 3;
+    w->total_s = 600 + w->seg[1].dur_s + 300;
+    s_preview_path = NULL;
+    show_preview();
+}
+
+static void on_adapt_back(lv_event_t *e) { go(scr_workouts); }
+
+static void build_adapt(void)
+{
+    scr_adapt = screen(NULL, false);
+    lv_obj_t *top = row(scr_adapt);
+    lv_obj_set_user_data(scr_adapt, button(top, LV_SYMBOL_LEFT, 56, 44, on_adapt_back, NULL));
+    label(top, &lv_font_montserrat_28, "Adaptive ride");
+    stepper(scr_adapt, &ad_dur, "DURATION", on_adapt_step, AD_DUR, 5);
+    stepper(scr_adapt, &ad_power, "POWER", on_adapt_step, AD_POWER, 5);
+    stepper(scr_adapt, &ad_hr, "HEART-RATE RANGE", on_adapt_step, AD_HR, 5);
+    lv_obj_t *r = row(scr_adapt);
+    ad_avg_label = lv_obj_get_child(grow(button(r, "", 0, 56, on_adapt_avg, NULL)), 0);
+    primary(grow(button(r, "Next " LV_SYMBOL_RIGHT, 0, 56, on_adapt_next, NULL)));
+    lv_obj_t *note = muted(scr_adapt, &lv_font_montserrat_14,
+                           "HR steers the power slowly, within -30 / +15 % of it. Hold average makes up "
+                           "for easier minutes later. Max ERG always applies.");
+    lv_obj_set_width(note, LV_PCT(100));
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
 }
 
 // ---- Wi-Fi --------------------------------------------------------------------
@@ -974,7 +1089,18 @@ static void update_ride(const ride_view_t *v)
     }
     lv_obj_set_style_text_color(r_power, rgb(color), 0);
 
-    if (erg) {
+    if (erg && v->adaptive) {
+        // Adaptive: the steered target and the goals
+        char goals[48] = "";
+        if (v->hold_avg) {
+            snprintf(goals, sizeof(goals), "  -  avg %d of %d W", v->seg_avg_w < 0 ? 0 : v->seg_avg_w, v->avg_goal_w);
+        }
+        if (v->hr_hi) {
+            size_t n = strlen(goals);
+            snprintf(goals + n, sizeof(goals) - n, "  -  HR %u-%u", v->hr_lo, v->hr_hi);
+        }
+        lv_label_set_text_fmt(r_target, "Target %d W%s", v->target_w, goals);
+    } else if (erg) {
         if (v->cadence_target) {
             lv_label_set_text_fmt(r_target, "Target %d W  -  %u %%  -  %u rpm", v->target_w, v->intensity,
                                   v->cadence_target);
@@ -996,6 +1122,10 @@ static void update_ride(const ride_view_t *v)
     } else {
         lv_label_set_text(r_hr, "-");
     }
+    // Adaptive goals: green in range, orange outside
+    bool hr_goal = v->adaptive && v->hr_hi && v->hr_bpm > 0, cad_goal = v->adaptive && v->cad_hi && v->cadence_rpm10 > 0;
+    lv_obj_set_style_text_color(r_hr, rgb(!hr_goal ? C_TEXT : v->hr_cue ? C_WARN : C_OK), 0);
+    lv_obj_set_style_text_color(r_cad, rgb(!cad_goal ? C_TEXT : v->cad_cue ? C_WARN : C_OK), 0);
     if (v->speed_kmh100 >= 0) {
         lv_label_set_text_fmt(r_speed, "%ld.%ld", (long)(v->speed_kmh100 / 100), (long)(v->speed_kmh100 % 100 / 10));
     } else {
@@ -1240,6 +1370,7 @@ static void build_all(lv_display_t *disp)
     build_workouts();
     build_preview();
     build_settings();
+    build_adapt();
     build_wifi();
     build_ride();
     build_summary();

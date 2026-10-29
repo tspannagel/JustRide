@@ -23,6 +23,7 @@ void app_get_view(ride_view_t *v, app_status_t *st)
 void app_get_settings(settings_t *s) { *s = g_settings; }
 void app_post_action(action_t a) {}
 bool app_start_workout(const char *path) { return true; }
+bool app_start_workout_mem(const workout_t *w) { return true; }
 
 bool app_read_workout(const char *path, workout_t *w)
 {
@@ -171,6 +172,9 @@ int main(int argc, char **argv)
     open_workouts(NULL);
     save("workouts");
 
+    open_adapt(NULL);
+    save("adaptive-setup");
+
     open_preview(BSP_SD_MOUNT "/workouts/sweet_spot_3x10.zwo");
     save("workout-preview");
 
@@ -206,6 +210,25 @@ int main(int argc, char **argv)
     g_view.state = RIDE_PAUSED;
     refresh(NULL);
     save("ride-paused");
+
+    // Adaptive part: HR above its range (orange), the target was lowered
+    open_adapt(NULL);
+    on_adapt_next(NULL);
+    g_wo = s_preview;
+    ride_common();
+    g_view.mode = MODE_ERG;
+    g_view.power_w = 156;
+    g_view.target_w = 155;
+    g_view.has_workout = true;
+    g_view.seg_idx = 1;
+    g_view.seg_count = g_wo.n;
+    g_view.seg_left_s = 1712;
+    g_view.adaptive = true;
+    g_view.hr_lo = 130;
+    g_view.hr_hi = 140;
+    g_view.hr_cue = 1;
+    refresh(NULL);
+    save("ride-adaptive");
 
     memset(&g_view, 0, sizeof(g_view));
     g_view.state = RIDE_DONE;

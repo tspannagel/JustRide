@@ -67,3 +67,6 @@ CONFIG_LV_USE_CLIB_SPRINTF=y
 
 # Time: the router first (works without internet), pool.ntp.org second
 CONFIG_LWIP_SNTP_MAX_SERVERS=2
+
+# Large static buffers (workouts) may live in PSRAM via EXT_RAM_BSS_ATTR
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
