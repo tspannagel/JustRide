@@ -43,7 +43,7 @@ CH32V003 registers (Waveshare driver): 0x02 direction (1 = output), 0x03 output,
 6. Mount the SD card over SDMMC 1-bit on 1/2/4 with internal pull-ups (the board is wired for SPI and has none)
 7. Start LVGL, then BLE, then the control loop
 
-RGB + PSRAM: PSRAM 80 MHz octal, 10-line bounce buffers (two, in internal RAM), 64-byte data cache lines, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. One frame buffer, LVGL partial rendering (48 lines, PSRAM) like Waveshare's BSP: direct mode on two frame buffers showed a shifted, flickering second image. Internal RAM is tight (~39 KB free): a 64 KB data cache or 20-line bounce buffers broke BLE / the HTTP server. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding.
+RGB + PSRAM: PSRAM 80 MHz octal, 10-line bounce buffers (two, in internal RAM), 64-byte data cache lines, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. One frame buffer, LVGL partial rendering (48 lines, PSRAM) like Waveshare's BSP: direct mode on two frame buffers showed a shifted, flickering second image. Internal RAM is tight (~39 KB free): a 64 KB data cache or 20-line bounce buffers broke BLE / the HTTP server. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding. `CONFIG_LCD_RGB_ISR_IRAM_SAFE` keeps the bounce-buffer ISR running while flash is busy (added after a lasting shift when Wi-Fi came back on after a ride; ~17 KB internal RAM left with Wi-Fi + BLE). No gradients on dark UI surfaces: RGB565 bands.
 
 ### Power safety
 

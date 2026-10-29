@@ -18,6 +18,8 @@ CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 
 # RGB panel
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+# Bounce-buffer ISR keeps running while flash is busy (Wi-Fi start, OTA): otherwise the image shifts
+CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
 # 64-byte data cache lines: the panel's PSRAM reads otherwise starve and the
 # picture shifts/ghosts (Espressif RGB LCD FAQ; Waveshare V4 examples). Cache stays
 # 32 KB: 64 KB costs internal RAM that BLE needs (BLE_INIT malloc failed).
