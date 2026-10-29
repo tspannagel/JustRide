@@ -128,27 +128,38 @@ export function profileSvg(w, { height = 180, compact = false } = {}) {
   if (!total) return `<svg class="profile" viewBox="0 0 100 ${height}" preserveAspectRatio="none"></svg>`;
   const s = expand(w);
   const top = Math.max(1.3, ...s.filter((v) => v != null).map((v) => v + 0.1));
-  const W = 1000, y = (f) => height - (f / top) * (height - 4);
-  const parts = [];
-  // Segments of equal zone (ramps change zone part-way: split them per zone)
-  let i = 0;
+  const W = 1000, y = (f) => height - (f / top) * (height - 6);
+  const shapes = [], edges = [], glow = [], gaps = [];
+  // Shapes of equal zone; a step change (interval edge) starts a new one, ramps split per zone
+  let i = 0, prevTop = null;
   while (i < s.length) {
     const free = s[i] == null;
     const z = free ? -1 : zoneOf(s[i]);
     let j = i;
     while (j < s.length && (s[j] == null) === free && (free || zoneOf(s[j]) === z) && (j === i || !isEdge(s, j))) j++;
     const x0 = (i / total) * W, x1 = (j / total) * W;
+    const a = free ? y(0.6) : y(s[i]), b = free ? a : y(s[j - 1]);
+    // A thin gap between blocks, up to the lower of the two tops
+    if (prevTop != null && (isEdge(s, i) || (s[i] == null) !== (s[i - 1] == null))) gaps.push(`<line x1="${x0}" x2="${x0}" y1="${Math.max(prevTop, a)}" y2="${height}" class="gap"/>`);
+    prevTop = b;
     if (free) {
-      parts.push(`<rect x="${x0}" y="${y(0.6)}" width="${x1 - x0}" height="${height - y(0.6)}" class="free"/>`);
+      shapes.push(`<rect x="${x0}" y="${a}" width="${x1 - x0}" height="${height - a}" class="free"/>`);
+      edges.push(`<path d="M${x0} ${a + 1}H${x1}" class="free-edge"/>`);
     } else {
-      const a = y(s[i]), b = y(s[j - 1]);
-      parts.push(`<path d="M${x0} ${height}L${x0} ${a}L${x1} ${b}L${x1} ${height}Z" style="fill:${zoneColor(z)}"/>`);
+      const d = `M${x0} ${height}L${x0} ${a}L${x1} ${b}L${x1} ${height}Z`;
+      shapes.push(`<path d="${d}" fill="url(#pg-z${z + 1})"/>`);
+      if (!compact) {
+        // Light edge inside the top of the block
+        edges.push(`<path d="M${x0} ${a + 1.5}L${x1} ${b + 1.5}" class="edge" style="stroke:color-mix(in srgb, var(--z${z + 1}) 50%, #fff)"/>`);
+        if (z >= 3) glow.push(`<path d="${d}" style="fill:var(--z${z + 1})"/>`);
+      }
     }
     i = j;
   }
   const ftp = y(1);
   return `<svg class="profile${compact ? ' compact' : ''}" viewBox="0 0 ${W} ${height}" preserveAspectRatio="none" role="img"
-    aria-label="Workout profile, ${fmt.hm(total)}">${parts.join('')}
+    aria-label="Workout profile, ${fmt.hm(total)}">${glow.length ? `<g class="glow" filter="url(#pg-glow)">${glow.join('')}</g>` : ''}
+    ${shapes.join('')}${edges.join('')}${gaps.join('')}
     ${compact ? '' : `<line x1="0" x2="${W}" y1="${ftp}" y2="${ftp}" class="ftp-line"/>`}</svg>`;
 }
 // A step change (interval edge) starts a new shape even within one zone
