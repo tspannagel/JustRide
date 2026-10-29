@@ -69,7 +69,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
     <li><a href="#riders">Riders</a></li>
     <li><a href="#riding">Riding</a></li>
     <li><a href="#workouts">Workouts</a></li>
-    <li><a href="#wifi">Wi-Fi, statistics, files</a></li>
+    <li><a href="#wifi">Wi-Fi and the web app</a></li>
     <li><a href="#updates">Firmware updates</a></li>
     <li><a href="#settings">Settings reference</a></li>
     <li><a href="#trouble">Troubleshooting</a></li>
@@ -78,7 +78,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
 
 <main>
 <h1>JustRide manual</h1>
-<p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a statistics page in your browser. No cloud, no account.</p>
+<p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a web app in your browser for statistics, a workout builder and training plans. No cloud, no account.</p>
 
 <p class="note"><b>Status:</b> on a V4 board the screen, touch and SD card work. The trainer, heart-rate strap, Zwift Ride and Wi-Fi still have to be checked on real hardware. Expect to fix things during the first bring-up (see <a href="#check">3.5</a> and <a href="#trouble">Troubleshooting</a>) and send logs back. The screenshots are rendered from the firmware's own screen code on a computer; on the device they should look the same.</p>
 
@@ -153,9 +153,10 @@ diskutil eraseDisk FAT32 JUSTRIDE MBRFormat /dev/disk8</code></pre>
 <p class="note">The second command <b>erases the whole disk</b> you name. Double-check the number: it must be the SD card, not a backup drive.</p>
 <p>Then copy the files (the card is now mounted as <code>/Volumes/JUSTRIDE</code>):</p>
 <pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
-tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistics app and sample workouts</span></code></pre>
+tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app and sample workouts</span></code></pre>
+<p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.6</a>.</p>
 <p>The card then contains:</p>
-<pre><code>/www/stats/     statistics app
+<pre><code>/www/stats/     web app
 /workouts/      .zwo workout files (two samples)
 /rides/         one folder per rider, filled by the device
 /config/        settings.json, gears.json (created on first boot)</code></pre>
@@ -235,7 +236,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <h3 id="ftp">FTP from your rides</h3>
 <p>After every ride of 20 minutes or longer, the device takes 95 % of your best 20-minute power in that ride. If that is higher than your current FTP, the summary screen offers <span class="btn">Set FTP to … W</span> (see <a href="#after">After the ride</a>). One tap accepts it; otherwise nothing changes. It is never applied on its own, because a single bad power reading would otherwise raise every future ERG target.</p>
-<p>The statistics app shows the same estimate over all your rides (<a href="#wifi">Power curve</a>).</p>
+<p>The web app shows the same estimate over all your rides (<a href="#webapp-power">Power</a>).</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="riding">5. Riding</h2>
@@ -335,7 +336,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <p>Check a new workout on the device with the preview before you ride it: if the profile looks wrong or the workout doesn't appear, the file has a typo (open it in a browser: it shows XML errors).</p>
 
 <!-- ------------------------------------------------------------------ -->
-<h2 id="wifi">7. Wi-Fi, statistics and ride files</h2>
+<h2 id="wifi">7. Wi-Fi and the web app</h2>
 <div class="shots">
   <figure class="device"><img src="img/wifi.png" alt="Wi-Fi screen: addresses http://trainer.local/ and an IP, Turn off and Allow firmware update buttons"><figcaption>Wi-Fi on, connected to the home network.</figcaption></figure>
 </div>
@@ -344,15 +345,46 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
   <li><b>Home network</b> (if <code>wifi_ssid</code> is set): open <code>http://trainer.local/</code> (or the IP address shown) in a browser on the same network.</li>
   <li><b>Own hotspot</b> (if no home network is set, or it isn't reachable within 15 seconds): connect your phone/laptop to the Wi-Fi <b>JustRide</b> with the password shown on the screen, then open <code>http://192.168.4.1/</code>.</li>
 </ul>
-<p>The start page lists every rider's ride files (click to download; the <code>.fit</code> files can be uploaded to intervals.icu, Strava, Garmin Connect, …), lets you upload <code>.zwo</code> workouts, and links to the <b>statistics app</b>. It runs entirely in your browser and needs no internet connection. Pick the rider at the top; it starts with the rider who is active on the device.</p>
+<p>The address opens the <b>web app</b>. It comes from the SD card and runs entirely in your browser, with no internet connection. It works on a laptop and on a phone. Pick the rider at the bottom left (on a phone: top right); it starts with the rider who is active on the device. If the page says the web app is missing, copy it to the card (<a href="#sd">3.4</a>) or upload it (<a href="#webapp-update">7.6</a>).</p>
 
+<h3 id="webapp-today">7.1 Today</h3>
+<p>Your <b>form</b> (fitness minus fatigue), fitness (42-day training load, CTL) and fatigue (7-day load, ATL), the last 7 days, the next session of your plan and your latest rides. Negative form while you build is normal; below −30 you need rest.</p>
+<div class="shots"><figure class="wide"><img src="img/stats-overview.png" alt="Today page: form, fitness and fatigue, last 7 days, fitness chart and recent rides"><figcaption><b>Today</b> with the fitness, fatigue and form chart (6 weeks to all time).</figcaption></figure></div>
+
+<h3 id="webapp-rides">7.2 Rides</h3>
+<p>All rides by month. Open one for power, heart rate and cadence over time (hover for values, drag to zoom), W/kg, time in power and heart-rate zones, HR drift and how well you hit each interval. <span class="btn">FIT file</span> downloads it for intervals.icu, Strava or Garmin Connect. Rides recorded before the clock was set are listed as “date unknown” and left out of fitness and form.</p>
+<div class="shots"><figure class="wide"><img src="img/stats-ride.png" alt="Ride detail: metric tiles, power chart"><figcaption>A ride in detail.</figcaption></figure></div>
+
+<h3 id="webapp-power">7.3 Power</h3>
+<p>Your power curve (best average power for 1 s … 60 min, all time vs. last 90 days), key bests and an FTP estimate: 95 % of your best 20 minutes, with W/kg. The device never changes your FTP by itself; set it under <span class="btn">Settings</span>.</p>
+<div class="shots"><figure class="wide"><img src="img/stats-curve.png" alt="Power page: estimated FTP, best efforts, power curve"><figcaption>FTP estimate and power curve.</figcaption></figure></div>
+
+<h3 id="webapp-workouts">7.4 Workouts: builder and generator</h3>
+<p>Left: the workouts on the device. Click one to edit it. Right: the editor with the profile (coloured by power zone), length, training load (TSS), intensity (IF), average power and work for your FTP.</p>
+<ul>
+  <li><b>Blocks:</b> warm-up, steady, intervals (repeats × on/off), ramp, free ride (no target, you ride by feel) and cool-down. Power is in % of FTP, so the workout fits whoever rides it; the watts next to each field are for the FTP shown below the profile. Times are minutes:seconds. Arrows move a block, the copy icon duplicates it.</li>
+  <li><span class="btn">Generate</span> builds a workout for you: pick a type (recovery, endurance, tempo, sweet spot, threshold, VO2max, sprints, FTP ramp test), length and difficulty.</li>
+  <li><b>Adapt to me</b> (on by default) uses your history: targets are 3–6 % lower when your form shows you're tired and 2 % higher when you're fresh; VO2max and sprint targets come from your own 5-minute and 1-minute bests. The description says what was adapted.</li>
+  <li><span class="btn">Save to device</span> writes the <code>.zwo</code> to the card; it appears on the device under <span class="btn">Workouts</span> right away. <span class="btn">Download</span> saves it for Zwift or elsewhere, <span class="btn">Import .zwo</span> opens a file from your computer.</li>
+</ul>
 <div class="shots">
-  <figure class="wide"><img src="img/stats-overview.png" alt="Statistics overview: rider picker, totals cards, fitness fatigue and form chart"><figcaption><b>Overview:</b> rides and hours, fitness (CTL), fatigue (ATL) and form (TSB) over time.</figcaption></figure>
-  <figure class="wide"><img src="img/stats-curve.png" alt="Power curve chart all time versus last 90 days with FTP estimate and W/kg"><figcaption><b>Power curve:</b> best power for 1 s … 60 min, all-time vs. last 90 days, and an FTP estimate (95 % of best 20 min) with W/kg.</figcaption></figure>
-  <figure class="wide"><img src="img/stats-ride.png" alt="Ride detail: summary cards including W/kg and HR drift, power and heart-rate chart, power zones and heart-rate zones tables"><figcaption><b>Rides:</b> click a ride for the power/HR chart, W/kg, time in power and heart-rate zones, HR drift and how well you hit each interval.</figcaption></figure>
+  <figure class="wide"><img src="img/web-workouts.png" alt="Workout editor: list of workouts on the device, profile coloured by zone, totals"><figcaption>Editing a workout.</figcaption></figure>
+  <figure class="wide"><img src="img/web-generator.png" alt="Generate dialog: workout types, length and difficulty sliders, adapt to me switch, preview"><figcaption>The generator with its preview.</figcaption></figure>
 </div>
-<p><b>SQL:</b> query <code>summary</code>, <code>bests</code> and <code>ride</code> (the last opened ride) of the selected rider yourself.</p>
-<p>The screenshots show generated sample rides. Wi-Fi turns off automatically when you start a ride.</p>
+<p class="note">The device runs at most 200 steps per workout (an interval repeat counts as two); the editor warns before that. ERG targets are still capped by the rider's max ERG power on the device.</p>
+
+<h3 id="webapp-plan">7.5 Training plans</h3>
+<p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test.</p>
+<p>After <span class="btn">Start plan</span> the <b>next 7 days</b> are put on the device as workouts named <i>Plan &lt;date&gt; &lt;type&gt;</i>, listed first under <span class="btn">Workouts</span>. Ride the one for today. Each time you open the web app they're rebuilt for your current form and bests (adapt to me), and past ones are removed. If you edit one of them in the builder, it's kept as you saved it. With more than one rider, the files also carry the rider's name. The calendar ticks off the days you rode and shows planned vs. ridden load per week.</p>
+<div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
+<p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit. Workouts don't yet change <i>during</i> a ride; see the HANDOVER notes for that plan.</p>
+
+<h3 id="webapp-update">7.6 Device page, updating the web app</h3>
+<p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) over <code>summary</code> and <code>bests</code>; it loads 34 MB the first time you run a query.</p>
+<p>To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
+<pre><code>tools/web_deploy.sh trainer.local              <span class="c"># or the IP address; ~1 minute</span>
+tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only, a few seconds</span></code></pre>
+<p>The screenshots show generated sample rides (<code>tools/web_dev.py</code> runs the web app on your computer with sample data, or with <code>--device &lt;address&gt;</code> against your head unit).</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="updates">8. Firmware updates</h2>
@@ -361,7 +393,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <ol>
   <li>Build on your computer: <code>idf.py build</code> → the file is <code>build/justride.bin</code>.</li>
   <li>On the device: <span class="btn">Wi-Fi → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
-  <li>On the device's start page choose the <code>.bin</code> under <i>Firmware update</i>. Don't unplug the board while it says “flashing”.</li>
+  <li>In the web app open <span class="btn">Device → Choose firmware</span> and pick the <code>.bin</code>. Don't unplug the board while it says “Uploading”.</li>
   <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.</li>
 </ol>
 

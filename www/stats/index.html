@@ -2,55 +2,191 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JustRide Stats</title>
-<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>JustRide</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolygon fill='%237c8cff' points='13 2 3 14 12 14 11 22 21 10 12 10 13 2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/uplot-1.6.32/uPlot.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <h1>JustRide</h1>
-  <label class="rider" data-icon="user"><select id="user" aria-label="Rider"></select></label>
-  <nav>
-    <button data-view="overview" class="active" data-icon="activity">Overview</button>
-    <button data-view="curve" data-icon="trending">Power curve</button>
-    <button data-view="rides" data-icon="list">Rides</button>
-    <button data-view="sql" data-icon="database">SQL</button>
+<div class="aurora" aria-hidden="true"></div>
+
+<aside class="rail">
+  <a class="brand" href="#today"><span class="logo" data-icon="zap"></span><span>JustRide</span></a>
+  <nav class="nav">
+    <a href="#today" data-view="today" data-icon="home"><span>Today</span></a>
+    <a href="#rides" data-view="rides" data-icon="activity"><span>Rides</span></a>
+    <a href="#power" data-view="power" data-icon="trending"><span>Power</span></a>
+    <a href="#workouts" data-view="workouts" data-icon="layers"><span>Workouts</span></a>
+    <a href="#plan" data-view="plan" data-icon="calendar"><span>Plan</span></a>
+    <a href="#device" data-view="device" data-icon="cpu"><span>Device</span></a>
   </nav>
-</header>
+  <label class="rider" data-icon="user"><select id="user" aria-label="Rider"></select></label>
+</aside>
+
 <main>
-  <p id="status">Loading DuckDB...</p>
-  <section id="overview" class="view">
-    <div id="totals" class="cards"></div>
-    <h2 data-icon="trending" data-color="load">Fitness (CTL 42 d) / Fatigue (ATL 7 d) / Form (TSB)</h2>
-    <div id="pmc"></div>
+  <div id="boot" class="boot"><div class="spinner"></div><p>Connecting to the head unit…</p></div>
+
+  <!-- Today -->
+  <section id="today" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Today</span><h1 id="hello">Hi</h1></div></header>
+    <div class="grid-hero">
+      <div class="card hero" id="form-hero"></div>
+      <div class="card next" id="next-card"></div>
+    </div>
+    <h2 class="section">Last 7 days</h2>
+    <div class="tiles" id="week-tiles"></div>
+    <div class="card">
+      <div class="card-head"><h2>Fitness, fatigue &amp; form</h2>
+        <div class="seg" id="pmc-range"><button data-days="42">6 w</button><button data-days="90" class="active">3 m</button><button data-days="365">1 y</button><button data-days="0">All</button></div></div>
+      <div id="pmc" class="chart"></div>
+      <p class="caption">Fitness is your 42-day training load, fatigue the 7-day load, form the difference. Negative form while building is normal; rest when it drops below −30.</p>
+    </div>
+    <div class="card-head"><h2 class="section">Recent rides</h2><a class="link" href="#rides">All rides</a></div>
+    <div id="recent" class="ride-list"></div>
   </section>
-  <section id="curve" class="view" hidden>
-    <p id="ftp"></p>
-    <div id="curve-chart"></div>
-  </section>
+
+  <!-- Rides -->
   <section id="rides" class="view" hidden>
-    <div id="ride-list"></div>
+    <div id="ride-list-wrap">
+      <header class="page-head"><div><span class="eyebrow">History</span><h1>Rides</h1></div></header>
+      <div id="ride-list" class="ride-list"></div>
+    </div>
     <div id="ride-detail" hidden>
-      <button id="ride-back" data-icon="back">All rides</button>
-      <h2 id="ride-title"></h2>
-      <div id="ride-cards" class="cards"></div>
-      <div id="ride-chart"></div>
-      <h3 data-icon="zap" data-color="power">Power zones</h3><div id="ride-zones"></div>
-      <h3 data-icon="heart" data-color="hr">Heart-rate zones</h3><div id="ride-hr-zones"></div>
-      <h3 data-icon="layers" data-color="load">Intervals</h3><div id="ride-intervals"></div>
+      <header class="page-head">
+        <div><a class="link back" href="#rides" data-icon="back">All rides</a><h1 id="ride-title"></h1><span class="muted" id="ride-when"></span></div>
+        <a class="btn ghost" id="ride-dl" download data-icon="download">FIT file</a>
+      </header>
+      <div class="tiles" id="ride-tiles"></div>
+      <div id="ride-charts" class="stack"></div>
+      <div class="grid-2">
+        <div class="card"><div class="card-head"><h2>Power zones</h2><span class="muted small" id="ride-zones-sub"></span></div><div id="ride-zones"></div></div>
+        <div class="card"><div class="card-head"><h2>Heart-rate zones</h2><span class="muted small" id="ride-hr-sub"></span></div><div id="ride-hr-zones"></div></div>
+      </div>
+      <div class="card" id="ride-intervals-wrap"><div class="card-head"><h2>Intervals</h2></div><div id="ride-intervals" class="scroll"></div></div>
     </div>
   </section>
-  <section id="sql" class="view" hidden>
-    <p>Tables (for the selected rider): <code>summary</code>, <code>bests</code>, and <code>ride</code> (the ride last opened).</p>
-    <textarea id="sql-text" rows="5">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
+
+  <!-- Power -->
+  <section id="power" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Performance</span><h1>Power</h1></div></header>
+    <div class="card hero ftp" id="ftp-hero"></div>
+    <div class="tiles" id="bests-tiles"></div>
+    <div class="card"><div class="card-head"><h2>Power curve</h2><span class="muted small">Best average power for each duration</span></div>
+      <div id="curve" class="chart"></div></div>
+  </section>
+
+  <!-- Workouts -->
+  <section id="workouts" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Builder</span><h1>Workouts</h1></div>
+      <div class="actions">
+        <button class="btn ghost" id="wo-import-btn" data-icon="upload">Import .zwo</button>
+        <button class="btn ghost" id="wo-new" data-icon="plus">New</button>
+        <button class="btn primary" id="wo-gen-open" data-icon="sparkles">Generate</button>
+      </div>
+      <input type="file" id="wo-import" accept=".zwo" hidden>
+    </header>
+    <div class="builder">
+      <aside class="card library"><h2>On the device</h2><div id="wo-list"></div></aside>
+      <div class="editor">
+        <div class="card">
+          <input id="wo-name" class="title-input" aria-label="Workout name" maxlength="48" placeholder="Workout name">
+          <textarea id="wo-desc" rows="2" aria-label="Description" placeholder="Description (shown on the device)"></textarea>
+          <div id="wo-profile" class="profile-wrap"></div>
+          <div class="zone-legend"><span style="--zc:var(--z1)">Recovery</span><span style="--zc:var(--z2)">Endurance</span><span style="--zc:var(--z3)">Tempo</span><span style="--zc:var(--z4)">Threshold</span><span style="--zc:var(--z5)">VO2max</span><span style="--zc:var(--z6)">Anaerobic</span><span style="--zc:var(--z7)">Sprint</span></div>
+          <div class="tiles compact" id="wo-stats"></div>
+          <label class="ftp-input">Watts shown for an FTP of <input id="wo-ftp" type="number" min="50" max="600" value="200"> W</label>
+        </div>
+        <div id="wo-blocks" class="blocks"></div>
+        <div class="add-row">
+          <span class="muted small">Add</span>
+          <button class="btn chip-btn" data-add="warmup">Warm-up</button>
+          <button class="btn chip-btn" data-add="steady">Steady</button>
+          <button class="btn chip-btn" data-add="intervals">Intervals</button>
+          <button class="btn chip-btn" data-add="ramp">Ramp</button>
+          <button class="btn chip-btn" data-add="free">Free ride</button>
+          <button class="btn chip-btn" data-add="cooldown">Cool-down</button>
+        </div>
+        <div class="save-bar">
+          <button class="btn danger ghost" id="wo-delete" data-icon="trash" hidden>Delete from device</button>
+          <span class="spacer"></span>
+          <button class="btn ghost" id="wo-download" data-icon="download">Download</button>
+          <button class="btn primary" id="wo-save" data-icon="save">Save to device</button>
+        </div>
+      </div>
+    </div>
+    <dialog id="wo-gen" class="sheet">
+      <div class="sheet-head"><h2>Generate a workout</h2><button class="icon-btn" id="wo-gen-close" aria-label="Close" data-icon="x"></button></div>
+      <div id="gen-types" class="gen-types"></div>
+      <div class="sliders">
+        <label class="field wide"><span>Length <b id="gen-min-v"></b></span><input type="range" id="gen-min" min="30" max="150" step="5"></label>
+        <label class="field wide"><span>Difficulty <b id="gen-diff-v"></b></span><input type="range" id="gen-diff" min="1" max="5" step="1"></label>
+      </div>
+      <label class="switch"><input type="checkbox" id="gen-adapt"><span></span><div><b>Adapt to me</b><small id="gen-adapt-note"></small></div></label>
+      <div id="gen-preview" class="gen-preview"></div>
+      <div class="sheet-foot"><button class="btn primary" id="wo-gen-apply" data-icon="sparkles">Use this workout</button></div>
+    </dialog>
+  </section>
+
+  <!-- Plan -->
+  <section id="plan" class="view" hidden>
+    <div id="plan-setup" hidden>
+      <header class="page-head"><div><span class="eyebrow">Training plan</span><h1>Make a plan</h1></div>
+        <div class="actions"><button class="btn ghost" id="plan-cancel">Cancel</button></div></header>
+      <div class="card">
+        <h2>Goal</h2>
+        <div id="plan-goals" class="gen-types three"></div>
+        <div class="setup-grid">
+          <div><h2>Riding days</h2><div id="plan-days" class="days"></div>
+            <p class="caption">Tap a day to ride it; tap a riding day again to make it the long ride (outlined), a third time to remove it.</p></div>
+          <div class="sliders">
+            <label class="field wide"><span>Length <b id="plan-weeks-v"></b></span><input type="range" id="plan-weeks" min="2" max="16" step="1"></label>
+            <label class="field wide"><span>Time per week <b id="plan-hours-v"></b></span><input type="range" id="plan-hours" min="2" max="14" step="0.5"></label>
+            <label class="field"><span>Start</span><div><input type="date" id="plan-start"></div></label>
+          </div>
+        </div>
+      </div>
+      <div class="card-head"><h2 class="section">Preview</h2><button class="btn primary" id="plan-create" data-icon="check">Start plan</button></div>
+      <div id="plan-preview"></div>
+    </div>
+    <div id="plan-view" hidden>
+      <header class="page-head"><div><span class="eyebrow">Training plan</span><h1 id="plan-title"></h1><span class="muted" id="plan-sub"></span></div>
+        <div class="actions"><button class="btn ghost" id="plan-end" data-icon="x">End plan</button><button class="btn ghost" id="plan-edit">Change</button>
+          <button class="btn primary" id="plan-sync" data-icon="upload">Send to device</button></div></header>
+      <div class="progress" id="plan-progress"><span></span></div>
+      <div class="grid-hero">
+        <div class="card next" id="plan-next"></div>
+        <div class="card"><span class="eyebrow">How it adapts</span>
+          <p class="small">The next 7 days are on the device under <b>Workouts</b>, listed first. They're rebuilt each time you open this app: harder when you're fresh, easier when you're tired, VO2max and sprint targets from your own best efforts. Workouts you edit yourself are kept as they are.</p>
+          <span class="muted small" id="plan-sync-info"></span></div>
+      </div>
+      <div id="plan-cal"></div>
+    </div>
+  </section>
+
+  <!-- Device -->
+  <section id="device" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Head unit</span><h1>Device</h1></div></header>
+    <div class="grid-2">
+      <div class="card"><h2>Upload workouts</h2><p class="small muted">Zwift .zwo files, up to 64 KB each. They appear on the device under Workouts.</p>
+        <label class="btn ghost file-btn" data-icon="upload">Choose .zwo files<input type="file" id="up-zwo" accept=".zwo" multiple hidden></label></div>
+      <div class="card"><h2>Firmware update</h2><p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the <code>build/justride.bin</code> file within 5 minutes.</p>
+        <label class="btn ghost file-btn" data-icon="cpu">Choose firmware<input type="file" id="up-ota" accept=".bin" hidden></label>
+        <p class="small" id="ota-status"></p></div>
+    </div>
+    <div class="card"><h2>Ride files</h2><div id="files" class="scroll"></div></div>
+    <details class="card">
+      <summary><h2>SQL console</h2><span class="muted small">DuckDB over <code>summary</code> and <code>bests</code> · loads 34 MB on first run</span></summary>
+      <textarea id="sql-text" rows="5" spellcheck="false">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
        round(sum(tss)) AS tss, round(sum(duration_s) / 3600, 1) AS hours
 FROM summary GROUP BY 1 ORDER BY 1 DESC</textarea>
-    <button id="sql-run" data-icon="play">Run</button>
-    <div id="sql-out"></div>
+      <button class="btn primary" id="sql-run" data-icon="play">Run</button>
+      <div id="sql-out"></div>
+    </details>
   </section>
 </main>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

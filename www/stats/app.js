@@ -1,326 +1,371 @@
-// JustRide statistics: DuckDB-WASM over the CSV files the head unit writes.
-// Each rider has a folder /rides/<id>/; /api/users lists the riders.
-// summary.csv and bests.csv are loaded on every visit (small); a ride's
-// per-second CSV only when it is opened. Plain HTTP on the LAN is not a secure
-// context, so OPFS is unavailable; the browser's HTTP cache + ETags do the caching.
-import * as duckdb from './vendor/duckdb-1.32.0/duckdb.mjs';
-import uPlot from './vendor/uplot-1.6.32/uPlot.esm.js';
+// JustRide web app: start-up, navigation and the statistics views (Today, Rides, Power,
+// Device). The CSV files the head unit writes are parsed in JS, so the app is usable
+// within a second; DuckDB-WASM (34 MB) is only loaded when the SQL console is used.
+import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, formState, dated, dayKey,
+  SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor } from './core.js';
+import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
+import { initPlan, showPlan, autoSync } from './plan.js';
 
-const $ = (id) => document.getElementById(id);
-const status = (t) => { $('status').textContent = t; $('status').hidden = !t; };
-let conn, user;  // user: {id, name}
+const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, rideOpen: null, range: 90 };
 
-// ---- DuckDB ---------------------------------------------------------------------
+// ---- Data -----------------------------------------------------------------------------
 
-async function openDb() {
-  const base = new URL('./vendor/duckdb-1.32.0/', import.meta.url);
-  const worker = new Worker(new URL('duckdb-browser-eh.worker.js', base));
-  const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
-  await db.instantiate(new URL('duckdb-eh.wasm', base).href);
-  conn = await db.connect();
-  return db;
+async function loadUser(u) {
+  S.user = u;
+  const [sum, best] = await Promise.all([api.text(`/rides/${u.id}/summary.csv`), api.text(`/rides/${u.id}/bests.csv`)]);
+  S.rides = parseCsv(sum, SUMMARY_T).sort((a, b) => (b.start_utc || 0) - (a.start_utc || 0));
+  S.bests = parseCsv(best, BESTS_T);
+  S.pmc = pmc(S.rides);
 }
 
-// Rows as plain objects; BigInt -> Number, DATE/TIMESTAMP -> Date
-async function q(sql) {
-  const res = await conn.query(sql);
-  const times = res.schema.fields.filter((f) => /^(Date|Timestamp)/.test(String(f.type))).map((f) => f.name);
-  return res.toArray().map((r) => {
-    const o = r.toJSON();
-    for (const k in o) if (typeof o[k] === 'bigint') o[k] = Number(o[k]);
-    for (const k of times) if (o[k] != null) o[k] = new Date(o[k]);
-    return o;
+// What the workout generator adapts to
+function ctx() {
+  const ftp = S.rides.find((r) => r.ftp_w)?.ftp_w || null;
+  const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
+  return { ftp, tsb, best: bestsSince(90), weight: S.rides.find((r) => r.weight_kg)?.weight_kg };
+}
+
+// Best watts per duration for rides in the last `days` (null: all time)
+function bestsSince(days) {
+  const cutoff = days == null ? null : Date.now() - days * 86400e3;
+  const ok = new Set(S.rides.filter((r) => cutoff == null || (dated(r) && r.start_utc.getTime() > cutoff)).map((r) => r.ride_id));
+  const out = {};
+  for (const b of S.bests) if (ok.has(b.ride_id) && b.watts > (out[b.duration_s] || 0)) out[b.duration_s] = b.watts;
+  return out;
+}
+
+const riderLabel = () => (S.users.length > 1 ? S.user.name.replace(/[^A-Za-z0-9 ._-]/g, '') : '');
+
+// ---- Navigation -------------------------------------------------------------------------
+
+const VIEWS = {
+  today: { title: 'Today', render: today },
+  rides: { title: 'Rides', render: rides },
+  power: { title: 'Power', render: power },
+  workouts: { title: 'Workouts', render: () => showWorkouts() },
+  plan: { title: 'Plan', render: () => showPlan(S.user, S.rides, riderLabel()) },
+  device: { title: 'Device', render: device },
+};
+
+async function go(name) {
+  const [view, arg] = name.split('/');
+  if (!VIEWS[view]) return go('today');
+  S.view = view;
+  $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === view));
+  $$('.view').forEach((v) => (v.hidden = v.id !== view));
+  document.title = `${VIEWS[view].title} · JustRide`;
+  try {
+    if (view === 'rides' && arg) await rideDetail(decodeURIComponent(arg));
+    else await VIEWS[view].render();
+  } catch (err) {
+    console.error(err);
+    toast(err.message, 'bad');
+  }
+}
+window.addEventListener('hashchange', () => go(location.hash.slice(1) || 'today'));
+
+// ---- Today ------------------------------------------------------------------------------
+
+async function today() {
+  const P = S.pmc, n = P.x.length;
+  const ctl = n ? P.ctl[n - 1] : null, atl = n ? P.atl[n - 1] : null, tsb = n ? P.tsb[n - 1] : null;
+  const f = formState(tsb);
+  const hour = new Date().getHours();
+  $('#hello').textContent = `${hour < 11 ? 'Good morning' : hour < 18 ? 'Hi' : 'Good evening'}, ${S.user.name}`;
+  $('#form-hero').innerHTML = `
+    <div class="hero-main"><span class="eyebrow">Form</span>
+      <div class="hero-num ${f.tone}">${tsb == null ? '–' : (tsb > 0 ? '+' : '') + fmt.num(tsb)}</div>
+      <span class="pill ${f.tone}">${esc(f.label)}</span></div>
+    <div class="hero-side">
+      <div><span class="eyebrow">Fitness</span><b>${fmt.num(ctl)}</b><small>CTL · 42-day load</small></div>
+      <div><span class="eyebrow">Fatigue</span><b>${fmt.num(atl)}</b><small>ATL · 7-day load</small></div>
+    </div>`;
+
+  const week = S.rides.filter((r) => dated(r) && r.start_utc > Date.now() - 7 * 86400e3);
+  const sum = (a, k) => a.reduce((x, r) => x + (r[k] || 0), 0);
+  $('#week-tiles').innerHTML = [
+    tile('Rides', week.length, '', '', 'activity'),
+    tile('Time', fmt.hm(sum(week, 'duration_s')), '', '', 'clock'),
+    tile('Load', fmt.num(sum(week, 'tss')), 'TSS', 'load', 'bars'),
+    tile('Work', fmt.num(sum(week, 'kj')), 'kJ', 'power', 'energy'),
+    tile('Distance', fmt.num(sum(week, 'distance_km'), 1), 'km', 'dist', 'distance'),
+  ].join('');
+
+  // Next planned session
+  let plan = null;
+  try { plan = await api.plan(S.user.id); } catch { /* no plan */ }
+  const next = plan?.sessions?.find((s) => s.date >= dayKey(new Date(Date.now() - new Date().getTimezoneOffset() * 60e3)));
+  $('#next-card').innerHTML = next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
+      <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>
+      <span class="muted small">${fmt.date(new Date(next.date + 'T12:00:00'))} · on the device under Workouts</span>
+      <a class="btn ghost" href="#plan">Open plan</a>`
+    : `<span class="eyebrow">${icon('sparkles')} No plan yet</span><b>Train with a plan</b>
+      <span class="muted small">Pick a goal and your days; the next week's workouts appear on the device, adapted to your form.</span>
+      <a class="btn primary" href="#plan">Make a plan</a>`;
+
+  renderPmc();
+  const recent = S.rides.slice(0, 4);
+  $('#recent').innerHTML = recent.length ? recent.map(rideRow).join('') :
+    empty('No rides yet', 'Ride with the head unit and your rides show up here.', 'activity');
+}
+
+function renderPmc() {
+  const P = S.pmc;
+  const el = $('#pmc');
+  $$('#pmc-range button').forEach((b) => b.classList.toggle('active', Number(b.dataset.days) === S.range));
+  if (!P.x.length) { el.innerHTML = empty('Nothing to chart yet', 'Fitness, fatigue and form appear after your first dated ride.', 'trending'); return; }
+  const from = S.range ? Math.max(0, P.x.length - S.range) : 0;
+  const cut = (a) => a.slice(from);
+  chart(el, {
+    data: [cut(P.x), cut(P.ctl), cut(P.atl), cut(P.tsb)],
+    series: [
+      { label: 'Fitness', stroke: '--s1', fill: true, value: (u, v) => fmt.num(v) },
+      { label: 'Fatigue', stroke: '--s2', value: (u, v) => fmt.num(v) },
+      { label: 'Form', stroke: '--s3', dash: [5, 4], value: (u, v) => fmt.num(v) },
+    ],
+    height: 240,
   });
 }
 
-// columns: "name TYPE, name TYPE, ..." (names unquoted; quoted here where SQL needs it).
-// url null or a missing file -> empty table.
-async function loadCsv(db, table, url, columns) {
-  const cols = columns.split(',').map((c) => c.trim().split(/\s+/));
-  const res = url ? await fetch(url, { cache: 'no-cache' }) : null;
-  const text = res?.ok ? await res.text() : '';
-  await conn.query(`DROP TABLE IF EXISTS ${table}`);
-  if (!text.trim()) {
-    await conn.query(`CREATE TABLE ${table} (${cols.map(([n, t]) => `"${n}" ${t}`).join(', ')})`);
-    return 0;
+function rideRow(r) {
+  const free = !r.workout;
+  return `<a class="ride-row" href="#rides/${encodeURIComponent(r.ride_id)}">
+    <span class="ride-ic ${free ? 'dist' : 'load'}">${icon(free ? 'distance' : 'target')}</span>
+    <span class="ride-name"><b>${esc(r.workout || 'Free ride')}</b><small>${fmt.date(r.start_utc)} ${fmt.time(r.start_utc)}</small></span>
+    <span class="ride-stat"><b>${fmt.dur(r.duration_s)}</b><small>time</small></span>
+    <span class="ride-stat"><b>${fmt.num(r.np_w)}</b><small>NP W</small></span>
+    <span class="ride-stat"><b>${fmt.num(r.tss)}</b><small>TSS</small></span>
+    <span class="ride-stat hide-s"><b>${r.avg_hr || '–'}</b><small>HR</small></span></a>`;
+}
+
+// ---- Rides ------------------------------------------------------------------------------
+
+async function rides() {
+  $('#ride-detail').hidden = true;
+  $('#ride-list-wrap').hidden = false;
+  const months = new Map();
+  for (const r of S.rides) {
+    const k = dated(r) ? r.start_utc.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Before the clock was set';
+    if (!months.has(k)) months.set(k, []);
+    months.get(k).push(r);
   }
-  await db.registerFileText(`${table}.csv`, text);
-  const spec = cols.map(([n, t]) => `'${n}': '${t}'`).join(', ');
-  await conn.query(`CREATE TABLE ${table} AS SELECT * FROM read_csv('${table}.csv', header = true, columns = {${spec}})`);
-  return (await q(`SELECT count(*) AS n FROM ${table}`))[0].n;
+  $('#ride-list').innerHTML = S.rides.length ? [...months].map(([m, rs]) => `<h3 class="group">${esc(m)}
+      <small>${rs.length} ride${rs.length === 1 ? '' : 's'} · ${fmt.hm(rs.reduce((a, r) => a + (r.duration_s || 0), 0))} · ${fmt.num(rs.reduce((a, r) => a + (r.tss || 0), 0))} TSS</small></h3>
+      ${rs.map(rideRow).join('')}`).join('') :
+    empty('No rides yet', 'Your rides appear here after you ride with the head unit.', 'activity');
 }
 
-const SUMMARY_COLS = 'ride_id VARCHAR, start_utc TIMESTAMP, duration_s INTEGER, moving_s INTEGER, workout VARCHAR, ' +
-  'ftp_w INTEGER, avg_w INTEGER, np_w INTEGER, if DOUBLE, tss DOUBLE, kj INTEGER, avg_hr INTEGER, max_hr INTEGER, ' +
-  'avg_cad DOUBLE, distance_km DOUBLE, fw VARCHAR, weight_kg INTEGER, user_max_hr INTEGER';
-const BESTS_COLS = 'ride_id VARCHAR, duration_s INTEGER, watts INTEGER';
-const RIDE_COLS = 't_s INTEGER, ts_utc TIMESTAMP, power_w INTEGER, cadence_rpm DOUBLE, speed_kmh DOUBLE, ' +
-  'hr_bpm INTEGER, target_w INTEGER, grade_pct DOUBLE, gear INTEGER, interval_idx INTEGER, mode VARCHAR, lap INTEGER';
+async function rideDetail(id) {
+  const s = S.rides.find((r) => r.ride_id === id);
+  if (!s) return go('rides');
+  $('#ride-list-wrap').hidden = true;
+  $('#ride-detail').hidden = false;
+  $('#ride-title').textContent = s.workout || 'Free ride';
+  $('#ride-when').textContent = `${fmt.date(s.start_utc)} ${fmt.time(s.start_utc)}`;
+  $('#ride-dl').href = `/rides/${S.user.id}/${encodeURIComponent(id)}.fit`;
+  $('#ride-charts').innerHTML = '<div class="skeleton" style="height:300px"></div>';
+  const pts = parseCsv(await api.text(`/rides/${S.user.id}/${encodeURIComponent(id)}.csv`), RIDE_T);
 
-// "now - days" as a UTC TIMESTAMP literal. DuckDB-WASM ships without ICU, so
-// now() is TIMESTAMPTZ and can't do interval math; the CSVs are UTC anyway.
-const ago = (days) => `TIMESTAMP '${new Date(Date.now() - days * 86400e3).toISOString().slice(0, 19).replace('T', ' ')}'`;
-
-// ---- Icons ------------------------------------------------------------------------
-// Feather icons (https://feathericons.com, MIT licence), inlined: the app must work offline.
-
-const ICONS = {
-  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
-  trending: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
-  list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>' +
-    '<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
-  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>' +
-    '<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
-  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-  zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23' +
-    'l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
-  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-  calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>' +
-    '<line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
-  bars: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
-  energy: '<path d="M5 18H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.19M15 6h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3.19"/>' +
-    '<line x1="23" y1="13" x2="23" y2="11"/><polyline points="11 6 7 12 13 12 9 18"/>',
-  percent: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
-  cadence: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>' +
-    '<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
-  distance: '<polygon points="3 11 22 2 13 21 11 13 3 11"/>',
-  award: '<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
-  back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
-  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
-  layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
-  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
-};
-// Metric colours, the same as on the device
-const C = { power: '#f59e0b', hr: '#ef4444', cad: '#14b8a6', dist: '#8b5cf6', load: '#2563eb', time: '#64748b' };
-
-const icon = (name, color) =>
-  `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"${color ? ` style="color:${color}"` : ''}>${ICONS[name]}</svg>`;
-
-// ---- Rendering helpers ----------------------------------------------------------
-
-const fmt = {
-  dur: (s) => `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`,
-  date: (d) => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
-  num: (v, d = 0) => (v == null || Number.isNaN(v) ? '-' : Number(v).toFixed(d)),
-};
-
-const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-// items: [label, value, icon, colour]
-function cards(el, items) {
-  el.innerHTML = items.map(([label, value, ic, color]) => `<div class="card">${ic ? `<span class="badge" style="--c:${color ||
-    C.time}">${icon(ic)}</span>` : ''}<div><b>${esc(value)}</b><span>${esc(label)}</span></div></div>`).join('');
-}
-
-// cols: [key, heading, format(value, row), html]; html: format returns markup (escape it yourself)
-function table(el, rows, cols, onClick) {
-  if (!rows.length) { el.innerHTML = '<p>No data yet.</p>'; return; }
-  cols = cols || Object.keys(rows[0]).map((k) => [k, k]);
-  el.innerHTML = `<div class="scroll"><table class="${onClick ? 'clickable' : ''}"><thead><tr>${
-    cols.map(([, h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
-    rows.map((r, i) => `<tr data-i="${i}">${cols.map(([k, , f, html]) => `<td>${html ? f(r[k], r) : esc(f ? f(r[k], r) : r[k])}</td>`).join('')}</tr>`).join('')
-  }</tbody></table></div>`;
-  if (onClick) el.querySelectorAll('tbody tr').forEach((tr) => tr.onclick = () => onClick(rows[tr.dataset.i]));
-}
-
-const charts = {};
-function chart(id, opts, data) {
-  charts[id]?.destroy();
-  const el = $(id);
-  el.innerHTML = '';
-  const width = Math.min(el.clientWidth || 800, 1100);
-  charts[id] = new uPlot({ width, height: 300, ...opts }, data, el);
-}
-
-const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const axes = () => {
-  const stroke = css('--muted'), grid = { stroke: css('--line') };
-  return [{ stroke, grid }, { stroke, grid }];
-};
-
-// ---- Overview (PMC) -------------------------------------------------------------
-
-async function overview() {
-  const t = (await q(`SELECT
-      count(*) FILTER (WHERE start_utc > ${ago(7)}) AS rides7,
-      coalesce(sum(tss) FILTER (WHERE start_utc > ${ago(7)}), 0) AS tss7,
-      coalesce(sum(duration_s) FILTER (WHERE start_utc > ${ago(30)}), 0) AS secs30,
-      coalesce(sum(kj) FILTER (WHERE start_utc > ${ago(30)}), 0) AS kj30,
-      count(*) AS rides, coalesce(sum(duration_s), 0) AS secs FROM summary`))[0];
-  cards($('totals'), [
-    ['rides, last 7 days', t.rides7, 'activity', C.load], ['TSS, last 7 days', fmt.num(t.tss7), 'bars', C.load],
-    ['hours, last 30 days', fmt.num(t.secs30 / 3600, 1), 'clock'], ['kJ, last 30 days', fmt.num(t.kj30), 'energy', C.power],
-    ['rides total', t.rides, 'calendar'], ['hours total', fmt.num(t.secs / 3600, 1), 'clock'],
-  ]);
-
-  const daily = await q(`SELECT CAST(start_utc AS DATE) AS day, sum(tss) AS tss FROM summary GROUP BY 1 ORDER BY 1`);
-  if (!daily.length) { $('pmc').innerHTML = '<p>No rides yet.</p>'; return; }
-  // Daily series from the first ride until today, EWMA with 42 / 7 day constants
-  const byDay = new Map(daily.map((d) => [new Date(d.day).toISOString().slice(0, 10), d.tss]));
-  const xs = [], ctl = [], atl = [], tsb = [];
-  let c = 0, a = 0;
-  for (let d = new Date(daily[0].day); d <= new Date(); d.setUTCDate(d.getUTCDate() + 1)) {
-    const tss = byDay.get(d.toISOString().slice(0, 10)) || 0;
-    tsb.push(c - a); // form = yesterday's fitness - fatigue
-    c += (tss - c) / 42;
-    a += (tss - a) / 7;
-    xs.push(d.getTime() / 1000); ctl.push(c); atl.push(a);
-  }
-  chart('pmc', {
-    axes: axes(),
-    series: [{}, { label: 'CTL', stroke: '#2563eb', width: 2 }, { label: 'ATL', stroke: '#db2777' },
-      { label: 'TSB', stroke: '#16a34a', fill: 'rgba(22,163,74,0.1)' }],
-  }, [xs, ctl, atl, tsb]);
-}
-
-// ---- Power curve ----------------------------------------------------------------
-
-async function curve() {
-  const rows = await q(`SELECT b.duration_s AS d, max(b.watts) AS best,
-      max(b.watts) FILTER (WHERE s.start_utc > ${ago(90)}) AS recent
-    FROM bests b LEFT JOIN summary s USING (ride_id) GROUP BY 1 ORDER BY 1`);
-  if (!rows.length) { $('curve-chart').innerHTML = '<p>No rides yet.</p>'; $('ftp').innerHTML = ''; return; }
-  const m20 = rows.find((r) => r.d === 1200);
-  const kg = (await q(`SELECT weight_kg FROM summary WHERE weight_kg > 0 ORDER BY start_utc DESC LIMIT 1`))[0]?.weight_kg;
-  const ftp = m20 && Math.round(m20.best * 0.95);
-  $('ftp').innerHTML = icon('award', C.power) + ' ' + esc(m20 ?
-    `Estimated FTP: ${ftp} W${kg ? ` (${fmt.num(ftp / kg, 2)} W/kg at ${kg} kg)` : ''} = 95 % of best 20 min, ${m20.best} W` :
-    'Ride 20 minutes or longer for an FTP estimate.');
-  chart('curve-chart', {
-    scales: { x: { time: false, distr: 3 } },
-    axes: [{ ...axes()[0], values: (u, v) => v.map((s) => (s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : `${s / 3600}h`)) }, axes()[1]],
-    series: [{ label: 'duration', value: (u, v) => (v == null ? '-' : `${v} s`) },
-      { label: 'All time', stroke: '#2563eb', width: 2, points: { show: true } },
-      { label: 'Last 90 days', stroke: '#f59e0b', width: 2, points: { show: true } }],
-  }, [rows.map((r) => r.d), rows.map((r) => r.best), rows.map((r) => r.recent)]);
-}
-
-// ---- Rides ----------------------------------------------------------------------
-
-async function rideList(db) {
-  $('ride-detail').hidden = true;
-  $('ride-list').hidden = false;
-  const rows = await q(`SELECT * FROM summary ORDER BY start_utc DESC`);
-  table($('ride-list'), rows, [
-    ['start_utc', 'Date', fmt.date],
-    ['workout', 'Workout', (v) => (v ? `${icon('target', C.load)} ${esc(v)}` : `${icon('distance', C.dist)} Free ride`), true], ['duration_s', 'Time', fmt.dur],
-    ['avg_w', 'Avg W'], ['np_w', 'NP'], ['tss', 'TSS', (v) => fmt.num(v)], ['avg_hr', 'HR', (v) => v || '-'],
-    ['distance_km', 'km', (v) => fmt.num(v, 1)],
-  ], (r) => rideDetail(db, r));
-}
-
-async function rideDetail(db, s) {
-  status('Loading ride...');
-  await loadCsv(db, 'ride', `/rides/${user.id}/${encodeURIComponent(s.ride_id)}.csv`, RIDE_COLS);
-  status('');
-  $('ride-list').hidden = true;
-  $('ride-detail').hidden = false;
-  $('ride-title').textContent = `${fmt.date(s.start_utc)}  ${s.workout || 'Free ride'}`;
   // Aerobic decoupling: power per heartbeat, first half vs second half
-  const drift = (await q(`WITH h AS (SELECT t_s < (SELECT max(t_s) / 2 FROM ride) AS first, power_w, hr_bpm
-      FROM ride WHERE hr_bpm > 0 AND power_w > 0)
-    SELECT (avg(power_w) FILTER (WHERE first) / avg(hr_bpm) FILTER (WHERE first)) /
-           (avg(power_w) FILTER (WHERE NOT first) / avg(hr_bpm) FILTER (WHERE NOT first)) - 1 AS d FROM h`))[0]?.d;
-  cards($('ride-cards'), [
-    ['time', fmt.dur(s.duration_s), 'clock'], ['distance', `${fmt.num(s.distance_km, 1)} km`, 'distance', C.dist],
-    ['avg power', `${s.avg_w} W`, 'zap', C.power], ['normalized power', `${s.np_w} W`, 'zap', C.power],
-    ...(s.weight_kg ? [['avg W/kg', fmt.num(s.avg_w / s.weight_kg, 2), 'trending', C.power]] : []),
-    ['TSS', fmt.num(s.tss), 'bars', C.load], ['IF', fmt.num(s.if, 2), 'percent', C.load],
-    ['kJ', s.kj, 'energy', C.power], ['avg HR', s.avg_hr || '-', 'heart', C.hr],
-    ['avg cadence', fmt.num(s.avg_cad), 'cadence', C.cad],
-    ...(drift != null ? [['HR drift (Pa:HR)', `${fmt.num(drift * 100, 1)} %`, 'activity', C.hr]] : []),
-  ]);
+  const half = pts.length / 2;
+  const ef = (a) => { const v = a.filter((p) => p.hr_bpm > 0 && p.power_w > 0); return v.length > 60 ? v.reduce((x, p) => x + p.power_w, 0) / v.reduce((x, p) => x + p.hr_bpm, 0) : null; };
+  const e1 = ef(pts.slice(0, half)), e2 = ef(pts.slice(half));
+  const drift = e1 && e2 ? (e1 / e2 - 1) * 100 : null;
+  $('#ride-tiles').innerHTML = [
+    tile('Time', fmt.dur(s.duration_s), '', '', 'clock'),
+    tile('Distance', fmt.num(s.distance_km, 1), 'km', 'dist', 'distance'),
+    tile('Avg power', fmt.num(s.avg_w), 'W', 'power', 'zap'),
+    tile('Normalized', fmt.num(s.np_w), 'W', 'power', 'zap'),
+    ...(s.weight_kg ? [tile('Avg W/kg', fmt.num(s.avg_w / s.weight_kg, 2), '', 'power', 'trending')] : []),
+    tile('Load', fmt.num(s.tss), 'TSS', 'load', 'bars'),
+    tile('Intensity', fmt.num(s.if, 2), 'IF', 'load', 'target'),
+    tile('Work', fmt.num(s.kj), 'kJ', 'power', 'energy'),
+    tile('Avg HR', s.avg_hr || '–', s.avg_hr ? 'bpm' : '', 'hr', 'heart'),
+    tile('Cadence', fmt.num(s.avg_cad), 'rpm', 'cad', 'cadence'),
+    ...(drift != null ? [tile('HR drift', fmt.num(drift, 1), '%', 'hr', 'activity')] : []),
+  ].join('');
 
-  const pts = await q(`SELECT t_s, power_w, hr_bpm, cadence_rpm, nullif(target_w, 0) AS target_w FROM ride ORDER BY t_s`);
-  chart('ride-chart', {
-    scales: { x: { time: false } },
-    axes: [{ ...axes()[0], values: (u, v) => v.map((x) => fmt.dur(x)) }, axes()[1]],
-    series: [{ label: 'time', value: (u, v) => (v == null ? '-' : fmt.dur(v)) },
-      { label: 'Power', stroke: '#2563eb' }, { label: 'Target', stroke: '#94a3b8', dash: [6, 4] },
-      { label: 'HR', stroke: '#dc2626' }, { label: 'Cadence', stroke: '#16a34a', show: false }],
-  }, [pts.map((p) => p.t_s), pts.map((p) => p.power_w), pts.map((p) => p.target_w), pts.map((p) => p.hr_bpm),
-    pts.map((p) => p.cadence_rpm)]);
+  if (!pts.length) { $('#ride-charts').innerHTML = empty('No per-second data', 'The ride file is missing on the SD card.', 'file'); return; }
+  const x = pts.map((p) => p.t_s);
+  const hasTarget = pts.some((p) => p.target_w > 0), hasHr = pts.some((p) => p.hr_bpm > 0);
+  $('#ride-charts').innerHTML = `<div class="chart-card"><h3>${icon('zap')} Power</h3><div id="c-power"></div></div>
+    ${hasHr ? `<div class="chart-card"><h3>${icon('heart')} Heart rate</h3><div id="c-hr"></div></div>` : ''}
+    <div class="chart-card"><h3>${icon('cadence')} Cadence</h3><div id="c-cad"></div></div>`;
+  const common = { xTime: false, xFmt: fmt.dur, sync: 'ride' };
+  chart($('#c-power'), { ...common, height: 240, data: [x, pts.map((p) => p.power_w), ...(hasTarget ? [pts.map((p) => p.target_w || null)] : [])],
+    series: [{ label: 'Power', stroke: '--c-power', fill: true, value: (u, v) => (v == null ? '–' : `${v} W`) },
+      ...(hasTarget ? [{ label: 'Target', stroke: '--text-3', dash: [6, 4], width: 1.5, value: (u, v) => (v == null ? '–' : `${v} W`) }] : [])] });
+  if (hasHr) chart($('#c-hr'), { ...common, height: 150, data: [x, pts.map((p) => p.hr_bpm || null)],
+    series: [{ label: 'Heart rate', stroke: '--c-hr', value: (u, v) => (v == null ? '–' : `${v} bpm`) }] });
+  chart($('#c-cad'), { ...common, height: 130, data: [x, pts.map((p) => p.cadence_rpm)],
+    series: [{ label: 'Cadence', stroke: '--c-cad', value: (u, v) => (v == null ? '–' : `${Math.round(v)} rpm`) }] });
 
-  const ftp = s.ftp_w || 200;
-  const zones = await q(`SELECT CASE
-        WHEN power_w < ${ftp} * 0.55 THEN 'Z1 Recovery' WHEN power_w < ${ftp} * 0.75 THEN 'Z2 Endurance'
-        WHEN power_w < ${ftp} * 0.90 THEN 'Z3 Tempo' WHEN power_w < ${ftp} * 1.05 THEN 'Z4 Threshold'
-        WHEN power_w < ${ftp} * 1.20 THEN 'Z5 VO2max' WHEN power_w < ${ftp} * 1.50 THEN 'Z6 Anaerobic'
-        ELSE 'Z7 Neuromuscular' END AS zone, count(*) AS secs
-      FROM ride WHERE power_w IS NOT NULL GROUP BY 1 ORDER BY 1`);
-  const total = zones.reduce((a, z) => a + z.secs, 0) || 1;
-  table($('ride-zones'), zones, [['zone', `Zone (FTP ${ftp} W)`], ['secs', 'Time', fmt.dur],
-    ['secs', 'Share', (v) => `${fmt.num((v / total) * 100)} %`]]);
+  // Time in zones
+  const ftp = s.ftp_w || 200, pz = new Array(7).fill(0);
+  for (const p of pts) if (p.power_w != null) pz[zoneOf(p.power_w / ftp)]++;
+  $('#ride-zones').innerHTML = zoneBars(pz, ZONES.map((z, i) => `Z${i + 1} ${z.name}`), (i) => zoneColor(i));
+  const hrmax = s.user_max_hr, hz = new Array(5).fill(0);
+  if (hrmax) for (const p of pts) if (p.hr_bpm > 0) hz[Math.min(4, Math.max(0, Math.floor((p.hr_bpm / hrmax - 0.5) * 10)))]++;
+  $('#ride-hr-zones').innerHTML = hz.some(Boolean) ? zoneBars(hz, ['Z1 < 60 %', 'Z2 60–70 %', 'Z3 70–80 %', 'Z4 80–90 %', 'Z5 > 90 %'],
+    (i) => `var(--h${i + 1})`) : '<p class="muted small">No heart-rate data.</p>';
+  $('#ride-zones-sub').textContent = `FTP ${ftp} W at the time of the ride`;
+  $('#ride-hr-sub').textContent = hrmax ? `% of max HR ${hrmax}` : '';
 
-  // Heart-rate zones as % of the rider's max HR at the time of the ride
-  const hrmax = s.user_max_hr;
-  const hrz = hrmax ? await q(`SELECT CASE
-        WHEN hr_bpm < ${hrmax} * 0.60 THEN 'Z1 < 60 %' WHEN hr_bpm < ${hrmax} * 0.70 THEN 'Z2 60-70 %'
-        WHEN hr_bpm < ${hrmax} * 0.80 THEN 'Z3 70-80 %' WHEN hr_bpm < ${hrmax} * 0.90 THEN 'Z4 80-90 %'
-        ELSE 'Z5 > 90 %' END AS zone, count(*) AS secs
-      FROM ride WHERE hr_bpm > 0 GROUP BY 1 ORDER BY 1`) : [];
-  const hrTotal = hrz.reduce((a, z) => a + z.secs, 0) || 1;
-  table($('ride-hr-zones'), hrz, [['zone', `Zone (max HR ${hrmax || '-'})`], ['secs', 'Time', fmt.dur],
-    ['secs', 'Share', (v) => `${fmt.num((v / hrTotal) * 100)} %`]]);
-
-  const intervals = await q(`SELECT interval_idx + 1 AS n, count(*) AS secs, round(avg(target_w)) AS target,
-      round(avg(power_w)) AS actual, round(avg(cadence_rpm)) AS cad, round(avg(hr_bpm)) AS hr
-    FROM ride WHERE mode = 'erg' GROUP BY interval_idx ORDER BY interval_idx`);
-  table($('ride-intervals'), intervals, [['n', '#'], ['secs', 'Time', fmt.dur], ['target', 'Target W'],
-    ['actual', 'Actual W'], ['actual', 'Compliance', (v, r) => (r.target ? `${fmt.num((v / r.target) * 100)} %` : '-')],
-    ['cad', 'Cadence'], ['hr', 'HR', (v) => v || '-']]);
+  // Intervals (ERG)
+  const iv = new Map();
+  for (const p of pts) {
+    if (p.mode !== 'erg') continue;
+    const o = iv.get(p.interval_idx) || { n: p.interval_idx + 1, secs: 0, t: 0, p: 0, pc: 0, c: 0, cc: 0, h: 0, hc: 0 };
+    o.secs++; o.t += p.target_w || 0;
+    if (p.power_w != null) { o.p += p.power_w; o.pc++; }
+    if (p.cadence_rpm != null) { o.c += p.cadence_rpm; o.cc++; }
+    if (p.hr_bpm > 0) { o.h += p.hr_bpm; o.hc++; }
+    iv.set(p.interval_idx, o);
+  }
+  const rows = [...iv.values()];
+  $('#ride-intervals-wrap').hidden = !rows.length;
+  $('#ride-intervals').innerHTML = rows.length ? `<table><thead><tr><th>#</th><th>Time</th><th>Target</th><th>Actual</th><th>Compliance</th><th>Cadence</th><th>HR</th></tr></thead>
+    <tbody>${rows.map((r) => { const t = r.t / r.secs, a = r.pc ? r.p / r.pc : null, c = a && t ? (a / t) * 100 : null;
+      return `<tr><td>${r.n}</td><td>${fmt.dur(r.secs)}</td><td>${fmt.num(t)} W</td><td>${fmt.num(a)} W</td>
+      <td><span class="pill ${c == null ? 'muted' : Math.abs(c - 100) <= 5 ? 'good' : Math.abs(c - 100) <= 10 ? 'warn' : 'bad'}">${c == null ? '–' : fmt.num(c) + ' %'}</span></td>
+      <td>${r.cc ? fmt.num(r.c / r.cc) : '–'}</td><td>${r.hc ? fmt.num(r.h / r.hc) : '–'}</td></tr>`; }).join('')}</tbody></table>` : '';
 }
 
-// ---- SQL console ----------------------------------------------------------------
+function zoneBars(secs, labels, color) {
+  const total = secs.reduce((a, b) => a + b, 0) || 1, max = Math.max(...secs, 1);
+  return `<div class="zones">${secs.map((v, i) => `<div class="zone-row" title="${esc(labels[i])}: ${fmt.dur(v)}">
+    <span class="zone-label">${esc(labels[i])}</span>
+    <span class="zone-track"><span class="zone-fill" style="--w:${(v / max) * 100}%;--zc:${color(i)}"></span></span>
+    <span class="zone-val">${fmt.dur(v)}<small>${fmt.num((v / total) * 100)} %</small></span></div>`).join('')}</div>`;
+}
 
+// ---- Power -------------------------------------------------------------------------------
+
+const KEY_BESTS = [[5, '5 s', 'Sprint'], [60, '1 min', 'Anaerobic'], [300, '5 min', 'VO2max'], [1200, '20 min', 'Threshold']];
+
+async function power() {
+  const all = bestsSince(null), recent = bestsSince(90);
+  const durs = Object.keys(all).map(Number).sort((a, b) => a - b);
+  const kg = ctx().weight;
+  const ftpNow = ctx().ftp;
+  const est = all[1200] ? Math.round(all[1200] * 0.95) : null;
+  $('#ftp-hero').innerHTML = est ? `<div><span class="eyebrow">Estimated FTP</span><div class="hero-num power">${est}<small>W</small></div>
+      <span class="muted small">95 % of your best 20 minutes (${all[1200]} W)${kg ? ` · ${fmt.num(est / kg, 2)} W/kg at ${kg} kg` : ''}</span></div>
+      ${ftpNow ? `<div class="ftp-cmp"><span class="eyebrow">Set on the device</span><b>${ftpNow} W</b>${est > ftpNow ? '<span class="pill good">You may be stronger</span>' : ''}</div>` : ''}`
+    : `<div><span class="eyebrow">Estimated FTP</span><div class="hero-num">–</div><span class="muted small">Ride 20 minutes or longer for an estimate, or do the FTP ramp test from Workouts.</span></div>`;
+  $('#bests-tiles').innerHTML = KEY_BESTS.map(([d, l, z]) => tile(`${l} · ${z}`, all[d] ? fmt.num(all[d]) : '–', all[d] ? 'W' : '', 'power', 'zap')).join('');
+  const el = $('#curve');
+  if (!durs.length) { el.innerHTML = empty('No power data yet', 'Your best efforts appear after your first ride.', 'zap'); return; }
+  chart(el, {
+    xTime: false, xLog: true, height: 300, xSplits: [1, 5, 10, 30, 60, 120, 300, 600, 1200, 3600].filter((d) => d >= durs[0] && d <= durs[durs.length - 1]),
+    data: [durs, durs.map((d) => all[d] ?? null), durs.map((d) => recent[d] ?? null)],
+    xFmt: (s) => (s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : `${s / 3600}h`),
+    series: [
+      { label: 'All time', stroke: '--s1', fill: true, points: { show: true, size: 6 }, value: (u, v) => (v == null ? '–' : `${v} W`) },
+      { label: 'Last 90 days', stroke: '--s2', dash: [6, 4], points: { show: true, size: 6 }, value: (u, v) => (v == null ? '–' : `${v} W`) },
+    ],
+  });
+}
+
+// ---- Device -------------------------------------------------------------------------------
+
+async function device() {
+  const files = (await api.rideFiles()).sort((a, b) => b.mtime - a.mtime);
+  const names = Object.fromEntries(S.users.map((u) => [u.id, u.name]));
+  $('#files').innerHTML = files.length ? `<table><thead><tr><th>File</th><th>Rider</th><th>Size</th></tr></thead><tbody>${
+    files.map((f) => `<tr><td><a href="/rides/${esc(f.name)}" download>${icon('download')} ${esc(f.name.split('/')[1])}</a></td>
+      <td>${esc(names[f.name.split('/')[0]] || '?')}</td><td>${fmt.num(f.size / 1024)} kB</td></tr>`).join('')}</tbody></table>`
+    : '<p class="muted small">No ride files yet.</p>';
+}
+
+function initDevice() {
+  $('#up-zwo').onchange = async (e) => {
+    for (const f of e.target.files) {
+      try { await api.saveWorkout(f.name, f); toast(`Uploaded ${f.name}`); } catch (err) { toast(`${f.name}: ${err.message}`, 'bad'); }
+    }
+    e.target.value = '';
+  };
+  $('#up-ota').onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f || !confirm(`Flash ${f.name}? Keep the device powered until it restarts.`)) return;
+    $('#ota-status').textContent = 'Uploading… do not unplug the device';
+    try { $('#ota-status').textContent = await api.send('POST', '/ota', f); } catch (err) { $('#ota-status').textContent = err.message; }
+  };
+  $('#sql-run').onclick = runSql;
+}
+
+// SQL console: DuckDB-WASM, loaded on first use. Column types are given (times are UTC
+// TIMESTAMPs: DuckDB-WASM has no ICU, so "...Z" must not become TIMESTAMPTZ).
+const SQL_SUMMARY = 'ride_id VARCHAR, start_utc TIMESTAMP, duration_s INTEGER, moving_s INTEGER, workout VARCHAR, ftp_w INTEGER, ' +
+  'avg_w INTEGER, np_w INTEGER, if DOUBLE, tss DOUBLE, kj INTEGER, avg_hr INTEGER, max_hr INTEGER, avg_cad DOUBLE, ' +
+  'distance_km DOUBLE, fw VARCHAR, weight_kg INTEGER, user_max_hr INTEGER';
+const SQL_BESTS = 'ride_id VARCHAR, duration_s INTEGER, watts INTEGER';
+let duck = null;
 async function runSql() {
+  const out = $('#sql-out');
   try {
-    const rows = await q($('sql-text').value);
-    const show = (v) => (v instanceof Date ? v.toISOString().slice(0, 19).replace('T', ' ') :
-      v != null && typeof v === 'object' ? JSON.stringify(v) : v);
-    table($('sql-out'), rows.slice(0, 500).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, show(v)]))));
-  } catch (e) {
-    $('sql-out').textContent = e.message;
+    if (!duck) {
+      out.innerHTML = '<p class="muted small">Loading DuckDB (34 MB, once per visit)…</p>';
+      const duckdb = await import('./vendor/duckdb-1.32.0/duckdb.mjs');
+      const base = new URL('./vendor/duckdb-1.32.0/', import.meta.url);
+      const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(new URL('duckdb-browser-eh.worker.js', base)));
+      await db.instantiate(new URL('duckdb-eh.wasm', base).href);
+      duck = { db, conn: await db.connect(), user: null };
+    }
+    if (duck.user !== S.user.id) {
+      for (const [t, cols] of [['summary', SQL_SUMMARY], ['bests', SQL_BESTS]]) {
+        const text = (await api.text(`/rides/${S.user.id}/${t}.csv`)) || '';
+        const spec = cols.split(', ').map((c) => c.split(' ')).map(([n, ty]) => `'${n}': '${ty}'`).join(', ');
+        await duck.db.registerFileText(`${t}.csv`, text);
+        await duck.conn.query(text.trim() ? `CREATE OR REPLACE TABLE ${t} AS SELECT * FROM read_csv('${t}.csv', header = true, columns = {${spec}})`
+          : `CREATE OR REPLACE TABLE ${t} (${cols.replace(/(\w+) /g, '"$1" ')})`);
+      }
+      duck.user = S.user.id;
+    }
+    const res = await duck.conn.query($('#sql-text').value);
+    const rows = res.toArray().slice(0, 500).map((r) => r.toJSON());
+    const cols = res.schema.fields.map((f) => f.name);
+    const times = new Set(res.schema.fields.filter((f) => /^(Date|Timestamp)/.test(String(f.type))).map((f) => f.name));
+    const show = (v, c) => (v == null ? '' : times.has(c) ? new Date(Number(v)).toISOString().slice(0, 19).replace('T00:00:00', '').replace('T', ' ')
+      : typeof v === 'bigint' ? Number(v) : typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1000) / 1000
+      : typeof v === 'object' ? JSON.stringify(v) : v);
+    out.innerHTML = rows.length ? `<div class="scroll"><table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${
+      rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(show(r[c], c))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No rows.</p>';
+  } catch (err) {
+    out.innerHTML = `<p class="error">${esc(err.message)}</p>`;
   }
 }
 
-// ---- Main -----------------------------------------------------------------------
-
-async function loadUser(db, u) {
-  user = u;
-  status('Loading rides...');
-  const n = await loadCsv(db, 'summary', `/rides/${u.id}/summary.csv`, SUMMARY_COLS);
-  await loadCsv(db, 'bests', `/rides/${u.id}/bests.csv`, BESTS_COLS);
-  await loadCsv(db, 'ride', null, RIDE_COLS); // empty until a ride is opened
-  status(n ? '' : `No rides recorded for ${u.name} yet.`);
-}
+// ---- Start --------------------------------------------------------------------------------
 
 async function main() {
-  const db = await openDb();
-  // Static icons in index.html: <el data-icon="name" data-color="power">
-  document.querySelectorAll('[data-icon]').forEach((el) =>
-    el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon, C[el.dataset.color]) + ' '));
-  const users = await (await fetch('/api/users', { cache: 'no-cache' })).json();
-  if (!users.length) { status('No riders found (is the SD card in?)'); return; }
-  const pick = $('user');
-  pick.innerHTML = users.map((u, i) => `<option value="${i}">${u.name.replace(/[&<>"]/g, '')}</option>`).join('');
-  pick.value = String(Math.max(0, users.findIndex((u) => u.active)));
-  await loadUser(db, users[pick.value]);
-
-  let current = 'overview';
-  const views = { overview, curve, rides: () => rideList(db), sql: async () => {} };
-  const show = async (name) => {
-    current = name;
-    document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
-    document.querySelectorAll('.view').forEach((v) => (v.hidden = v.id !== name));
-    await views[name]();
-  };
-  document.querySelectorAll('nav button').forEach((b) => (b.onclick = () => show(b.dataset.view)));
-  pick.onchange = async () => { await loadUser(db, users[pick.value]); await show(current); };
-  $('ride-back').onclick = () => rideList(db);
-  $('sql-run').onclick = runSql;
-  await show('overview');
+  $$('[data-icon]').forEach((el) => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
+  try {
+    S.users = await api.users();
+  } catch (err) {
+    $('#boot').innerHTML = empty('Can\'t reach the device', `${esc(err.message)}. Is the head unit on and on the same Wi-Fi?`, 'alert');
+    return;
+  }
+  if (!S.users.length) { $('#boot').innerHTML = empty('No riders found', 'Is the SD card in the head unit?', 'alert'); return; }
+  const pick = $('#user');
+  pick.innerHTML = S.users.map((u, i) => `<option value="${i}">${esc(u.name)}</option>`).join('');
+  pick.value = String(Math.max(0, S.users.findIndex((u) => u.active)));
+  await loadUser(S.users[pick.value]);
+  pick.onchange = async () => { await loadUser(S.users[pick.value]); go(location.hash.slice(1) || 'today'); };
+  $('#pmc-range').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.range = Number(b.dataset.days); renderPmc(); } };
+  initWorkouts(ctx);
+  initPlan(ctx);
+  initDevice();
+  $('#boot').remove();
+  document.body.classList.add('ready');
+  await go(location.hash.slice(1) || 'today');
+  // Keep the active rider's next week of plan workouts on the device
+  const active = S.users.find((u) => u.active) || S.users[0];
+  if (active.id === S.user.id) {
+    const r = await autoSync(S.user, ctx(), riderLabel());
+    if (r?.written) toast(`Plan: ${r.written} upcoming workout${r.written === 1 ? '' : 's'} sent to the device`);
+  }
 }
 
-main().catch((e) => status(`Error: ${e.message}`));
+main().catch((e) => { console.error(e); toast(e.message, 'bad'); });

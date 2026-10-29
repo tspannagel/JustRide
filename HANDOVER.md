@@ -31,7 +31,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Workouts | `.zwo` files on microSD, ERG with FTP scaling |
 | Virtual shifting | Strategy A (SIM grade scaling) first, strategy B (physics → ERG) later |
 | Recording | FIT + per-second CSV + summary/bests CSV, all local |
-| Statistics | DuckDB-WASM app served by the device from SD, vendored assets, OPFS cache |
+| Web app | Served by the device from SD (no internet): statistics, workout builder + generator, training plans; DuckDB-WASM only for the SQL console |
 | Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
 | Out of scope | 3D world, multiplayer, ANT+ |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
@@ -39,7 +39,8 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 ## Open questions (ask the user)
 
 2. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
-3. Is it OK that the statistics app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
+3. Is it OK that the web app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
+4. Workouts that adapt *during* the ride (user wants it, 2026-10-29): which rules? Proposal below.
 
 ## Must verify on real hardware (don't assume)
 
@@ -60,7 +61,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | M1 | FTMS read + display | Live power, cadence, speed on screen; auto-reconnect |
 | M2 | ERG workouts | A `.zwo` from SD runs end to end with FTP scaling and beeps |
 | M3 | Recording + file manager | FIT opens in intervals.icu / Golden Cheetah; CSVs match schema; Wi-Fi upload/download work |
-| M3b | Statistics app | DuckDB-WASM page from SD shows overview, power curve, ride detail; second visit loads only new rides |
+| M3b | Web app | Stats, workout builder/generator and plans on the device's site (done 2026-10-29, sample data; user to try on real rides) |
 | M4 | Ride + Click v2 | All buttons produce InputEvts; menus navigable without touch |
 | M5 | Play + Click v1 | Encrypted handshake reliable over 50 reconnects |
 | M6 | Virtual shifting | Strategy A feels right across 24 gears; gear shown on screen |
@@ -69,6 +70,14 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 ## Next steps
 
-1. Finish M0 on the V4 board: `pattern 0`, `bl`; home Wi-Fi (router rejects the password: reason 202), statistics page.
+1. Finish M0 on the V4 board: `pattern 0`, `bl`. (Home Wi-Fi and web app work since 2026-10-29.)
 2. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
 3. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).
+
+## Proposal: workouts that adapt during the ride (not built)
+
+Firmware, pure code in `ride/` with host tests, reviewed against the safety rules. Ideas, each off unless the rider enables it:
+- HR guard: if HR stays above a ceiling (e.g. 92 % of max HR) for 30 s in an ERG interval, lower the target 5 % per 30 s, at most −20 %; back up slowly when HR drops. Never raises targets above the workout.
+- Cadence guard: cadence below 60 rpm for 10 s in ERG → drop the target 10 % (avoids the ERG "death spiral"); restore when cadence recovers.
+- Fail a VO2max/threshold interval twice (power < 85 % of target for 20 s) → the next repeats at −5 %.
+- Show every adjustment on the ride screen and in the CSV (target_w already recorded), so the web app can learn from it (next workout's difficulty).
