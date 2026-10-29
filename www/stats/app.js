@@ -348,6 +348,8 @@ async function main() {
     return;
   }
   if (!S.users.length) { $('#boot').innerHTML = empty('No riders found', 'Is the SD card in the head unit?', 'alert'); return; }
+  // No internet on the device is fine: the browser's clock sets it if no time server answered
+  api.send('POST', '/api/time', String(Math.floor(Date.now() / 1000))).catch(() => {});
   const pick = $('#user');
   pick.innerHTML = S.users.map((u, i) => `<option value="${i}">${esc(u.name)}</option>`).join('');
   pick.value = String(Math.max(0, S.users.findIndex((u) => u.active)));

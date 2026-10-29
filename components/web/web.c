@@ -7,6 +7,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 #include "bsp.h"
 #include "cJSON.h"
@@ -17,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "esp_sntp.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -37,11 +39,12 @@ static const char *TAG = "web";
 #define PLAN_MAX_BYTES (32 * 1024)
 #define WWW_MAX_BYTES (16 * 1024 * 1024)  // DuckDB's wasm is ~8 MB gzipped
 #define APP_INDEX BSP_SD_MOUNT "/www/stats/index.html"
+#define CLOCK_VALID_AFTER 1735689600  // 2025-01-01, as in app.c
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
 static esp_timer_handle_t s_fallback;
-static bool s_running, s_is_ap, s_got_ip, s_sntp;
+static bool s_running, s_is_ap, s_got_ip, s_sntp, s_ntp_synced;
 static char s_ip[16];
 static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
@@ -324,6 +327,31 @@ static esp_err_t h_api_users(httpd_req_t *req)
     return err;
 }
 
+// The browser's clock, for a device that can't reach a time server (body: UTC
+// seconds). Ignored once NTP has set the clock; small differences are ignored too.
+static esp_err_t h_api_time(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    char body[24] = {0};
+    int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, sizeof(body) - 1) : 0;
+    char *end;
+    long long t = n > 0 ? strtoll(body, &end, 10) : 0;
+    if (t < CLOCK_VALID_AFTER || t > 4102444800LL) {  // 2100
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad time");
+    }
+    time_t now = time(NULL);
+    if (!s_ntp_synced && (now < CLOCK_VALID_AFTER || llabs(t - (long long)now) > 120)) {
+        struct timeval tv = {.tv_sec = (time_t)t};
+        settimeofday(&tv, NULL);
+        bsp_rtc_set((time_t)t);
+        ESP_LOGI(TAG, "clock set from the web app");
+        return httpd_resp_sendstr(req, "set");
+    }
+    return httpd_resp_sendstr(req, "kept");
+}
+
 // Request body -> path, via a temp file so a broken upload never replaces a good file
 static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
 {
@@ -587,6 +615,7 @@ static void http_start(void)
         {.uri = "/stats/*", .method = HTTP_GET, .handler = h_stats},
         {.uri = "/api/rides", .method = HTTP_GET, .handler = h_api_rides},
         {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
+        {.uri = "/api/time", .method = HTTP_POST, .handler = h_api_time},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
         {.uri = "/api/workouts", .method = HTTP_GET, .handler = h_api_workouts},
         {.uri = "/workouts/*", .method = HTTP_GET, .handler = h_workout_get},
@@ -607,6 +636,7 @@ static void http_start(void)
 static void on_time_sync(struct timeval *tv)
 {
     ESP_LOGI(TAG, "clock set from NTP");
+    s_ntp_synced = true;
     bsp_rtc_set(tv->tv_sec);
 }
 
@@ -663,6 +693,13 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&e->ip_info.ip));
         s_got_ip = true;
         ESP_LOGI(TAG, "got IP %s", s_ip);
+        // Time from the router first (home routers usually serve NTP and work
+        // without internet), pool.ntp.org second. Start now that DNS and a route exist.
+        if (s_sntp) {
+            ip_addr_t gw = IPADDR4_INIT(e->ip_info.gw.addr);
+            esp_sntp_setserver(0, &gw);
+            esp_netif_sntp_start();
+        }
     }
 }
 
@@ -709,7 +746,8 @@ void web_start(const settings_t *s)
         esp_wifi_set_config(WIFI_IF_STA, &sta);
         esp_wifi_start();
         esp_timer_start_once(s_fallback, STA_TIMEOUT_US);
-        esp_sntp_config_t sntp = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        esp_sntp_config_t sntp = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(2, ESP_SNTP_SERVER_LIST("0.0.0.0", "pool.ntp.org"));
+        sntp.start = false;  // on IP_EVENT_STA_GOT_IP, with the router as server 0
         sntp.sync_cb = on_time_sync;
         s_sntp = esp_netif_sntp_init(&sntp) == ESP_OK;
     } else {
@@ -770,6 +808,16 @@ void web_scan_print(void)
     }
     esp_wifi_stop();
     xSemaphoreGive(s_lock);
+}
+
+void web_time_print(void)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+    gmtime_r(&now, &tm);
+    printf("%04d-%02d-%02d %02d:%02d:%02d UTC, %s, NTP %s\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+           tm.tm_min, tm.tm_sec, now > CLOCK_VALID_AFTER ? "valid" : "not set",
+           s_ntp_synced ? "synced" : s_sntp ? "waiting" : "off");
 }
 
 void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }

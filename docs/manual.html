@@ -198,7 +198,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p>To pair different devices: <span class="btn">Settings → Forget paired devices</span>. This forgets the trainer, the controller and the <i>active</i> rider's strap; other riders keep theirs.</p>
 
 <h3 id="clock">3.8 Set the clock</h3>
-<p>Ride files are named after the start time. The board has a battery-backed clock, but it has to be set once: turn on <b>Wi-Fi</b> with your home network configured (see <a href="#wifi">Wi-Fi</a>). The device fetches the time from the internet and stores it. Until then the home screen shows <i>Clock not set</i>. Rides still record, but with wrong dates.</p>
+<p>Ride files are named after the start time. The board has a battery-backed clock, but it has to be set once: turn on <b>Wi-Fi</b> with your home network configured (see <a href="#wifi">Wi-Fi</a>). The device asks your router for the time (most home routers answer, also when the device is blocked from the internet), otherwise pool.ntp.org, and stores it. If neither answers, opening the web app sets the clock from your computer's or phone's clock. Until then the home screen shows <i>Clock not set</i>. Rides still record, but with wrong dates.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="riders">4. Riders</h2>
@@ -463,7 +463,7 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   <tr><td>Zwift Ride button does the wrong thing / nothing</td><td>Run <code>zap dump on</code>, press each button once slowly (note the order), and send the log. The button table is then corrected from your recording.</td></tr>
   <tr><td>Trainer connects but resistance doesn't change</td><td>Check the log for <code>request control refused</code> or <code>rejected</code>; another app may still have control.</td></tr>
   <tr><td>Board switches itself off</td><td>Use the computer's USB port or a plain 5 V supply and send the log. If it keeps happening, restore Waveshare's <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/tree/main/firmware">factory firmware</a> to check whether the board itself is fine.</td></tr>
-  <tr><td><i>Clock not set</i></td><td>Set your home network in <code>settings.json</code> (the clock is set over the internet).</td></tr>
+  <tr><td><i>Clock not set</i></td><td>Set your home network in <code>settings.json</code> and open the web app once (the clock comes from the router or from the browser). <code>wifi time</code> on the USB console shows the clock state.</td></tr>
   <tr><td>No log / <code>jr&gt;</code> doesn't answer after flashing</td><td>Unplug the board and plug it back in. This happens sometimes after a flash with an SD card inserted.</td></tr>
   <tr><td><code>trainer.local</code> doesn't open</td><td>Use the IP address shown on the device instead (some Android phones don't support <code>.local</code> names).</td></tr>
   <tr><td>Firmware update refused</td><td>Tap <span class="btn">Allow firmware update</span> on the device first (valid 5 minutes, one upload per tap). Upload from the device's own start page; other pages and tools without the <code>X-JustRide</code> header are refused.</td></tr>

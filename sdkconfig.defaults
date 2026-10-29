@@ -64,3 +64,6 @@ CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
+
+# Time: the router first (works without internet), pool.ntp.org second
+CONFIG_LWIP_SNTP_MAX_SERVERS=2
