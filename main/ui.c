@@ -393,7 +393,7 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
     }
     lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
-                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: turn on Wi-Fi once");
+                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: needs home Wi-Fi");
     show(home_warn, !st->sd_ok || !st->clock_ok);
 }
 

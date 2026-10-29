@@ -35,6 +35,7 @@ static input_map_t s_input;
 static bool s_finish_pending;
 static uint8_t s_beeps_left;
 static uint32_t s_next_beep_ms;
+static uint8_t s_last_state = RIDE_IDLE;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static uint32_t utc_now(void) { return (uint32_t)time(NULL); }
@@ -129,6 +130,10 @@ static void task(void *arg)
         if (got) {
             handle(&e);
         }
+        if (s_ride.state == RIDE_IDLE && s_last_state != RIDE_IDLE) {
+            web_start(&s_settings);  // back on after the ride (start_ride turned it off)
+        }
+        s_last_state = s_ride.state;
         uint32_t now = now_ms();
         if (now - last_tick >= TICK_MS) {
             last_tick = now;

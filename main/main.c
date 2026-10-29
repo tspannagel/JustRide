@@ -57,6 +57,7 @@ void app_main(void)
     ui_start();
     web_init();
     ble_mgr_start(s_drivers, sizeof(s_drivers) / sizeof(s_drivers[0]));
+    app_web_start();  // Wi-Fi is on whenever no ride is running
 
     // We got this far: keep this firmware (cancels OTA rollback)
     esp_ota_mark_app_valid_cancel_rollback();
