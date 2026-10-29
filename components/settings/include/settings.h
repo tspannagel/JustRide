@@ -43,7 +43,10 @@ static inline user_t *settings_user(settings_t *s) { return &s->users[s->user]; 
 
 // Adds a user with default values and makes it active. False if full or the name is invalid.
 bool settings_add_user(settings_t *s, const char *name);
-// Removes the active user (never the last one); its rides stay on the SD card.
-bool settings_delete_user(settings_t *s);
+// Index of the user with this id, -1 if none
+int settings_find_user(const settings_t *s, const char *id);
+// Removes a user (never the last one); its rides stay on the SD card. The active
+// user stays active; if it was removed, the first one becomes active.
+bool settings_delete_user(settings_t *s, int idx);
 // Printable ASCII, 1..15 characters, not only spaces.
 bool settings_valid_name(const char *name);

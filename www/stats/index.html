@@ -22,6 +22,7 @@
     <a href="#power" data-view="power" data-icon="trending"><span>Power</span></a>
     <a href="#workouts" data-view="workouts" data-icon="layers"><span>Workouts</span></a>
     <a href="#plan" data-view="plan" data-icon="calendar"><span>Plan</span></a>
+    <a href="#riders" data-view="riders" data-icon="user"><span>Riders</span></a>
     <a href="#device" data-view="device" data-icon="cpu"><span>Device</span></a>
   </nav>
   <label class="rider" data-icon="user"><select id="user" aria-label="Rider"></select></label>
@@ -168,6 +169,13 @@
   </section>
 
   <!-- Device -->
+  <section id="riders" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Head unit</span><h1>Riders</h1></div>
+      <form id="rider-add" class="rider-add"><input id="rider-add-name" maxlength="15" placeholder="New rider name" aria-label="New rider name" spellcheck="false">
+        <button class="btn primary" data-icon="plus">Add</button></form></header>
+    <p class="muted small lead">The active rider is the one the device rides with: FTP sets ERG targets, Max ERG caps them, weight is for W/kg. Changes are saved on the device right away (not during a ride).</p>
+    <div id="riders-list" class="riders"></div>
+  </section>
   <section id="device" class="view" hidden>
     <header class="page-head"><div><span class="eyebrow">Head unit</span><h1>Device</h1></div></header>
     <div class="grid-2">

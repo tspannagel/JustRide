@@ -97,6 +97,41 @@ def sample(data):
         f.write('\n'.join(bests) + '\n')
 
 
+USER_DEFAULTS = {'ftp_w': 200, 'max_erg_w': 600, 'weight_kg': 75, 'max_hr': 185}
+LIMITS = {'ftp_w': (50, 600), 'max_erg_w': (100, 1500), 'weight_kg': (30, 200), 'max_hr': (100, 230)}
+
+
+def users_action(users, req):
+    """POST /api/users as the device does it; returns an error text or None."""
+    valid = lambda n: isinstance(n, str) and 1 <= len(n) <= 15 and n.strip() and all(32 <= ord(c) < 127 for c in n)
+    find = [u for u in users if u['id'] == req.get('id')]
+    act = req.get('action')
+    if act == 'add':
+        if len(users) >= 8 or not valid(req.get('name')):
+            return 'name invalid, or already 8 riders'
+        n = max(int(u['id'][1:]) for u in users) + 1
+        for u in users:
+            u['active'] = False
+        users.append({'id': f'u{n}', 'name': req['name'], 'active': True, **USER_DEFAULTS})
+    elif act == 'select' and find:
+        for u in users:
+            u['active'] = u is find[0]
+    elif act == 'delete' and find:
+        if len(users) < 2:
+            return "the last rider can't be deleted"
+        users.remove(find[0])
+        if not any(u['active'] for u in users):
+            users[0]['active'] = True
+    elif act == 'edit' and find:
+        vals = {k: req.get(k, find[0][k]) for k in LIMITS}
+        if not valid(req.get('name', find[0]['name'])) or any(not isinstance(v, int) or not lo <= v <= hi
+                                                              for k, v in vals.items() for lo, hi in [LIMITS[k]]):
+            return 'value out of range'
+        find[0].update(vals, name=req.get('name', find[0]['name']))
+    else:
+        return 'bad request'
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     data = device = None
 
@@ -147,7 +182,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(400, b'bad name')
         d = self.data
         if path == '/api/users':
-            return self.file(os.path.join(d, 'users.json'))
+            with open(os.path.join(d, 'users.json')) as f:
+                users = [{**USER_DEFAULTS, **u} for u in json.load(f)]
+            if self.command == 'POST':
+                err = users_action(users, json.loads(body or b'{}'))
+                if err:
+                    return self.send(400, err.encode())
+                with open(os.path.join(d, 'users.json'), 'w') as f:
+                    json.dump(users, f)
+            return self.send(200, json.dumps(users).encode(), 'application/json')
+        if path == '/api/time':
+            return self.send(200, b'kept')
         if path == '/api/rides':
             out = []
             for u in sorted(os.listdir(os.path.join(d, 'rides'))):

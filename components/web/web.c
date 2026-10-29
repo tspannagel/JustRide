@@ -40,11 +40,13 @@ static const char *TAG = "web";
 #define WWW_MAX_BYTES (16 * 1024 * 1024)  // DuckDB's wasm is ~8 MB gzipped
 #define APP_INDEX BSP_SD_MOUNT "/www/stats/index.html"
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01, as in app.c
+#define USERS_MAX_BYTES 512
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
 static esp_timer_handle_t s_fallback;
 static bool s_running, s_is_ap, s_got_ip, s_sntp, s_ntp_synced;
+static const web_users_t *s_users;
 static char s_ip[16];
 static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
@@ -299,6 +301,30 @@ static esp_err_t h_api_rides(httpd_req_t *req)
 }
 
 // Riders from settings.json: [{"id":"u1","name":"Sam","active":true}] (nothing else from that file)
+static esp_err_t send_users(httpd_req_t *req, const settings_t *s)
+{
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < s->n_users; i++) {
+        const user_t *u = &s->users[i];
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id", u->id);
+        cJSON_AddStringToObject(o, "name", u->name);
+        cJSON_AddBoolToObject(o, "active", i == s->user);
+        cJSON_AddNumberToObject(o, "ftp_w", u->ftp_w);
+        cJSON_AddNumberToObject(o, "max_erg_w", u->max_erg_w);
+        cJSON_AddNumberToObject(o, "weight_kg", u->weight_kg);
+        cJSON_AddNumberToObject(o, "max_hr", u->max_hr);
+        cJSON_AddItemToArray(arr, o);
+    }
+    char *text = cJSON_PrintUnformatted(arr);
+    cJSON_Delete(arr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    esp_err_t err = text ? httpd_resp_sendstr(req, text) : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "");
+    free(text);
+    return err;
+}
+
 static esp_err_t h_api_users(httpd_req_t *req)
 {
     if (!allowed(req)) {
@@ -308,22 +334,89 @@ static esp_err_t h_api_users(httpd_req_t *req)
     if (!s) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
     }
-    settings_read_users(s);
-    cJSON *arr = cJSON_CreateArray();
-    for (int i = 0; i < s->n_users; i++) {
-        cJSON *o = cJSON_CreateObject();
-        cJSON_AddStringToObject(o, "id", s->users[i].id);
-        cJSON_AddStringToObject(o, "name", s->users[i].name);
-        cJSON_AddBoolToObject(o, "active", i == s->user);
-        cJSON_AddItemToArray(arr, o);
+    if (s_users) {
+        s_users->get(s);
+    } else {
+        settings_read_users(s);
+    }
+    esp_err_t err = send_users(req, s);
+    free(s);
+    return err;
+}
+
+static int json_int(const cJSON *o, const char *key, int fallback)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
+    return cJSON_IsNumber(v) ? v->valueint : fallback;
+}
+
+// {"action": "add", "name"} | {"action": "edit", "id", "name", "ftp_w", "max_erg_w", "weight_kg", "max_hr"}
+// | {"action": "select", "id"} | {"action": "delete", "id"}. Answers with the new rider list.
+static esp_err_t h_api_users_post(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    if (!s_users) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "not available");
+    }
+    if (req->content_len == 0 || req->content_len > USERS_MAX_BYTES) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad request");
+    }
+    size_t got = 0;
+    while (got < req->content_len) {
+        int n = httpd_req_recv(req, s_buf + got, req->content_len - got);
+        if (n <= 0) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "upload interrupted");
+        }
+        got += n;
+    }
+    cJSON *o = cJSON_ParseWithLength(s_buf, got);
+    const char *action = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(o, "action"));
+    const char *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(o, "id"));
+    const char *name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(o, "name"));
+    settings_t *s = malloc(sizeof(*s));
+    bool ok = false;
+    const char *why = "not possible during a ride";
+    if (!o || !action || !s) {
+        why = "bad request";
+    } else if (strcmp(action, "add") == 0) {
+        ok = name && s_users->add(name);
+        why = "name invalid, or already 8 riders";
+    } else if (strcmp(action, "select") == 0) {
+        ok = id && s_users->select(id);
+    } else if (strcmp(action, "delete") == 0) {
+        ok = id && s_users->remove(id);
+        why = "the last rider can't be deleted";
+    } else if (strcmp(action, "edit") == 0 && id) {
+        s_users->get(s);
+        int idx = settings_find_user(s, id);
+        if (idx >= 0) {
+            user_t u = s->users[idx];
+            if (name) {
+                snprintf(u.name, sizeof(u.name), "%s", name);
+            }
+            // Out-of-range values are refused by edit() (it checks them all)
+            int ftp = json_int(o, "ftp_w", u.ftp_w), erg = json_int(o, "max_erg_w", u.max_erg_w);
+            int kg = json_int(o, "weight_kg", u.weight_kg), hr = json_int(o, "max_hr", u.max_hr);
+            ok = ftp > 0 && ftp < 65536 && erg > 0 && erg < 65536 && kg > 0 && kg < 256 && hr > 0 && hr < 256;
+            u.ftp_w = (uint16_t)ftp;
+            u.max_erg_w = (uint16_t)erg;
+            u.weight_kg = (uint8_t)kg;
+            u.max_hr = (uint8_t)hr;
+            ok = ok && s_users->edit(&u);
+            why = "value out of range";
+        }
+    }
+    cJSON_Delete(o);
+    esp_err_t err;
+    if (ok) {
+        s_users->get(s);
+        err = send_users(req, s);
+    } else {
+        err = httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, why);
     }
     free(s);
-    char *text = cJSON_PrintUnformatted(arr);
-    cJSON_Delete(arr);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    esp_err_t err = text ? httpd_resp_sendstr(req, text) : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "");
-    free(text);
     return err;
 }
 
@@ -615,6 +708,7 @@ static void http_start(void)
         {.uri = "/stats/*", .method = HTTP_GET, .handler = h_stats},
         {.uri = "/api/rides", .method = HTTP_GET, .handler = h_api_rides},
         {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
+        {.uri = "/api/users", .method = HTTP_POST, .handler = h_api_users_post},
         {.uri = "/api/time", .method = HTTP_POST, .handler = h_api_time},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
         {.uri = "/api/workouts", .method = HTTP_GET, .handler = h_api_workouts},
@@ -809,6 +903,8 @@ void web_scan_print(void)
     esp_wifi_stop();
     xSemaphoreGive(s_lock);
 }
+
+void web_set_users(const web_users_t *u) { s_users = u; }
 
 void web_time_print(void)
 {

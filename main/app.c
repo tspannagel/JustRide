@@ -277,10 +277,11 @@ bool app_edit_user(const user_t *u)
               u->max_erg_w <= RIDE_ERG_CAP_W && u->weight_kg >= 30 && u->weight_kg <= 200 && u->max_hr >= 100 &&
               u->max_hr <= 230 && settings_valid_name(u->name);
     lock();
-    ok = ok && s_ride.state == RIDE_IDLE;
+    int idx = settings_find_user(&s_settings, u->id);
+    ok = ok && s_ride.state == RIDE_IDLE && idx >= 0;
     if (ok) {
-        user_t *cur = settings_user(&s_settings);
-        if (u->ftp_w != cur->ftp_w) {
+        user_t *cur = &s_settings.users[idx];
+        if (idx == s_settings.user && u->ftp_w != cur->ftp_w) {
             s_status.ftp_suggest_w = 0;
         }
         memcpy(cur->name, u->name, sizeof(cur->name));
@@ -313,10 +314,11 @@ static void user_changed(void)
     ble_mgr_set_user(settings_user(&s_settings)->id);  // reconnects to this user's HR strap
 }
 
-bool app_select_user(int idx)
+bool app_select_user(const char *id)
 {
     lock();
-    bool ok = s_ride.state == RIDE_IDLE && idx >= 0 && idx < s_settings.n_users;
+    int idx = settings_find_user(&s_settings, id);
+    bool ok = s_ride.state == RIDE_IDLE && idx >= 0;
     if (ok && idx != s_settings.user) {
         s_settings.user = (uint8_t)idx;
         user_changed();
@@ -336,12 +338,16 @@ bool app_add_user(const char *name)
     return ok;
 }
 
-bool app_delete_user(void)
+bool app_delete_user(const char *id)
 {
     lock();
-    bool ok = s_ride.state == RIDE_IDLE && settings_delete_user(&s_settings);
-    if (ok) {
+    char active[sizeof(s_settings.users[0].id)];
+    memcpy(active, settings_user(&s_settings)->id, sizeof(active));
+    bool ok = s_ride.state == RIDE_IDLE && settings_delete_user(&s_settings, settings_find_user(&s_settings, id));
+    if (ok && strcmp(active, settings_user(&s_settings)->id) != 0) {
         user_changed();
+    } else if (ok) {
+        apply_settings();
     }
     unlock();
     return ok;

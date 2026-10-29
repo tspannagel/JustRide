@@ -154,7 +154,7 @@ diskutil eraseDisk FAT32 JUSTRIDE MBRFormat /dev/disk8</code></pre>
 <p>Then copy the files (the card is now mounted as <code>/Volumes/JUSTRIDE</code>):</p>
 <pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
 tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app and sample workouts</span></code></pre>
-<p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.6</a>.</p>
+<p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.7</a>.</p>
 <p>The card then contains:</p>
 <pre><code>/www/stats/     web app
 /workouts/      .zwo workout files (two samples)
@@ -345,7 +345,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <li><b>Home network</b> (if <code>wifi_ssid</code> is set): open <code>http://trainer.local/</code> (or the IP address shown) in a browser on the same network.</li>
   <li><b>Own hotspot</b> (if no home network is set, or it isn't reachable within 15 seconds): connect your phone/laptop to the Wi-Fi <b>JustRide</b> with the password shown on the screen, then open <code>http://192.168.4.1/</code>.</li>
 </ul>
-<p>The address opens the <b>web app</b>. It comes from the SD card and runs entirely in your browser, with no internet connection. It works on a laptop and on a phone. Pick the rider at the bottom left (on a phone: top right); it starts with the rider who is active on the device. If the page says the web app is missing, copy it to the card (<a href="#sd">3.4</a>) or upload it (<a href="#webapp-update">7.6</a>).</p>
+<p>The address opens the <b>web app</b>. It comes from the SD card and runs entirely in your browser, with no internet connection. It works on a laptop and on a phone. Pick the rider at the bottom left (on a phone: top right); it starts with the rider who is active on the device. If the page says the web app is missing, copy it to the card (<a href="#sd">3.4</a>) or upload it (<a href="#webapp-update">7.7</a>).</p>
 
 <h3 id="webapp-today">7.1 Today</h3>
 <p>Your <b>form</b> (fitness minus fatigue), fitness (42-day training load, CTL) and fatigue (7-day load, ATL), the last 7 days, the next session of your plan and your latest rides. Negative form while you build is normal; below −30 you need rest.</p>
@@ -379,7 +379,11 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
 <p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit. Workouts don't yet change <i>during</i> a ride; see the HANDOVER notes for that plan.</p>
 
-<h3 id="webapp-update">7.6 Device page, updating the web app</h3>
+<h3 id="webapp-riders">7.6 Riders</h3>
+<p>The <span class="btn">Riders</span> page does everything the rider screens on the device do: add a rider, rename (click the name), set FTP, Max ERG, weight and max HR (same ranges as in <a href="#riders">4</a>), <span class="btn">Make active</span> to choose who rides next, and <span class="btn">Delete</span> (asks first; their rides stay on the SD card). <span class="btn">Save</span> lights up when you changed something; out-of-range values are marked red and the device checks them again. Changes are saved on the device right away. While a ride is running the device has Wi-Fi off, so this only works between rides.</p>
+<div class="shots"><figure class="wide"><img src="img/web-riders.png" alt="Riders page: a card per rider with name, W/kg, FTP, Max ERG, weight and max HR, Save and Delete; the active rider is marked"><figcaption>Riders in the web app.</figcaption></figure></div>
+
+<h3 id="webapp-update">7.7 Device page, updating the web app</h3>
 <p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) over <code>summary</code> and <code>bests</code>; it loads 34 MB the first time you run a query.</p>
 <p>To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
 <pre><code>tools/web_deploy.sh trainer.local              <span class="c"># or the IP address; ~1 minute</span>

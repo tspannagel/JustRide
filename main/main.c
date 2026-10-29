@@ -56,6 +56,8 @@ void app_main(void)
     app_start();
     ui_start();
     web_init();
+    static const web_users_t users = {app_get_settings, app_select_user, app_add_user, app_edit_user, app_delete_user};
+    web_set_users(&users);
     ble_mgr_start(s_drivers, sizeof(s_drivers) / sizeof(s_drivers[0]));
     app_web_start();  // Wi-Fi is on whenever no ride is running
 

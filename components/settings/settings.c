@@ -128,14 +128,24 @@ bool settings_add_user(settings_t *s, const char *name)
     return true;
 }
 
-bool settings_delete_user(settings_t *s)
+int settings_find_user(const settings_t *s, const char *id)
 {
-    if (s->n_users <= 1) {
+    for (int i = 0; i < s->n_users; i++) {
+        if (strcmp(s->users[i].id, id) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool settings_delete_user(settings_t *s, int idx)
+{
+    if (s->n_users <= 1 || idx < 0 || idx >= s->n_users) {
         return false;
     }
-    memmove(&s->users[s->user], &s->users[s->user + 1], (s->n_users - s->user - 1) * sizeof(user_t));
+    memmove(&s->users[idx], &s->users[idx + 1], (s->n_users - idx - 1) * sizeof(user_t));
     s->n_users--;
-    s->user = 0;
+    s->user = idx == s->user ? 0 : idx < s->user ? s->user - 1 : s->user;
     return true;
 }
 

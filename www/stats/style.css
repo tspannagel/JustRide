@@ -399,3 +399,28 @@ details.card summary { display: flex; align-items: baseline; gap: 12px; flex-wra
 details.card summary::-webkit-details-marker { display: none; }
 details.card[open] summary { margin-bottom: 4px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Riders */
+.rider-add { display: flex; gap: 8px; }
+.rider-add input { width: 200px; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 0 12px; height: 40px; }
+.lead { max-width: 720px; margin: -8px 0 18px; }
+.riders { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 16px; }
+.riders .card { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.rider-card.active { box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.rider-head { display: flex; align-items: center; gap: 12px; }
+.avatar { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 17px;
+  color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); text-transform: uppercase; }
+.rider-card:not(.active) .avatar { background: var(--surface-3); color: var(--text-2); }
+.rider-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rider-name { width: 100%; background: none; border: 1px solid transparent; border-radius: 10px; padding: 4px 8px; margin-left: -8px;
+  font-size: 19px; font-weight: 650; letter-spacing: -0.01em; outline: none; }
+.rider-name:hover, .rider-name:focus { border-color: var(--line-2); background: var(--surface-2); }
+.rider-name.bad { border-color: var(--bad); }
+.rider-head .btn { height: 34px; padding: 0 12px; font-size: 13px; }
+.rider-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.rider-fields input { width: 100%; min-width: 0; }
+.wkg { font-size: 12.5px; color: var(--text-3); }
+.wkg b { color: var(--text-2); font-weight: 650; }
+.rider-actions { display: flex; gap: 8px; justify-content: space-between; }
+.btn:disabled { opacity: 0.45; cursor: default; box-shadow: none; filter: none; }
+@media (max-width: 760px) { .rider-fields { grid-template-columns: 1fr 1fr; } .rider-add { width: 100%; } .rider-add input { flex: 1; width: auto; } }

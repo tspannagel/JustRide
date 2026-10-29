@@ -475,9 +475,11 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
 
 static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_event_cb_t cb, void *data);
 
+static char s_user_ids[SETTINGS_MAX_USERS][8];  // ids behind the riders list
+
 static void on_user(lv_event_t *e)
 {
-    app_select_user((int)(intptr_t)lv_event_get_user_data(e));
+    app_select_user(s_user_ids[(int)(intptr_t)lv_event_get_user_data(e)]);
     go(scr_home);
 }
 
@@ -489,6 +491,7 @@ static void open_users(lv_event_t *e)
     lv_label_set_text(users_msg, "");
     for (int i = 0; i < s.n_users; i++) {
         const user_t *u = &s.users[i];
+        memcpy(s_user_ids[i], u->id, sizeof(s_user_ids[i]));
         char text[48];
         snprintf(text, sizeof(text), "%s\nFTP %u W  -  %u kg", u->name, u->ftp_w, u->weight_kg);
         list_item(users_list, i == s.user ? LV_SYMBOL_OK : " ", text, on_user, (void *)(intptr_t)i);
@@ -521,7 +524,9 @@ static void on_rename_user(lv_event_t *e) { open_name(false); }
 
 static void on_delete_user(lv_event_t *e)
 {
-    if (!app_delete_user()) {
+    settings_t s;
+    app_get_settings(&s);
+    if (!app_delete_user(settings_user(&s)->id)) {
         lv_label_set_text(users_msg, "The last rider can't be deleted");
         return;
     }

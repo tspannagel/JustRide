@@ -5,6 +5,7 @@ import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, f
   SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor } from './core.js';
 import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
 import { initPlan, showPlan, autoSync } from './plan.js';
+import { initRiders, showRiders } from './riders.js';
 
 const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, rideOpen: null, range: 90 };
 
@@ -20,9 +21,9 @@ async function loadUser(u) {
 
 // What the workout generator adapts to
 function ctx() {
-  const ftp = S.rides.find((r) => r.ftp_w)?.ftp_w || null;
+  const ftp = S.user.ftp_w || S.rides.find((r) => r.ftp_w)?.ftp_w || null;
   const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
-  return { ftp, tsb, best: bestsSince(90), weight: S.rides.find((r) => r.weight_kg)?.weight_kg };
+  return { ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg };
 }
 
 // Best watts per duration for rides in the last `days` (null: all time)
@@ -44,6 +45,7 @@ const VIEWS = {
   power: { title: 'Power', render: power },
   workouts: { title: 'Workouts', render: () => showWorkouts() },
   plan: { title: 'Plan', render: () => showPlan(S.user, S.rides, riderLabel()) },
+  riders: { title: 'Riders', render: () => showRiders(S.users) },
   device: { title: 'Device', render: device },
 };
 
@@ -339,6 +341,13 @@ async function runSql() {
 
 // ---- Start --------------------------------------------------------------------------------
 
+function fillPicker(id) {
+  const pick = $('#user');
+  pick.innerHTML = S.users.map((u, i) => `<option value="${i}">${esc(u.name)}</option>`).join('');
+  const i = S.users.findIndex((u) => u.id === id);
+  pick.value = String(i >= 0 ? i : Math.max(0, S.users.findIndex((u) => u.active)));
+}
+
 async function main() {
   $$('[data-icon]').forEach((el) => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon)));
   try {
@@ -351,10 +360,15 @@ async function main() {
   // No internet on the device is fine: the browser's clock sets it if no time server answered
   api.send('POST', '/api/time', String(Math.floor(Date.now() / 1000))).catch(() => {});
   const pick = $('#user');
-  pick.innerHTML = S.users.map((u, i) => `<option value="${i}">${esc(u.name)}</option>`).join('');
-  pick.value = String(Math.max(0, S.users.findIndex((u) => u.active)));
+  fillPicker(S.users.find((u) => u.active)?.id);
   await loadUser(S.users[pick.value]);
   pick.onchange = async () => { await loadUser(S.users[pick.value]); go(location.hash.slice(1) || 'today'); };
+  initRiders(async (list) => {
+    // Keep the shown rider unless it was deleted; reload it (FTP, name may have changed)
+    S.users = list;
+    fillPicker(S.user.id);
+    await loadUser(S.users[pick.value]);
+  });
   $('#pmc-range').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.range = Number(b.dataset.days); renderPmc(); } };
   initWorkouts(ctx);
   initPlan(ctx);

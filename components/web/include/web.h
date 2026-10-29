@@ -12,6 +12,17 @@ void web_stop(void);
 bool web_running(void);
 // Diagnostics: print nearby networks (name, signal, channel, security). Only while Wi-Fi is off.
 void web_scan_print(void);
+// Rider changes from the web app. The control task owns the settings, so main
+// passes its functions in; each one refuses while a ride runs.
+typedef struct {
+    void (*get)(settings_t *s);
+    bool (*select)(const char *id);
+    bool (*add)(const char *name);  // also selects the new rider
+    bool (*edit)(const user_t *u);  // by u->id; false if a value is out of range
+    bool (*remove)(const char *id);
+} web_users_t;
+void web_set_users(const web_users_t *u);
+
 // Diagnostics: time sync state and the current UTC time
 void web_time_print(void);
 // One-line status for the UI

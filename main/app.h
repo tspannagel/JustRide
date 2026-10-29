@@ -36,10 +36,11 @@ void app_web_start(void);
 
 // Settings and user changes, only while idle. Saved to the SD card.
 void app_get_settings(settings_t *s);
-// Name and values of the active user; false (nothing changed) if any value is out of range.
+// Users are addressed by id: the web app changes them too, so indexes can move.
+// Name and values of user u->id; false (nothing changed) if any value is out of range.
 bool app_edit_user(const user_t *u);
 // Set the active user's FTP to status.ftp_suggest_w
 void app_accept_ftp(void);
-bool app_select_user(int idx);
+bool app_select_user(const char *id);
 bool app_add_user(const char *name);   // also selects it
-bool app_delete_user(void);            // the active one; never the last
+bool app_delete_user(const char *id);  // never the last

@@ -40,9 +40,9 @@ const workout_t *app_workout(void) { return &g_wo; }
 void app_web_start(void) {}
 bool app_edit_user(const user_t *u) { return true; }
 void app_accept_ftp(void) {}
-bool app_select_user(int idx) { return true; }
+bool app_select_user(const char *id) { return true; }
 bool app_add_user(const char *name) { return true; }
-bool app_delete_user(void) { return true; }
+bool app_delete_user(const char *id) { return true; }
 bool settings_valid_name(const char *name) { return true; }
 
 void web_stop(void) {}
