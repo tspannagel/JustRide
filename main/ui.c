@@ -27,17 +27,21 @@ static const char *TAG = "ui";
 #define PAD 12
 #define GAP 10
 
-// Palette
-#define C_BG 0x0D1117
-#define C_CARD 0x161B22
-#define C_BTN 0x262C36
-#define C_TEXT 0xE6EDF3
-#define C_MUTED 0x8B949E
-#define C_ACCENT 0x2F81F7
-#define C_FOCUS 0x58A6FF  // controller highlight, lighter than the accent so a focused primary shows
-#define C_OK 0x3FB950
-#define C_WARN 0xE3A21A
-#define C_DANGER 0xDA3633
+// Palette (matches the web app's dark theme)
+// No gradients on dark surfaces: RGB565 has too few dark steps, they band
+#define C_BG 0x0A0B12
+#define C_CARD 0x151823
+#define C_LINE 0x262A38      // 1 px card and button border
+#define C_BTN 0x1E2230
+#define C_TEXT 0xEEF0F6
+#define C_MUTED 0x8A90A3
+#define C_ACCENT 0x6574F5    // primary gradient, left to right
+#define C_ACCENT_2 0x9A5BF0
+#define C_FOCUS 0x58A6FF  // controller highlight, a different hue than the primary so a focused primary shows
+#define C_OK 0x3DDC97
+#define C_WARN 0xF5B94A
+#define C_DANGER 0xE5484D
+#define C_DANGER_2 0xB8304F
 #define C_POWER 0xF5B83D
 #define C_HR 0xF85149
 #define C_CAD 0x39C5BB
@@ -94,29 +98,37 @@ static void styles_init(void)
     lv_style_init(&st_card);
     lv_style_set_bg_color(&st_card, rgb(C_CARD));
     lv_style_set_bg_opa(&st_card, LV_OPA_COVER);
-    lv_style_set_radius(&st_card, 14);
+    lv_style_set_radius(&st_card, 18);
     lv_style_set_pad_all(&st_card, 10);
     lv_style_set_pad_row(&st_card, 4);
     lv_style_set_pad_column(&st_card, 8);
-    lv_style_set_border_color(&st_card, rgb(C_WARN));
-    lv_style_set_border_width(&st_card, 0);
+    lv_style_set_border_color(&st_card, rgb(C_LINE));
+    lv_style_set_border_width(&st_card, 1);
 
     lv_style_init(&st_btn);
     lv_style_set_bg_color(&st_btn, rgb(C_BTN));
-    lv_style_set_radius(&st_btn, 12);
+    lv_style_set_radius(&st_btn, 14);
     lv_style_set_shadow_width(&st_btn, 0);
-    lv_style_set_border_width(&st_btn, 0);
+    lv_style_set_border_color(&st_btn, rgb(C_LINE));
+    lv_style_set_border_width(&st_btn, 1);
     lv_style_set_text_color(&st_btn, rgb(C_TEXT));
 
     lv_style_init(&st_primary);
     lv_style_set_bg_color(&st_primary, rgb(C_ACCENT));
+    lv_style_set_bg_grad_color(&st_primary, rgb(C_ACCENT_2));
+    lv_style_set_bg_grad_dir(&st_primary, LV_GRAD_DIR_HOR);
+    lv_style_set_border_width(&st_primary, 0);
 
     lv_style_init(&st_danger);
     lv_style_set_bg_color(&st_danger, rgb(C_DANGER));
+    lv_style_set_bg_grad_color(&st_danger, rgb(C_DANGER_2));
+    lv_style_set_bg_grad_dir(&st_danger, LV_GRAD_DIR_HOR);
+    lv_style_set_border_width(&st_danger, 0);
 
     // Controller highlight (LV_STATE_FOCUS_KEY): blue fill plus outline
     lv_style_init(&st_focus);
     lv_style_set_bg_color(&st_focus, rgb(C_FOCUS));
+    lv_style_set_bg_grad_dir(&st_focus, LV_GRAD_DIR_NONE);
     lv_style_set_outline_color(&st_focus, rgb(C_TEXT));
     lv_style_set_outline_width(&st_focus, 3);
     lv_style_set_outline_pad(&st_focus, 3);
@@ -259,10 +271,11 @@ static lv_obj_t *metric(lv_obj_t *parent, const char *icon, const char *name, ui
 
 // ---- Workout profile ------------------------------------------------------------
 
-// Zwift-style zone colours by % of FTP
+// Zone colours by % of FTP, same zones and colours as the web app
 static uint32_t zone_color(uint16_t pm)
 {
-    return pm < 600 ? 0x8B949E : pm < 760 ? 0x2F81F7 : pm < 900 ? 0x3FB950 : pm < 1050 ? 0xE3B341 : pm < 1180 ? 0xF0883E : 0xF85149;
+    return pm < 550 ? 0x6B7385 : pm < 750 ? 0x3987E5 : pm < 900 ? 0x1FB57F : pm < 1050 ? 0xE8B100
+         : pm < 1200 ? 0xEB6834 : pm < 1500 ? 0xE34948 : 0xA07CF0;
 }
 
 typedef struct {
@@ -282,7 +295,31 @@ static void fill(lv_layer_t *layer, int x1, int y1, int x2, int y2, uint32_t col
     lv_draw_rect(layer, &d, &a);
 }
 
-// One bar per pixel column, height = target power, colour = zone. Free
+// A block: zone colour fading towards the floor, rounded top, light top edge
+static void block(lv_layer_t *layer, int x1, int y1, int x2, int y2, uint32_t color, lv_opa_t opa)
+{
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.radius = x2 - x1 >= 6 ? 3 : 0;
+    d.bg_opa = opa;
+    d.bg_grad.dir = LV_GRAD_DIR_VER;
+    d.bg_grad.stops_count = 2;
+    d.bg_grad.stops[0] = (lv_grad_stop_t){.color = rgb(color), .opa = LV_OPA_COVER, .frac = 0};
+    d.bg_grad.stops[1] = (lv_grad_stop_t){.color = rgb(color), .opa = LV_OPA_30, .frac = 255};
+    lv_area_t a = {x1, y1, x2, y2};
+    lv_draw_rect(layer, &d, &a);
+    if (y2 - y1 >= 3) {
+        lv_color_t edge = lv_color_mix(lv_color_white(), rgb(color), 110);
+        lv_draw_rect_dsc_init(&d);
+        d.radius = x2 - x1 >= 6 ? 1 : 0;
+        d.bg_color = edge;
+        d.bg_opa = opa;
+        a = (lv_area_t){x1 + d.radius, y1, x2 - d.radius, y1 + 1};
+        lv_draw_rect(layer, &d, &a);
+    }
+}
+
+// Blocks of equal height and zone; ramps become one column per pixel. Free
 // segments are drawn flat and dark. Done part dimmed, marker at pos_s.
 static void draw_profile(lv_event_t *e)
 {
@@ -300,23 +337,33 @@ static void draw_profile(lv_event_t *e)
         return;
     }
     static uint16_t col[BSP_LCD_W];
+    static bool free_col[BSP_LCD_W];
     uint16_t top = 1000;
     for (int x = 0; x < width; x++) {
         uint32_t t = (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * width));
+        workout_pos_t pos;
+        workout_at(w, t, &pos);
         col[x] = workout_profile_at(w, t);
+        free_col[x] = pos.kind == SEG_FREE;
         top = col[x] > top ? col[x] : top;
     }
     top = top + top / 10;  // headroom
     int marker = p->pos_s < 0 ? -1 : (int)((uint64_t)p->pos_s * width / w->total_s);
-    for (int x = 0; x < width; x++) {
-        workout_pos_t pos;
-        workout_at(w, (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * width)), &pos);
+    for (int x = 0, end; x < width; x = end) {
+        // Run of equal columns, split at the marker; a 1 px gap between blocks
+        for (end = x + 1; end < width && col[end] == col[x] && free_col[end] == free_col[x] && end != marker; end++) {
+        }
         int h = col[x] * height / top;
-        uint32_t c = pos.kind == SEG_FREE ? C_BTN : zone_color(col[x]);
-        fill(layer, a.x1 + x, a.y2 - h + 1, a.x1 + x, a.y2, c, x < marker ? LV_OPA_40 : LV_OPA_COVER);
+        lv_opa_t opa = x < marker ? LV_OPA_40 : LV_OPA_COVER;
+        int gap = end < width && end != marker && end - x > 2 ? 1 : 0;
+        if (free_col[x]) {
+            fill(layer, a.x1 + x, a.y2 - h + 1, a.x1 + end - 1 - gap, a.y2, C_BTN, opa);
+        } else {
+            block(layer, a.x1 + x, a.y2 - h + 1, a.x1 + end - 1 - gap, a.y2, zone_color(col[x]), opa);
+        }
     }
     int ftp_y = a.y2 - 1000 * height / top;  // 100 % FTP line
-    fill(layer, a.x1, ftp_y, a.x2, ftp_y, C_TEXT, LV_OPA_30);
+    fill(layer, a.x1, ftp_y, a.x2, ftp_y, C_TEXT, LV_OPA_20);
     if (marker >= 0) {
         fill(layer, a.x1 + marker - 1, a.y1, a.x1 + marker, a.y2, C_TEXT, LV_OPA_COVER);
     }
@@ -884,7 +931,8 @@ static void update_ride(const ride_view_t *v)
     lv_label_set_text(r_power_cap, paused ? "PAUSED" : "POWER");
     lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_parent(r_power_cap), 0), rgb(paused ? C_WARN : C_POWER), 0);
-    lv_obj_set_style_border_width(r_power_card, paused ? 3 : 0, 0);
+    lv_obj_set_style_border_width(r_power_card, paused ? 3 : 1, 0);
+    lv_obj_set_style_border_color(r_power_card, rgb(paused ? C_WARN : C_LINE), 0);
 
     // ERG: the number turns green when within 5 % (at least 5 W) of the target
     uint32_t color = C_TEXT;
