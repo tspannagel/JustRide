@@ -15,6 +15,7 @@ typedef struct {
     double duration, power, power_low, power_high;
     double cadence, cadence_resting;
     double repeat, on_duration, off_duration, on_power, off_power;
+    double hr_lo, hr_hi, cad_lo, cad_hi, avg, p_min, p_max;  // JustRide adaptive goals
 } attrs_t;
 
 static const char *find_comment_end(const char *p, const char *end)
@@ -49,6 +50,13 @@ static double *attr_slot(attrs_t *a, const char *name, size_t len)
         {"OffDuration", offsetof(attrs_t, off_duration)},
         {"OnPower", offsetof(attrs_t, on_power)},
         {"OffPower", offsetof(attrs_t, off_power)},
+        {"JrHrLow", offsetof(attrs_t, hr_lo)},
+        {"JrHrHigh", offsetof(attrs_t, hr_hi)},
+        {"JrCadLow", offsetof(attrs_t, cad_lo)},
+        {"JrCadHigh", offsetof(attrs_t, cad_hi)},
+        {"JrAvg", offsetof(attrs_t, avg)},
+        {"JrMin", offsetof(attrs_t, p_min)},
+        {"JrMax", offsetof(attrs_t, p_max)},
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (tag_is(name, len, map[i].name)) {
@@ -119,7 +127,20 @@ static void add(workout_t *w, double dur, double p0, double p1, double cad, seg_
 static void add_element(workout_t *w, const char *tag, size_t len, const attrs_t *a)
 {
     if (tag_is(tag, len, "SteadyState")) {
+        int n = w->n;
         add(w, a->duration, a->power, a->power, a->cadence, SEG_ERG);
+        if (w->n > n) {
+            goal_t g = {
+                .hr_lo = (uint8_t)clamp_u16(a->hr_lo, 230),
+                .hr_hi = (uint8_t)clamp_u16(a->hr_hi, 230),
+                .cad_lo = (uint8_t)clamp_u16(a->cad_lo, 200),
+                .cad_hi = (uint8_t)clamp_u16(a->cad_hi, 200),
+                .min_pm = clamp_u16(a->p_min * 1000, MAX_POWER_PM),
+                .max_pm = clamp_u16(a->p_max * 1000, MAX_POWER_PM),
+                .hold_avg = a->avg >= 0.5,
+            };
+            w->seg[n].goal = workout_add_goal(w, w->seg[n].p_start, g);
+        }
     } else if (tag_is(tag, len, "Warmup") || tag_is(tag, len, "Cooldown") || tag_is(tag, len, "Ramp")) {
         double lo = a->power_low, hi = a->power_high;
         if (lo == 0 && hi == 0) {

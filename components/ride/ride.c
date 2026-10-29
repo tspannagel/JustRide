@@ -22,6 +22,8 @@ void ride_init(ride_t *r, const ride_config_t *cfg)
     r->trainer.speed_kmh100 = -1;
     r->gear = (uint8_t)vshift_neutral_gear(&r->cfg.gears);
     r->intensity = 100;
+    r->adapt_seg = -1;
+    r->cad_beep_s = ADAPT_CAD_BEEP_GAP_S;
 }
 
 void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc)
@@ -101,6 +103,100 @@ static bool in_erg(const ride_t *r, workout_pos_t *pos)
     return !pos->done && pos->kind == SEG_ERG;
 }
 
+static int16_t watts(const ride_t *r, uint16_t pm)
+{
+    return (int16_t)((uint32_t)pm * r->cfg.ftp_w / 1000 * r->intensity / 100);
+}
+
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+// Bounds of an adaptive segment in W, never above Max ERG
+static void adapt_bounds(const ride_t *r, const goal_t *g, int *lo, int *hi)
+{
+    *hi = watts(r, g->max_pm) < r->cfg.max_erg_w ? watts(r, g->max_pm) : r->cfg.max_erg_w;
+    *lo = watts(r, g->min_pm) < *hi ? watts(r, g->min_pm) : *hi;
+}
+
+// Once per recorded second while running. HR above the range always wins: it
+// lowers the target (hold-average: a ceiling); below the range it raises it only
+// in segments without an average to hold; without HR it never raises it.
+// Hold-average spreads any shortfall over the rest of the segment.
+static void adapt_update(ride_t *r, uint8_t *beeps)
+{
+    workout_pos_t pos;
+    const goal_t *g = in_erg(r, &pos) ? workout_goal(r->wo, pos.idx) : NULL;
+    r->hr_cue = r->cad_cue = 0;
+    if (r->cad_beep_s < UINT16_MAX) {
+        r->cad_beep_s++;
+    }
+    if (!g) {
+        r->adapt_seg = -1;
+        return;
+    }
+    int base = watts(r, pos.target_pm), lo, hi;
+    adapt_bounds(r, g, &lo, &hi);
+    if (pos.idx != r->adapt_seg) {
+        r->adapt_seg = pos.idx;
+        r->adapt_w = (int16_t)clampi(base, lo, hi);
+        r->adapt_cap_w = (int16_t)hi;
+        r->adapt_s = 0;
+        r->adapt_j = 0;
+        r->adapt_hr_lost_s = 0;
+        r->adapt_tick = 0;
+        r->cad_out_s = 0;
+    }
+    bool fresh = trainer_fresh(r);
+    int power = fresh ? r->trainer.power_w : -1;
+    r->adapt_s++;
+    r->adapt_j += power >= 0 ? power : r->adapt_w;
+
+    int hr = current_hr(r);
+    if (g->hr_hi) {
+        r->adapt_hr_lost_s = hr < 0 ? (uint16_t)(r->adapt_hr_lost_s + 1) : 0;
+        r->hr_cue = (int8_t)(hr < 0 ? 0 : hr > g->hr_hi ? 1 : hr < g->hr_lo ? -1 : 0);
+        if (++r->adapt_tick >= ADAPT_PERIOD_S) {
+            r->adapt_tick = 0;
+            int step = hr > g->hr_hi + 5 ? ADAPT_BIG_STEP_W : ADAPT_STEP_W;
+            if (g->hold_avg) {
+                if (r->hr_cue > 0) {
+                    r->adapt_cap_w = (int16_t)((r->adapt_w < r->adapt_cap_w ? r->adapt_w : r->adapt_cap_w) - step);
+                } else if (hr >= 0) {
+                    r->adapt_cap_w = (int16_t)(r->adapt_cap_w + ADAPT_STEP_W);  // let the average recover
+                }
+                r->adapt_cap_w = (int16_t)clampi(r->adapt_cap_w, lo, hi);
+            } else if (r->hr_cue > 0) {
+                r->adapt_w = (int16_t)(r->adapt_w - step);
+            } else if (r->hr_cue < 0) {
+                r->adapt_w = (int16_t)(r->adapt_w + ADAPT_STEP_W);
+            } else if (hr < 0 && r->adapt_hr_lost_s >= ADAPT_HR_LOST_S && r->adapt_w > base) {
+                r->adapt_w = (int16_t)(r->adapt_w - ADAPT_STEP_W);  // no HR: back towards the plan, never up
+            }
+        }
+    }
+    if (g->hold_avg) {
+        int32_t left = (int32_t)pos.seg_left_s > ADAPT_AVG_HORIZON_S ? (int32_t)pos.seg_left_s : ADAPT_AVG_HORIZON_S;
+        int32_t want = base + ((int32_t)base * (int32_t)r->adapt_s - r->adapt_j) / left;
+        r->adapt_w = (int16_t)clampi(want, lo, g->hr_hi ? r->adapt_cap_w : hi);
+    }
+    r->adapt_w = (int16_t)clampi(r->adapt_w, lo, hi);
+
+    // Cadence: a cue only, and only while pedalling
+    int cad10 = fresh ? r->trainer.cadence_rpm10 : -1;
+    if (g->cad_hi && cad10 > 0) {
+        int rpm = cad10 / 10, out = rpm < g->cad_lo ? -1 : rpm > g->cad_hi ? 1 : 0;
+        r->cad_out_s = out ? (uint8_t)(r->cad_out_s < 255 ? r->cad_out_s + 1 : 255) : 0;
+        if (r->cad_out_s >= ADAPT_CAD_CUE_S) {
+            r->cad_cue = (int8_t)out;
+            if (r->cad_out_s == ADAPT_CAD_CUE_S && r->cad_beep_s >= ADAPT_CAD_BEEP_GAP_S && *beeps == 0) {
+                *beeps = 1;
+                r->cad_beep_s = 0;
+            }
+        }
+    } else {
+        r->cad_out_s = 0;
+    }
+}
+
 static bool gear_mode(const ride_t *r)
 {
     workout_pos_t pos;
@@ -172,7 +268,15 @@ void ride_command(const ride_t *r, control_cmd_t *cmd)
     }
     workout_pos_t pos;
     if (in_erg(r, &pos)) {
-        uint32_t w = (uint32_t)pos.target_pm * r->cfg.ftp_w / 1000 * r->intensity / 100;
+        uint32_t w = (uint32_t)watts(r, pos.target_pm);
+        const goal_t *g = workout_goal(r->wo, pos.idx);
+        if (g) {
+            // Adaptive: the steered target in 5 W steps (fewer trainer writes), within the bounds
+            int lo, hi;
+            adapt_bounds(r, g, &lo, &hi);
+            int a = r->adapt_seg == pos.idx ? (r->adapt_w + 2) / 5 * 5 : (int)w;
+            w = (uint32_t)clampi(a, lo, hi);
+        }
         cmd->kind = CMD_ERG;
         cmd->target_w = (int16_t)(w > r->cfg.max_erg_w ? r->cfg.max_erg_w : w);
         return;
@@ -234,6 +338,7 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     if (r->timer_ms / 1000 <= r->n_samples) {
         return false;
     }
+    adapt_update(r, beeps);
     fill_sample(r, sample, utc);
     r->n_samples++;
     metrics_add(&r->m, sample);
@@ -292,6 +397,19 @@ void ride_view(const ride_t *r, ride_view_t *v)
         v->seg_left_s = pos.seg_left_s;
         v->cadence_target = pos.done ? 0 : pos.cadence;
         v->wo_done = r->wo_done || pos.done;
+        const goal_t *g = !v->wo_done && pos.kind == SEG_ERG ? workout_goal(r->wo, pos.idx) : NULL;
+        if (g) {
+            v->adaptive = true;
+            v->hold_avg = g->hold_avg;
+            v->hr_lo = g->hr_lo;
+            v->hr_hi = g->hr_hi;
+            v->cad_lo = g->cad_lo;
+            v->cad_hi = g->cad_hi;
+            v->hr_cue = r->adapt_seg == pos.idx ? r->hr_cue : 0;
+            v->cad_cue = r->adapt_seg == pos.idx ? r->cad_cue : 0;
+            v->avg_goal_w = g->hold_avg ? watts(r, pos.target_pm) : 0;
+            v->seg_avg_w = r->adapt_seg == pos.idx && r->adapt_s ? (int16_t)(r->adapt_j / (int32_t)r->adapt_s) : -1;
+        }
     }
     metrics_summary(&r->m, r->cfg.ftp_w, &v->sum);
 }

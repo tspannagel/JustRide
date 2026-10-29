@@ -20,6 +20,16 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define RIDE_TRAINER_STALE_MS 3000
 #define RIDE_HR_STALE_MS 5000
 
+// Adaptive segments (goal_t): the ERG target moves within the segment's bounds,
+// never above Max ERG. HR is slow, so it is steered in small steps.
+#define ADAPT_PERIOD_S 20        // one HR step per period
+#define ADAPT_STEP_W 5
+#define ADAPT_BIG_STEP_W 10      // HR more than 5 bpm above the range
+#define ADAPT_HR_LOST_S 60       // no HR this long: drift back to the planned power
+#define ADAPT_AVG_HORIZON_S 60   // hold-average: spread a shortfall over at least this
+#define ADAPT_CAD_CUE_S 5        // cadence out of range this long: cue
+#define ADAPT_CAD_BEEP_GAP_S 60  // at most one cadence beep per minute
+
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
@@ -54,6 +64,18 @@ typedef struct {
     uint32_t start_utc;
     int16_t p3[3];           // last 3 s of power for display
 
+    // adaptive segment state (see ride_tick)
+    int adapt_seg;           // segment the values below belong to, -1 none
+    int16_t adapt_w;         // current target, W
+    int16_t adapt_cap_w;     // hold-average: ceiling lowered while HR is too high
+    uint32_t adapt_s;        // seconds ridden in the segment
+    int32_t adapt_j;         // energy in the segment, J (unknown power counts as on target)
+    uint16_t adapt_hr_lost_s;
+    uint8_t adapt_tick;
+    uint8_t cad_out_s;
+    uint16_t cad_beep_s;
+    int8_t hr_cue, cad_cue;  // -1 below range, 0 in range or no goal, +1 above
+
     metrics_t m;
 } ride_t;
 
@@ -79,6 +101,13 @@ typedef struct {
     int seg_count;
     uint32_t seg_left_s;
     bool wo_done;
+    // adaptive segment
+    bool adaptive;
+    bool hold_avg;
+    uint8_t hr_lo, hr_hi, cad_lo, cad_hi;
+    int8_t hr_cue, cad_cue;  // -1 below, 0 ok, +1 above
+    int16_t avg_goal_w;      // hold-average: the average to hold
+    int16_t seg_avg_w;       // average power so far in this segment
     metrics_summary_t sum;
 } ride_view_t;
 

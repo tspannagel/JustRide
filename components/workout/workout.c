@@ -23,6 +23,7 @@ void workout_at(const workout_t *w, uint32_t t_s, workout_pos_t *pos)
             pos->idx = i;
             pos->kind = s->kind;
             pos->cadence = s->cadence;
+            pos->goal = s->goal;
             pos->seg_left_s = s->dur_s - in;
             pos->target_pm = (uint16_t)(s->p_start + ((int32_t)s->p_end - s->p_start) * (int32_t)in / s->dur_s);
             return;
@@ -32,6 +33,49 @@ void workout_at(const workout_t *w, uint32_t t_s, workout_pos_t *pos)
     pos->idx = w->n > 0 ? w->n - 1 : 0;
     pos->kind = SEG_FREE;
     pos->done = true;
+}
+
+uint8_t workout_add_goal(workout_t *w, uint16_t p_pm, goal_t g)
+{
+    if (g.hr_lo > g.hr_hi) {
+        uint8_t t = g.hr_lo;
+        g.hr_lo = g.hr_hi;
+        g.hr_hi = t;
+    }
+    if (g.cad_lo > g.cad_hi) {
+        uint8_t t = g.cad_lo;
+        g.cad_lo = g.cad_hi;
+        g.cad_hi = t;
+    }
+    if (g.hr_lo == 0) {
+        g.hr_hi = 0;  // a range needs both ends
+    }
+    if (g.cad_lo == 0) {
+        g.cad_hi = 0;
+    }
+    if (w->n_goals >= WORKOUT_MAX_GOALS || (!g.hr_hi && !g.cad_hi && !g.hold_avg)) {
+        return 0;
+    }
+    if (g.min_pm == 0) {
+        g.min_pm = (uint16_t)(p_pm * 7 / 10);
+    }
+    if (g.max_pm == 0) {
+        g.max_pm = (uint16_t)(p_pm + p_pm * 15 / 100);
+    }
+    g.min_pm = g.min_pm < 300 ? 300 : g.min_pm;
+    if (g.max_pm < g.min_pm) {
+        g.max_pm = g.min_pm;
+    }
+    w->goals[w->n_goals++] = g;
+    return w->n_goals;
+}
+
+const goal_t *workout_goal(const workout_t *w, int idx)
+{
+    if (idx < 0 || idx >= w->n || w->seg[idx].goal == 0 || w->seg[idx].goal > w->n_goals) {
+        return NULL;
+    }
+    return &w->goals[w->seg[idx].goal - 1];
 }
 
 #define FREE_PM 500  // assumed effort in free segments
