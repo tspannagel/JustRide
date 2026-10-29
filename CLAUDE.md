@@ -6,46 +6,44 @@ Full plan with diagrams: `docs/plan.html` (open in a browser; Mermaid diagrams m
 
 ## Hardware
 
-**Board: Waveshare ESP32-S3-Touch-LCD-4, V3.** Wiki: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4 (schematic PDFs for V1–V4 and an official STEP model are linked under Resources).
+**Board: Waveshare ESP32-S3-Touch-LCD-4, V4.0** (the user's board says REV 4; confirmed 2026-10-28). Wiki: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4 (official STEP model under Resources). V4 source of truth: github.com/waveshareteam/ESP32-S3-Touch-LCD-4 (`hardware/` schematic + reference) and the managed components `waveshare/esp32_s3_touch_lcd_4` 3.0.0 / `waveshare/custom_io_expander_ch32v003` 2.0.0. V3 (TCA9554, SW6106, SD over SPI) is not supported anymore.
 
 - ESP32-S3-N16R8: 16 MB flash, 8 MB octal PSRAM, BLE 5, Wi-Fi 2.4 GHz
 - 4" IPS 480×480, ST7701, 16-bit RGB565 parallel bus (frame buffers in PSRAM)
-- GT911 capacitive touch, PCF85063 RTC, TCA9554 I/O expander, SW6106 battery/power chip
-- microSD over SPI, onboard buzzer, USB-C (native USB: flashing + console)
+- GT911 capacitive touch (answers at 0x14), PCF85063 RTC (0x51), CH32V003 helper MCU at 0x24 (expander + backlight PWM + battery ADC; replaces V3's TCA9554 and SW6106)
+- microSD over 1-bit SDMMC, onboard buzzer, USB-C (native USB: flashing + console)
 - RS485, CAN, 7–36 V terminal: present, unused
 - **No free GPIOs.** Do not plan features that need extra wires.
 
-### Pin map (from Waveshare wiki, verify against V3 schematic)
+### Pin map (V4, from Waveshare's V4 BSP)
 
 | Function | GPIO |
 |---|---|
 | LCD R1–R5 | 46, 3, 8, 18, 17 |
 | LCD G0–G5 | 14, 13, 12, 11, 10, 9 |
 | LCD B1–B5 | 5, 45, 48, 47, 21 |
-| LCD HSYNC / VSYNC / DE / PCLK | 38 / 39 / 40 / 41 (Waveshare benchmark: PCLK 21 MHz) |
+| LCD HSYNC / VSYNC / DE / PCLK | 38 / 39 / 40 / 41 (PCLK 16 MHz, as in Waveshare's V4 BSP) |
 | ST7701 init 3-wire SPI SDA / SCL / CS | 1 / 2 / 42 |
-| SD MOSI / SCK / MISO | 1 / 2 / 4 (shares 1 and 2 with LCD init), CS = EXIO3 |
-| I2C SDA / SCL | 15 / 7 (touch, RTC, expander, SW6106) |
-| Touch INT | 16 |
+| SD (SDMMC 1-bit) CMD / CLK / D0 | 1 / 2 / 4 (shares 1 and 2 with LCD init) |
+| I2C SDA / SCL | 15 / 7 (touch, RTC, CH32V003) |
+| Touch INT / RST | not on a GPIO / CH32 EXIO1 |
 | USB D− / D+ | 19 / 20 |
 | RS485 RX / TX (unused) | 43 / 44 |
 | CAN RX / TX (unused) | 0 / 6 (GPIO0 is also BOOT) |
 
-TCA9554 outputs: EXIO0 touch reset, EXIO1 backlight enable, EXIO2 LCD reset, EXIO3 SD CS, EXIO4 "BLC" (unknown, check schematic), EXIO5 buzzer enable, EXIO6 RTC interrupt, EXIO7 "DO1".
-
-**Known wiki inconsistency:** one section says the expander is on GPIO 8/9, but 8/9 are LCD data lines. Assume everything I2C is on 15/7 and confirm with an I2C scan at first boot. Don't trust this table blindly; read the V3 schematic PDF when something doesn't respond.
+CH32V003 registers (Waveshare driver): 0x02 direction (1 = output), 0x03 output, 0x04 input, 0x05 backlight PWM, 0x06 ADC (battery, 10 bit), 0x07 RTC int. Pins (V4.0 schematic pin table): EXIO0 CH32 ADC (untouched), EXIO1 touch reset, EXIO2 touch INT, EXIO3 LCD reset, EXIO4 SD CS/D3 (high), EXIO5 SYS_EN (power enable, high like Waveshare), EXIO6 buzzer, EXIO7 RTC interrupt (input). Waveshare's BSP doesn't name EXIO2/EXIO4 but its driver drives every pin low; with EXIO2 floating the GT911 boots with an empty config (0×0, no touches). The backlight is on at power-up; PWM polarity is unverified (Waveshare's examples disagree), so the firmware doesn't write it except via `diag bl`.
 
 ### Bring-up order (shared pins make this mandatory)
 
-1. I2C on 15/7, scan, probe TCA9554, GT911, PCF85063, SW6106
-2. SW6106: apply the light-load register fix from the Waveshare FAQ (the chip otherwise switches the board off at low load)
-3. TCA9554: backlight off, pulse LCD reset (EXIO2) and touch reset (EXIO0)
-4. ST7701 init over 3-wire SPI (1/2/42), then hold CS 42 high permanently
-5. Start the RGB panel (`esp_lcd_panel_rgb`), two 480×480 RGB565 frame buffers in PSRAM
-6. Re-configure 1/2/4 as the SD SPI bus, CS via EXIO3, mount FATFS
-7. Backlight on, start LVGL, then BLE, then the control loop
+1. I2C on 15/7, probe the CH32V003 (0x24) and PCF85063
+2. CH32: SYS_EN + SD CS high, LCD + touch reset low, touch INT low, buzzer off (output register before direction); 200 ms, release resets, 100 ms, release touch INT (input), 100 ms
+3. ST7701 init over 3-wire SPI (1/2/42) with Waveshare's V4 init table, IO deleted afterwards, then hold CS 42 high permanently
+4. Start the RGB panel (`esp_lcd_panel_rgb`, 16 MHz), two 480×480 RGB565 frame buffers in PSRAM
+5. Probe GT911 (after the panel: it needs time after reset)
+6. Mount the SD card over SDMMC 1-bit on 1/2/4 with internal pull-ups (the board is wired for SPI and has none)
+7. Start LVGL, then BLE, then the control loop
 
-RGB + PSRAM: PSRAM 80 MHz octal, bounce buffers on, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding.
+RGB + PSRAM: PSRAM 80 MHz octal, 10-line bounce buffers (two, in internal RAM), 64-byte data cache lines, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. One frame buffer, LVGL partial rendering (48 lines, PSRAM) like Waveshare's BSP: direct mode on two frame buffers showed a shifted, flickering second image. Internal RAM is tight (~39 KB free): a 64 KB data cache or 20-line bounce buffers broke BLE / the HTTP server. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding.
 
 ### Power safety
 
@@ -55,7 +53,7 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 
 - **ESP-IDF ≥ 5.3**, C (C11). Arduino is not used (confirmed by the user).
 - NimBLE host as BLE central, up to 6 simultaneous links
-- LVGL 9 via `esp_lvgl_port`, direct mode on full frame buffers
+- LVGL 9 via `esp_lvgl_port`, partial rendering into one RGB frame buffer, system malloc (`CONFIG_LV_USE_CLIB_MALLOC`)
 - mbedTLS (ECDH P-256, HKDF-SHA256, AES-CCM) for encrypted Zwift controllers
 - nanopb for Zwift protobuf messages (when ZAP is implemented)
 - Own minimal FIT encoder (`recorder/fit.c`, ~300 lines) instead of the Garmin FIT SDK; validated with fitdecode
@@ -66,14 +64,14 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 ```
 main/                     app_main (bring-up order), app.c control task, ui.c LVGL screens (palette + style helpers at the top), font_digits_100.c (power digits) + font_icons_18.c (Font Awesome icons), both generated with lv_font_conv, diag.c console
 components/
-  bsp_s3lcd4/             board support: I2C, TCA9554, ST7701 init, RGB panel, SD, RTC, touch, buzzer
+  bsp_s3lcd4/             board support: I2C, CH32V003, ST7701 init, RGB panel, SD, RTC, touch, buzzer
   evbus/                  jr_types.h (stable event/sample types, pure) + one FreeRTOS queue
   ble_mgr/                NimBLE central: scan, connect, GATT discovery, CCCD subscribe, back-off, role per device (NVS)
   drv_ftms/               FTMS trainer driver: metrics out, control point with one write in flight
   drv_hr/                 heart-rate strap (0x180D)
   drv_zap/                Zwift Ride (plain ZAP): handshake, button edges -> input events, raw hex dump
   proto_ftms/             pure codec: Indoor Bike Data parsing, control point encode/decode
-  proto_zap/              pure codec: RideOn handshake, 0x23 keypad protobuf, button table (unverified)
+  proto_zap/              pure codec: RideOn handshake, 0x23 keypad protobuf, button table (verified on the Ride)
   input_map/              pure: input events -> ride actions by ride state (long press for stop/skip/start)
   workout/                pure: .zwo parser + workout timeline
   vshift/                 pure: gear table, strategy-A grade scaling
@@ -88,7 +86,7 @@ tools/                    sample .zwo files, vendor_stats.sh, sd_deploy.sh, ui_s
 docs/                     plan.html (planning), manual.html (user manual: setup + operation), img/ (screenshots)
 ```
 
-Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), menu navigation by controller, cycling-power fallback, intervals.icu upload.
+Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), cycling-power fallback, intervals.icu upload.
 
 ## Architecture rules
 
@@ -123,11 +121,13 @@ KICKR Core estimated cadence is only sent via FTMS, not via Cycling Power. KICKR
 
 Control point opcodes: 0x00 Request Control, 0x01 Reset, 0x04 Target Resistance (uint8, 0.1), 0x05 Target Power (sint16 W), 0x07 Start/Resume, 0x08 Stop/Pause (1 stop, 2 pause), 0x11 Indoor Bike Simulation (wind sint16 0.001 m/s, grade sint16 0.01 %, Crr uint8 0.0001, Cw uint8 0.01 kg/m), 0x13 Spin Down, 0x80 Response (req op, result; 0x01 = success).
 
-### Zwift Accessory Protocol (ZAP) — community reverse-engineered, NOT verified
+### Zwift Accessory Protocol (ZAP) — Ride verified 2026-10-29, others community reverse-engineered
+
+**User's Zwift Ride (capture: `test/host/fixtures/zap_ride_2026-10-29.txt`):** adverts carry UUID16 0xFC82 + company 0x094A + name "Zwift Ride"; both controllers advertise (type byte 0x07 / 0x08) and all buttons of both arrive over one connection. The GATT service is **0xFC82**, not 00000001-…; the characteristics inside keep the 128-bit UUIDs below, plus an extra 00000006 (props 0x2e). Needs an MTU exchange (152 agreed). Keypad 0x23: field 1 = 32-bit button map, active low; bits 0–3 left/up/right/down, 4–7 A/B/Y/Z, 8/9 left back upper/lower, 12/13 right back upper/lower (the community table was one bit off from Z up). Paddles are analog (repeated field 3: index 0 left, 1 right, zigzag −100…100), not bits. Other async: 0x15 ~1/s, 0x19 likely battery.
 
 | Item | UUID |
 |---|---|
-| Service | 00000001-19CA-4651-86E5-FA29DCDD09D1 |
+| Service | 00000001-19CA-4651-86E5-FA29DCDD09D1 (older firmware; the Ride uses 0xFC82) |
 | Async (notify) | 00000002-19CA-4651-86E5-FA29DCDD09D1 |
 | SyncRX (write) | 00000003-19CA-4651-86E5-FA29DCDD09D1 |
 | SyncTX (indicate) | 00000004-19CA-4651-86E5-FA29DCDD09D1 |
@@ -190,9 +190,9 @@ Riders: up to 8, chosen on the home screen (only while idle). FTP is never chang
 
 Hardware must not be damaged by this code, and the rider must never be stuck with a dangerous load.
 
-- Never write SW6106 (power/battery chip) registers unless the exact register and value are confirmed from Waveshare docs. Same for any chip register not in a datasheet.
-- TCA9554: write the output register before the direction register; unknown pins (EXIO4, 6, 7) stay inputs.
-- GPIO 1/2 are never driven by two peripherals at once: ST7701 init IO is deleted before the SD SPI bus starts; CS 42 is held high. Don't touch GPIO 0, 19/20, 43/44.
+- Never write a chip register unless register and value are confirmed from a datasheet or Waveshare's own code. CH32V003: only the registers listed above; SYS_EN stays high.
+- CH32: write the output register before the direction register; undocumented pins (EXIO0, 2, 4) and RTC_INT stay inputs.
+- GPIO 1/2 are never driven by two peripherals at once: ST7701 init IO is deleted before the SDMMC host starts; CS 42 is held high. Don't touch GPIO 0, 19/20, 43/44.
 - Buzzer only via `bsp_beep()` (timer-bounded, ≤ 1 s). No PWM on unknown expander pins.
 - Flash wear: no periodic NVS/flash writes. NVS only on pairing/forget; Wi-Fi storage RAM-only; logs never go to flash. SD writes batched (10 s).
 - Trainer: idle/pause/stop/finish → lowest resistance (flat SIM road if resistance mode is refused). ERG ≤ `max_erg_w` and ≤ 1500 W hard cap; SIM grade −10…+20 %; one control-point write in flight, ≤ 4/s, SIM ≤ 2/s. Spin-down is not exposed.
@@ -204,7 +204,7 @@ Hardware must not be damaged by this code, and the rider must never be stuck wit
 ## Working with the user
 
 - The user writes in English, prefers little or no soldering and is new to this board. Explain hardware steps plainly.
-- The user has the KICKR Core and a **Zwift Ride** (plain ZAP). The Ride code was written before any capture: verify button bits/polarity with `zap dump on` and turn the dumps into fixtures in `test/host/fixtures/`.
+- The user has the KICKR Core and a **Zwift Ride** (plain ZAP). Buttons are verified against the user's capture (see ZAP above); paddles and long-press behaviour still to be tried on the bike.
 - Don't claim protocol details are confirmed until they're checked against the user's own devices.
 
 ## Project memory

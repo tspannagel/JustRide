@@ -5,7 +5,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 ## Status
 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
-- Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
+- Hardware: the user's board is a **V4.0** (REV 4), not V3 (2026-10-28). `bsp.c` was ported to V4 from Waveshare's V4 BSP: CH32V003 helper at 0x24 instead of TCA9554 + SW6106, SD over 1-bit SDMMC, Waveshare's ST7701 init table and 16 MHz timing. First boot on the board: CH32, RTC (0x51) and GT911 (0x14) respond, the device reaches `jr>`, BLE scans. LVGL's built-in 64 KB pool overflowed while building the screens (hang); now `CONFIG_LV_USE_CLIB_MALLOC`. Later the same day: picture correct after switching to one frame buffer + LVGL partial rendering (direct mode on two buffers ghosted); touch works after driving GT911 INT (CH32 EXIO2) low through reset; SD mounts after enabling internal pull-ups (~1.5 MB/s write, ~1 MB/s read). After `idf.py flash` with a card inserted the USB console sometimes stays silent until the board is re-plugged. Open: backlight PWM polarity, the 0x5e seen in post-boot scans (likely a scan/touch-poll clash).
 - Firmware: everything is written, including Zwift Ride support (unverified button table) and multiple riders (2026-10-27). **The firmware compiles and links with ESP-IDF 5.3.2 in CI and on the user's Mac** (`.github/workflows/ci.yml`; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. `dependencies.lock` is committed (pins component versions).
 - Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.html` with screenshots rendered from `main/ui.c` by `tools/ui_shots/shots.sh` (device screens) and of the stats app with generated sample rides.
@@ -23,7 +23,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Wi-Fi credentials | In `/config/settings.json` on the SD card, not NVS (editable on a computer, no flash wear) |
 | OTA authorization | Physical presence: tap "Allow firmware update" on the device, valid 5 min |
 | Crash journal | The per-second CSV itself (fsync every 10 s) + `/rides/.journal` with ride metadata |
-| Board | Waveshare ESP32-S3-Touch-LCD-4 V3, no soldering, no custom PCB |
+| Board | Waveshare ESP32-S3-Touch-LCD-4 **V4.0** (user's board, 2026-10-28), no soldering, no custom PCB |
 | Power | Plain 5 V USB-A supply + USB-A to C cable; no fast chargers |
 | Trainer protocol | Bluetooth FTMS (not Cycling Power, not ANT+) |
 | Controllers | All Zwift controllers: Ride, Click v2 (plain ZAP), Play, Click v1 (encrypted ZAP); Sterzo and BLE HID later |
@@ -32,30 +32,25 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Virtual shifting | Strategy A (SIM grade scaling) first, strategy B (physics → ERG) later |
 | Recording | FIT + per-second CSV + summary/bests CSV, all local |
 | Statistics | DuckDB-WASM app served by the device from SD, vendored assets, OPFS cache |
-| Wi-Fi | Only off the bike (files, stats, OTA); off while riding |
+| Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
 | Out of scope | 3D world, multiplayer, ANT+ |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
 
 ## Open questions (ask the user)
 
-1. Has the board arrived, and which version is printed on it (V3 or V4)? V4 has its own demo repo: github.com/waveshareteam/ESP32-S3-Touch-LCD-4.
 2. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
 3. Is it OK that the statistics app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
 
 ## Must verify on real hardware (don't assume)
 
-- I2C bus pins for the TCA9554 (wiki contradicts itself: 15/7 vs 8/9). I2C scan at first boot.
-- What TCA9554 EXIO4 ("BLC") and EXIO7 ("DO1") do; whether backlight dimming is possible.
-- SW6106 light-load register fix (Waveshare FAQ). Not implemented: register unknown, TODO in `bsp.c`.
-- ST7701 init sequence: `bsp.c` uses the `esp_lcd_st7701` default; swap in Waveshare's table if colours/gamma are off.
-- RGB timings (porches, 16 MHz PCLK) in `bsp.c` are generic ST7701 values; raise PCLK towards 21 MHz once stable.
-- SD with no SPI CS pin (EXIO3 high during ST7701 init, low from SD bus start) mounts reliably.
-- Zwift Ride (code written before any capture): advert match (company 0x094A / UUID 0xFC82), "RideOn" handshake accepted, keypad message id 0x23, button bit table in `proto_zap.h`, active-low polarity, whether a keep-alive is needed. Use `zap dump on`.
-- KICKR Core firmware exposes FTMS (expected yes) and the Indoor Bike Data flags it uses.
-- GT911 address (0x5D or 0x14) and whether touch works with INT/RST not driven by the driver.
+- `pattern 0` bars in the right order and colours (picture itself looks right).
+- Backlight PWM polarity (`diag bl 0` / `bl 255`); then dim/off via `bsp_backlight_pwm()`.
+- USB console silent after flashing with a card inserted (re-plug fixes it): find out why.
+- Touch: taps land on the right tiles (user: "taps seem to work"); corners not checked for swap/mirror.
+- Zwift Ride: connects (service 0xFC82, MTU exchange first), handshake ok, button table fixed from a capture (2026-10-29). Still to try: shifting and long presses during a ride, whether a keep-alive is needed on long rides.
+- KICKR Core: connects over FTMS (0x2AD2/0x2AD9 etc. found, MTU 75). Data and ERG/SIM response not checked yet.
 - LVGL direct mode with `avoid_tearing` on the panel's two frame buffers looks stable; Wi-Fi on → RGB drift?
 - FTMS Target Resistance (0x04) accepted by the KICKR Core; otherwise the flat-SIM fallback kicks in (log says "rejected").
-- SDSPI mount with `gpio_cs = GPIO_NUM_NC` in the IDF version used.
 
 ## Milestones
 
@@ -74,8 +69,6 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 ## Next steps
 
-1. Board arrives: flash (M0).
-2. Bring-up on the board with the `diag` console (I2C scan, pattern, SD), adjust `bsp.c` (M0).
-3. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
-4. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).
-5. SW6106 light-load fix once the register is confirmed from Waveshare.
+1. Finish M0 on the V4 board: `pattern 0`, `bl`; home Wi-Fi (router rejects the password: reason 202), statistics page.
+2. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
+3. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).

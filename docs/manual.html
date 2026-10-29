@@ -80,14 +80,14 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
 <h1>JustRide manual</h1>
 <p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a statistics page in your browser. No cloud, no account.</p>
 
-<p class="note"><b>Status:</b> the firmware compiles but has not run on real hardware yet. Expect to fix things during the first bring-up (see <a href="#trouble">Troubleshooting</a>) and send logs back. The screenshots are rendered from the firmware's own screen code on a computer; on the device they should look the same.</p>
+<p class="note"><b>Status:</b> on a V4 board the screen, touch and SD card work. The trainer, heart-rate strap, Zwift Ride and Wi-Fi still have to be checked on real hardware. Expect to fix things during the first bring-up (see <a href="#check">3.5</a> and <a href="#trouble">Troubleshooting</a>) and send logs back. The screenshots are rendered from the firmware's own screen code on a computer; on the device they should look the same.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="need">1. What you need</h2>
 <div class="scroll"><table>
   <tr><th>Item</th><th>Notes</th></tr>
-  <tr><td>Waveshare ESP32-S3-Touch-LCD-4 (V3)</td><td>Check the version printed on the board. V4 may need pin changes.</td></tr>
-  <tr><td>microSD card, 32 GB or smaller</td><td>Formatted <b>FAT32</b>. Any speed class is fine.</td></tr>
+  <tr><td><a href="https://www.waveshare.com/esp32-s3-touch-lcd-4.htm">Waveshare ESP32-S3-Touch-LCD-4</a>, <b>V4</b></td><td>The firmware is written for board version V4 (printed on the back as “REV 4” or “V4.0”). V3 boards use different chips and won't work without changes. Documentation: <a href="https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4">Waveshare wiki</a>.</td></tr>
+  <tr><td>microSD card</td><td>Must be formatted <b>FAT32</b> (<a href="#sd">3.4</a> shows how; cards over 32 GB come as exFAT and must be reformatted). Any speed class is fine.</td></tr>
   <tr><td>Plain 5 V USB-A power supply + USB-A to USB-C cable</td><td>An old phone charger (5 V, 1–2 A) is ideal. See <a href="#safety">Safety</a>.</td></tr>
   <tr><td>Wahoo KICKR Core</td><td>Bluetooth FTMS is used. Update its firmware with the Wahoo app once.</td></tr>
   <tr><td>Heart-rate strap (optional)</td><td>Any Bluetooth strap (standard heart-rate service). Each rider can have their own.</td></tr>
@@ -106,24 +106,32 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
   <li><b>Stop needs a long press</b>, so a stray tap mid-interval doesn't end the ride.</li>
   <li>Simulated gradients are limited to −10 … +20 %.</li>
   <li>Your FTP is never raised automatically; the device only <i>offers</i> a new value after a ride.</li>
-  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts.</li>
-  <li>The firmware never runs a trainer spin-down and never writes to the board's battery/power chip.</li>
+  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on when you leave the ride summary.</li>
+  <li>The firmware never runs a trainer spin-down. It drives the board's power, reset and buzzer lines only the way Waveshare's own examples do.</li>
 </ul>
 <p>Before a hard session, make sure the trainer and bike are set up as usual: the head unit only sends targets, it can't make the trainer itself safer.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="setup">3. One-time setup</h2>
 
-<h3 id="tools">3.1 Install the tools (macOS)</h3>
+<h3 id="board">3.1 Check your board</h3>
+<p>Turn the board over and read the version printed on the back. It must say <b>REV 4</b> / <b>V4.0</b>. Earlier versions (V3) have a different I/O expander and power chip; the firmware stops with <code>CH32V003 not found</code> on them.</p>
+<ul>
+  <li><a href="https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4">Waveshare wiki</a>: pinout, FAQ, downloads</li>
+  <li><a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4">Waveshare's V4 examples</a>, including the <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/tree/main/hardware/schematics">V4.0 schematic</a> and a <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/tree/main/firmware">factory firmware</a> to restore the board's original demo</li>
+</ul>
+
+<h3 id="tools">3.2 Install the tools (macOS)</h3>
+<p>You need <a href="https://brew.sh">Homebrew</a> (a package manager for macOS) and Espressif's <a href="https://docs.espressif.com/projects/esp-idf/en/v5.3.2/esp32s3/get-started/index.html">ESP-IDF v5.3.2</a> (the build tools for the ESP32-S3).</p>
 <pre><code>xcode-select --install        <span class="c"># Apple's compiler and git (skip if already installed)</span>
 brew install cmake ninja dfu-util python3 node
 mkdir -p ~/esp &amp;&amp; cd ~/esp
 git clone -b v5.3.2 --recursive https://github.com/espressif/esp-idf.git
 ./esp-idf/install.sh esp32s3</code></pre>
 <p>This puts the ESP-IDF toolchain in <code>~/esp/esp-idf</code> (about 3 GB, 10–20 minutes). You only do this once and never need to work inside that folder afterwards.</p>
-<p>(Windows/Linux: follow Espressif's “ESP-IDF Get Started” guide for v5.3, then continue below.)</p>
+<p>(Windows/Linux: follow Espressif's <a href="https://docs.espressif.com/projects/esp-idf/en/v5.3.2/esp32s3/get-started/index.html">ESP-IDF Get Started guide for v5.3.2</a>, then continue below.)</p>
 
-<h3 id="build">3.2 Build and flash</h3>
+<h3 id="build">3.3 Build and flash</h3>
 <p>You can build without the board; it only proves the code compiles. For flashing, connect the board to your computer with the USB-C cable.</p>
 <p>In <b>every new terminal</b>, load the tools first, then change into <b>this repository</b> (not <code>~/esp</code>), because <code>idf.py</code> builds the project in the current folder:</p>
 <pre><code>. ~/esp/esp-idf/export.sh     <span class="c"># makes idf.py available in this terminal (works from any folder)</span>
@@ -133,12 +141,17 @@ idf.py build
 idf.py -p /dev/cu.usbmodem* flash monitor</code></pre>
 <ul>
   <li>The first build downloads LVGL, the display/touch drivers and mDNS (needs internet once). Build output goes to <code>build/</code> inside the repository (ignored by git).</li>
+  <li>The board shows up as <code>/dev/cu.usbmodem…</code>; <code>ls /dev/cu.usb*</code> lists it.</li>
   <li>If flashing fails with “no serial port”: hold the <b>BOOT</b> button, plug the cable in, release BOOT, and flash again.</li>
   <li><code>monitor</code> shows the log. Leave it with <kbd>Ctrl</kbd>+<kbd>]</kbd>.</li>
 </ul>
 
-<h3 id="sd">3.3 Prepare the SD card</h3>
-<p>On your computer, with the card inserted (here it's mounted as <code>/Volumes/JUSTRIDE</code>):</p>
+<h3 id="sd">3.4 Prepare the SD card</h3>
+<p><b>Format it as FAT32.</b> Put the card into the computer and find its disk number:</p>
+<pre><code>diskutil list external        <span class="c"># e.g. /dev/disk8, check the size matches your card</span>
+diskutil eraseDisk FAT32 JUSTRIDE MBRFormat /dev/disk8</code></pre>
+<p class="note">The second command <b>erases the whole disk</b> you name. Double-check the number: it must be the SD card, not a backup drive.</p>
+<p>Then copy the files (the card is now mounted as <code>/Volumes/JUSTRIDE</code>):</p>
 <pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
 tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistics app and sample workouts</span></code></pre>
 <p>The card then contains:</p>
@@ -148,7 +161,20 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 /config/        settings.json, gears.json (created on first boot)</code></pre>
 <p>Eject the card and put it in the board's microSD slot (contacts facing the board). Insert or remove the card only while the board is <b>unplugged</b>.</p>
 
-<h3 id="first">3.4 First start</h3>
+<h3 id="check">3.5 Check the hardware</h3>
+<p>Do this once after the first flash, with the board connected to the computer and <code>idf.py -p /dev/cu.usbmodem* monitor</code> running. Type each command at the <code>jr&gt;</code> prompt:</p>
+<div class="scroll"><table>
+  <tr><th>Command</th><th>Expected</th></tr>
+  <tr><td><code>i2c</code></td><td><code>0x24</code> (helper chip), <code>0x51</code> (clock), <code>0x14</code> or <code>0x5d</code> (touch)</td></tr>
+  <tr><td><code>pattern 0</code></td><td>Colour bars from left to right: white, yellow, cyan, green, magenta, red, blue, black</td></tr>
+  <tr><td><code>pattern 1</code> / <code>pattern 2</code></td><td>All white / all black</td></tr>
+  <tr><td><code>sd</code></td><td>A write and a read speed (fails with <i>SD not mounted</i> if there's no card)</td></tr>
+  <tr><td><code>buzz</code></td><td>A short beep</td></tr>
+  <tr><td><code>mem</code></td><td>Free memory, PSRAM free around 5 000 000</td></tr>
+</table></div>
+<p>If anything differs, copy the whole log from the start of the boot and send it, with a photo of the screen if the picture looks wrong. Board details are in the <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/blob/main/hardware/HARDWARE_REFERENCE.md">V4 hardware reference</a>.</p>
+
+<h3 id="first">3.6 First start</h3>
 <div class="shots">
   <figure class="device"><img src="img/home-first-start.png" alt="Home screen on first start: trainer searching, heart rate and Zwift Ride not connected, warning that the clock is not set"><figcaption>First start: nothing paired yet, clock not set.</figcaption></figure>
   <figure class="device"><img src="img/home.png" alt="Home screen: rider name at the top right, all three devices connected with green dots, Free ride, Workouts, Settings and Wi-Fi tiles"><figcaption>Everything connected (green dots).</figcaption></figure>
@@ -159,7 +185,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 "wifi_password": "secret",</code></pre>
 <p><code>settings.json</code> is a plain text file, so anyone with the card can read the Wi-Fi password in it. The full file is described in the <a href="#settings">Settings reference</a>.</p>
 
-<h3 id="pair">3.5 Connect the trainer, heart-rate strap and Zwift Ride</h3>
+<h3 id="pair">3.7 Connect the trainer, heart-rate strap and Zwift Ride</h3>
 <ol>
   <li><b>Close Zwift, the Wahoo app and any other app</b> that might connect to the KICKR or the Zwift Ride.</li>
   <li>Pedal a few strokes to wake the KICKR.</li>
@@ -170,7 +196,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <p>The device remembers the first trainer and Zwift controller it finds and from then on connects only to those. The <b>heart-rate strap is remembered per rider</b>: when you switch riders, the device disconnects the previous strap and looks for the new rider's. A rider without a strap gets the first one it finds, so have only your own strap on when pairing it.</p>
 <p>To pair different devices: <span class="btn">Settings → Forget paired devices</span>. This forgets the trainer, the controller and the <i>active</i> rider's strap; other riders keep theirs.</p>
 
-<h3 id="clock">3.6 Set the clock</h3>
+<h3 id="clock">3.8 Set the clock</h3>
 <p>Ride files are named after the start time. The board has a battery-backed clock, but it has to be set once: turn on <b>Wi-Fi</b> with your home network configured (see <a href="#wifi">Wi-Fi</a>). The device fetches the time from the internet and stores it. Until then the home screen shows <i>Clock not set</i>. Rides still record, but with wrong dates.</p>
 
 <!-- ------------------------------------------------------------------ -->
@@ -244,13 +270,21 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
   <tr><td>Shift up / down (either side)</td><td>same as <span class="btn">+</span> / <span class="btn">−</span> on screen: virtual gear, or ERG intensity ±5 %</td></tr>
   <tr><td>D-pad up / down</td><td>road gradient +/− 0.5 % (free ride)</td></tr>
   <tr><td><b>A</b> (short)</td><td>pause / resume; on the summary screen: done</td></tr>
-  <tr><td><b>A</b> (hold 1 s) on the home screen</td><td>start a free ride</td></tr>
   <tr><td><b>Y</b> (short)</td><td>lap</td></tr>
   <tr><td>D-pad right (hold 1 s)</td><td>skip to the next interval</td></tr>
   <tr><td><b>B</b> (hold 1 s)</td><td>stop the ride</td></tr>
 </table></div>
-<p>Menus (riders, workout list, settings, Wi-Fi) are touch-only.</p>
-<p class="note">The button layout is based on other people's reverse-engineering and is <b>not yet verified on a real Zwift Ride</b>. If a button does the wrong thing or nothing, see <a href="#trouble">Troubleshooting</a>.</p>
+<p>The table above is for a running ride. Before a ride, the controller moves through the menus:</p>
+<div class="scroll"><table>
+  <tr><th>Button</th><th>In the menus</th></tr>
+  <tr><td>D-pad left / up</td><td>highlight the previous button (it turns light blue)</td></tr>
+  <tr><td>D-pad right / down</td><td>highlight the next button</td></tr>
+  <tr><td><b>A</b> (short)</td><td>press the highlighted button</td></tr>
+  <tr><td><b>A</b> (hold 1 s)</td><td>start a ride: on <span class="btn">Free ride</span> or <span class="btn">Start workout</span> that one, with nothing highlighted a free ride</td></tr>
+  <tr><td><b>B</b> (short)</td><td>back to the previous screen</td></tr>
+</table></div>
+<p>A short <b>A</b> never starts a ride. Buttons that need a held finger on the screen (<span class="btn">Hold to delete</span>) and the name keyboard stay touch-only.</p>
+<p class="note">The button bits were checked against a real Zwift Ride. Zwift firmware updates may change them; if a button does the wrong thing or nothing, see <a href="#trouble">Troubleshooting</a>.</p>
 <p>Beeps: <b>1</b> = next interval in 3 seconds, <b>2</b> = new interval started, <b>3</b> = workout finished (you continue in free ride until you stop).</p>
 
 <h3 id="after">After the ride</h3>
@@ -305,7 +339,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <div class="shots">
   <figure class="device"><img src="img/wifi.png" alt="Wi-Fi screen: addresses http://trainer.local/ and an IP, Turn off and Allow firmware update buttons"><figcaption>Wi-Fi on, connected to the home network.</figcaption></figure>
 </div>
-<p>Wi-Fi is only for when you're <b>not</b> riding. On the home screen tap <span class="btn">Wi-Fi → Turn on</span>. The screen shows how to reach the device:</p>
+<p>Wi-Fi is on whenever you're <b>not</b> riding: it starts with the device and again after each ride. <span class="btn">Wi-Fi → Turn off</span> switches it off until the next ride or restart. The Wi-Fi screen shows how to reach the device:</p>
 <ul>
   <li><b>Home network</b> (if <code>wifi_ssid</code> is set): open <code>http://trainer.local/</code> (or the IP address shown) in a browser on the same network.</li>
   <li><b>Own hotspot</b> (if no home network is set, or it isn't reachable within 15 seconds): connect your phone/laptop to the Wi-Fi <b>JustRide</b> with the password shown on the screen, then open <code>http://192.168.4.1/</code>.</li>
@@ -322,11 +356,11 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="updates">8. Firmware updates</h2>
-<p><b>Over USB:</b> <code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.2</a>.</p>
+<p><b>Over USB:</b> <code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.3</a>.</p>
 <p><b>Over Wi-Fi:</b></p>
 <ol>
   <li>Build on your computer: <code>idf.py build</code> → the file is <code>build/justride.bin</code>.</li>
-  <li>On the device: <span class="btn">Wi-Fi → Turn on → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
+  <li>On the device: <span class="btn">Wi-Fi → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
   <li>On the device's start page choose the <code>.bin</code> under <i>Firmware update</i>. Don't unplug the board while it says “flashing”.</li>
   <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.</li>
 </ol>
@@ -376,31 +410,33 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <div class="scroll"><table>
   <tr><th>Command</th><th>What it does</th></tr>
   <tr><td><code>help</code></td><td>list commands</td></tr>
-  <tr><td><code>i2c</code></td><td>list chips on the internal bus (expect 0x20 or 0x38, 0x51, 0x5D or 0x14)</td></tr>
+  <tr><td><code>i2c</code></td><td>list chips on the internal bus (expect 0x24, 0x51, 0x14 or 0x5D)</td></tr>
   <tr><td><code>pattern 0</code> / <code>1</code> / <code>2</code></td><td>colour bars / white / black on the screen</td></tr>
   <tr><td><code>sd</code></td><td>SD card write/read speed test</td></tr>
   <tr><td><code>buzz</code></td><td>short beep</td></tr>
+  <tr><td><code>bl 0</code> … <code>bl 255</code></td><td>backlight brightness (which end is bright isn't confirmed yet; tell us)</td></tr>
   <tr><td><code>mem</code></td><td>free memory</td></tr>
   <tr><td><code>zap dump on</code> / <code>off</code></td><td>log every packet from the Zwift Ride as hex</td></tr>
 </table></div>
 
 <div class="scroll"><table>
   <tr><th>Problem</th><th>What to try</th></tr>
-  <tr><td>Screen stays dark</td><td>Check the log for <code>TCA9554 not found</code> or I2C errors and send it. Run <code>i2c</code>.</td></tr>
+  <tr><td>Screen stays dark</td><td>Check the log for <code>CH32V003 not found</code> (wrong board version, see <a href="#board">3.1</a>) or I2C errors and send it. Run <code>i2c</code>.</td></tr>
   <tr><td>Colours wrong, image shifted or flickering</td><td>Run <code>pattern 0</code> (should be white, yellow, cyan, green, magenta, red, blue, black from left to right). Send a photo; the display settings in <code>bsp.c</code> need adjusting.</td></tr>
   <tr><td>Touch doesn't react</td><td>Log says <code>GT911 not found</code>? Send the <code>i2c</code> output.</td></tr>
-  <tr><td><i>No SD card</i> on the home screen</td><td>Card must be FAT32, 32 GB or smaller, inserted with the board unplugged. Run <code>sd</code>.</td></tr>
+  <tr><td><i>No SD card</i> on the home screen</td><td>Card must be FAT32 (<a href="#sd">3.4</a>), inserted with the board unplugged. Run <code>sd</code>.</td></tr>
   <tr><td>Trainer stays <i>searching</i></td><td>Close every other app connected to the KICKR, pedal to wake it, then try <span class="btn">Settings → Forget paired devices</span>.</td></tr>
   <tr><td>Wrong heart-rate strap connects</td><td>Switch to the right rider, take the other strap off (or out of range), then <span class="btn">Settings → Forget paired devices</span>.</td></tr>
   <tr><td>Zwift Ride doesn't connect</td><td>Close the Zwift app (on phone, tablet and PC), press a button to wake it, check the log for <code>zap</code>.</td></tr>
   <tr><td>Zwift Ride button does the wrong thing / nothing</td><td>Run <code>zap dump on</code>, press each button once slowly (note the order), and send the log. The button table is then corrected from your recording.</td></tr>
   <tr><td>Trainer connects but resistance doesn't change</td><td>Check the log for <code>request control refused</code> or <code>rejected</code>; another app may still have control.</td></tr>
-  <tr><td>Board switches itself off</td><td>A known issue of this board's power chip at low load; the fix isn't implemented yet. Use the computer's USB port for now and report it.</td></tr>
-  <tr><td><i>Clock not set</i></td><td>Turn on Wi-Fi with your home network configured (needs internet).</td></tr>
+  <tr><td>Board switches itself off</td><td>Use the computer's USB port or a plain 5 V supply and send the log. If it keeps happening, restore Waveshare's <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/tree/main/firmware">factory firmware</a> to check whether the board itself is fine.</td></tr>
+  <tr><td><i>Clock not set</i></td><td>Set your home network in <code>settings.json</code> (the clock is set over the internet).</td></tr>
+  <tr><td>No log / <code>jr&gt;</code> doesn't answer after flashing</td><td>Unplug the board and plug it back in. This happens sometimes after a flash with an SD card inserted.</td></tr>
   <tr><td><code>trainer.local</code> doesn't open</td><td>Use the IP address shown on the device instead (some Android phones don't support <code>.local</code> names).</td></tr>
   <tr><td>Firmware update refused</td><td>Tap <span class="btn">Allow firmware update</span> on the device first (valid 5 minutes, one upload per tap). Upload from the device's own start page; other pages and tools without the <code>X-JustRide</code> header are refused.</td></tr>
 </table></div>
-<p>Not supported yet: Zwift Click and Play (encrypted protocol), menu navigation with the Zwift Ride, power meters and cadence sensors other than the trainer, intervals.icu upload.</p>
+<p>Not supported yet: Zwift Click and Play (encrypted protocol), power meters and cadence sensors other than the trainer, intervals.icu upload.</p>
 
 <h3>Regenerating the screenshots</h3>
 <p>The device screenshots come from <code>tools/ui_shots/shots.sh</code>, which compiles <code>main/ui.c</code> with LVGL on the computer and writes <code>docs/img/*.png</code> (needs one <code>idf.py build</code> first). Run it after changing the screens.</p>
