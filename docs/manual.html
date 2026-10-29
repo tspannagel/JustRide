@@ -312,6 +312,19 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 </ul>
 <p>Tap <span class="btn">Start workout</span> to ride it, or <span class="btn">‹</span> to go back. During the ride a small copy of the profile sits under the timer: the part you have done is dimmed and a white line marks where you are.</p>
 
+<h3 id="adaptive">Adaptive rides: ride to a goal</h3>
+<div class="shots">
+  <figure class="device"><img src="img/adaptive-setup.png" alt="Adaptive ride screen: duration, power and heart-rate range steppers, hold average switch, Next button"><figcaption>Setting the goals.</figcaption></figure>
+  <figure class="device"><img src="img/ride-adaptive.png" alt="Ride screen of an adaptive part: target line with average and HR range, HR and cadence coloured by range"><figcaption>Riding an adaptive part.</figcaption></figure>
+</div>
+<p>In an adaptive part the device changes the ERG target while you ride, to meet goals you set. Start one with <span class="btn">Workouts → Adaptive ride: set goals</span>: choose the duration, the power and a heart-rate range (set it below 100 bpm to switch it off) and whether to <b>hold the average</b>, then <span class="btn">Next</span> shows the preview. The ride is 10 min warm-up, the adaptive part, and 5 min cool-down. Adaptive parts can also be built in the web app (<a href="#webapp-workouts">7.4</a>) and combined with normal parts.</p>
+<ul>
+  <li><b>Heart-rate range:</b> above the range the target drops by 5 W every 20 s (10 W when you're more than 5 bpm above); below it, it rises by 5 W every 20 s. Without a heart-rate signal it never rises, and after a minute it goes back towards the planned power.</li>
+  <li><b>Hold the average:</b> if you fell short (for example because of the HR limit, or a pause), the target is raised later to make up for it, spread over the rest of the part (at least one minute). In this mode the HR range only limits, it never raises.</li>
+  <li><b>Cadence range</b> (web app only): a cue, never a power change. The cadence turns orange and the device beeps once when you're out of range for 5 s, at most once a minute.</li>
+</ul>
+<p>The target always stays between the part's lower and upper bound (by default 30 % below and 15 % above its power, never under 30 % FTP) and under your Max ERG. The target line shows the current target, the average so far against the goal, and the HR range; heart rate and cadence are green inside their range and orange outside.</p>
+
 <h3 id="design">Design your own</h3>
 <p><b>Option 1: export from another app.</b> Many workout tools can save or export Zwift <code>.zwo</code> files, for example the workout editor in the Zwift app (it saves to <code>Documents/Zwift/Workouts/</code>), workout libraries such as whatsonzwift.com, or the workout builder in intervals.icu (look for a Zwift / <code>.zwo</code> export). Copy the file to the card or upload it over Wi-Fi.</p>
 <p><b>Option 2: write it yourself.</b> A <code>.zwo</code> file is plain text; any text editor works. Durations are in seconds, power is a fraction of FTP:</p>
@@ -330,6 +343,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td><code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code></td><td><code>Duration</code>, <code>PowerLow</code> (start), <code>PowerHigh</code> (end)</td><td>target changes evenly from start to end</td></tr>
   <tr><td><code>IntervalsT</code></td><td><code>Repeat</code>, <code>OnDuration</code>, <code>OffDuration</code>, <code>OnPower</code>, <code>OffPower</code></td><td>repeated on/off pairs</td></tr>
   <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: free ride with virtual gears for that time</td></tr>
+  <tr><td><code>SteadyState</code> (adaptive, JustRide only)</td><td><code>JrHrLow</code>, <code>JrHrHigh</code> (bpm), <code>JrAvg="1"</code> (hold the average), <code>JrCadLow</code>, <code>JrCadHigh</code> (rpm), <code>JrMin</code>, <code>JrMax</code> (bounds, fraction of FTP)</td><td>adaptive part (see <a href="#adaptive">Adaptive rides</a>); Zwift ignores these attributes and rides it as a steady part. At most 16 per workout</td></tr>
   <tr><td>any of the above</td><td><code>Cadence</code> (rpm), <code>CadenceResting</code> (rpm, for <code>IntervalsT</code> off parts)</td><td>cadence shown as a target on the ride screen</td></tr>
 </table></div>
 <p>Limits: up to 200 segments (each interval repeat counts as two), 10 hours per segment, 300 % FTP. Whatever a file says, ERG targets never go above the rider's <i>Max ERG</i>. Elements the device doesn't know (text messages, <code>textevent</code>, …) are ignored. Name files without special characters, e.g. <code>threshold_2x20.zwo</code>; underscores are shown as spaces.</p>
@@ -362,8 +376,9 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3 id="webapp-workouts">7.4 Workouts: builder and generator</h3>
 <p>Left: the workouts on the device. Click one to edit it. Right: the editor with the profile (coloured by power zone), length, training load (TSS), intensity (IF), average power and work for your FTP.</p>
 <ul>
-  <li><b>Blocks:</b> warm-up, steady, intervals (repeats × on/off), ramp, free ride (no target, you ride by feel) and cool-down. Power is in % of FTP, so the workout fits whoever rides it; the watts next to each field are for the FTP shown below the profile. Times are minutes:seconds. Arrows move a block, the copy icon duplicates it.</li>
-  <li><span class="btn">Generate</span> builds a workout for you: pick a type (recovery, endurance, tempo, sweet spot, threshold, VO2max, sprints, FTP ramp test), length and difficulty.</li>
+  <li><b>Blocks:</b> warm-up, steady, intervals (repeats × on/off), ramp, free ride (no target, you ride by feel), adaptive and cool-down. Power is in % of FTP, so the workout fits whoever rides it; the watts next to each field are for the FTP shown below the profile. Times are minutes:seconds. Arrows move a block, the copy icon duplicates it.</li>
+  <li><b>Adaptive</b> blocks take a power plus any of: <i>an average to hold</i>, a heart-rate range, a cadence cue range, and the bounds the power may move between (empty = default). The profile shows the bounds as a dashed band. How the device steers is described in <a href="#adaptive">Adaptive rides</a>.</li>
+  <li><span class="btn">Generate</span> builds a workout for you: pick a type (recovery, endurance, HR steady, steady average, tempo, sweet spot, threshold, VO2max, sprints, FTP ramp test), length and difficulty. <b>HR steady</b> is endurance steered by your heart rate (range from your max HR); <b>Steady average</b> holds an average power with an HR ceiling and a cadence cue.</li>
   <li><b>Adapt to me</b> (on by default) uses your history: targets are 3–6 % lower when your form shows you're tired and 2 % higher when you're fresh; VO2max and sprint targets come from your own 5-minute and 1-minute bests. The description says what was adapted.</li>
   <li><span class="btn">Save to device</span> writes the <code>.zwo</code> to the card; it appears on the device under <span class="btn">Workouts</span> right away. <span class="btn">Download</span> saves it for Zwift or elsewhere, <span class="btn">Import .zwo</span> opens a file from your computer.</li>
 </ul>
@@ -377,7 +392,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test.</p>
 <p>After <span class="btn">Start plan</span> the <b>next 7 days</b> are put on the device as workouts named <i>Plan &lt;date&gt; &lt;type&gt;</i>, listed first under <span class="btn">Workouts</span>. Ride the one for today. Each time you open the web app they're rebuilt for your current form and bests (adapt to me), and past ones are removed. If you edit one of them in the builder, it's kept as you saved it. With more than one rider, the files also carry the rider's name. The calendar ticks off the days you rode and shows planned vs. ridden load per week.</p>
 <div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
-<p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit. Workouts don't yet change <i>during</i> a ride; see the HANDOVER notes for that plan.</p>
+<p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit.</p>
 
 <h3 id="webapp-riders">7.6 Riders</h3>
 <p>The <span class="btn">Riders</span> page does everything the rider screens on the device do: add a rider, rename (click the name), set FTP, Max ERG, weight and max HR (same ranges as in <a href="#riders">4</a>), <span class="btn">Make active</span> to choose who rides next, and <span class="btn">Delete</span> (asks first; their rides stay on the SD card). <span class="btn">Save</span> lights up when you changed something; out-of-range values are marked red and the device checks them again. Changes are saved on the device right away. While a ride is running the device has Wi-Fi off, so this only works between rides.</p>

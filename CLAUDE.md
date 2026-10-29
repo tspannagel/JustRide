@@ -43,7 +43,7 @@ CH32V003 registers (Waveshare driver): 0x02 direction (1 = output), 0x03 output,
 6. Mount the SD card over SDMMC 1-bit on 1/2/4 with internal pull-ups (the board is wired for SPI and has none)
 7. Start LVGL, then BLE, then the control loop
 
-RGB + PSRAM: PSRAM 80 MHz octal, 10-line bounce buffers (two, in internal RAM), 64-byte data cache lines, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. One frame buffer, LVGL partial rendering (48 lines, PSRAM) like Waveshare's BSP: direct mode on two frame buffers showed a shifted, flickering second image. Internal RAM is tight (~39 KB free): a 64 KB data cache or 20-line bounce buffers broke BLE / the HTTP server. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding. Time: SNTP starts on got-IP with the router (DHCP gateway) as server 0 and pool.ntp.org as server 1; the user blocks the device from the internet, so the router or the web app (`/api/time`) sets the clock. `CONFIG_LCD_RGB_ISR_IRAM_SAFE` keeps the bounce-buffer ISR running while flash is busy (added after a lasting shift when Wi-Fi came back on after a ride; ~17 KB internal RAM left with Wi-Fi + BLE). No gradients on dark UI surfaces: RGB565 bands.
+RGB + PSRAM: PSRAM 80 MHz octal, 10-line bounce buffers (two, in internal RAM), 64-byte data cache lines, `CONFIG_SPIRAM_FETCH_INSTRUCTIONS` and `CONFIG_SPIRAM_RODATA` on. One frame buffer, LVGL partial rendering (48 lines, PSRAM) like Waveshare's BSP: direct mode on two frame buffers showed a shifted, flickering second image. Internal RAM is tight (~39 KB free): a 64 KB data cache or 20-line bounce buffers broke BLE / the HTTP server. Wi-Fi traffic can make the RGB image drift; Wi-Fi is only on when not riding. Time: SNTP starts on got-IP with the router (DHCP gateway) as server 0 and pool.ntp.org as server 1; the user blocks the device from the internet, so the router or the web app (`/api/time`) sets the clock. `CONFIG_LCD_RGB_ISR_IRAM_SAFE` keeps the bounce-buffer ISR running while flash is busy (added after a lasting shift when Wi-Fi came back on after a ride; ~17 KB internal RAM left with Wi-Fi + BLE). Big static buffers (`s_wo` in app.c, `s_preview` in ui.c) live in PSRAM via `EXT_RAM_BSS_ATTR` (`CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY`), ~29 KB internal free at idle. No gradients on dark UI surfaces: RGB565 bands.
 
 ### Power safety
 
@@ -73,7 +73,7 @@ components/
   proto_ftms/             pure codec: Indoor Bike Data parsing, control point encode/decode
   proto_zap/              pure codec: RideOn handshake, 0x23 keypad protobuf, button table (verified on the Ride)
   input_map/              pure: input events -> ride actions by ride state (long press for stop/skip/start)
-  workout/                pure: .zwo parser + workout timeline
+  workout/                pure: .zwo parser + workout timeline, adaptive goals (goal_t)
   vshift/                 pure: gear table, strategy-A grade scaling
   metrics/                pure: NP, IF, TSS, kJ, distance, best efforts
   ride/                   pure: ride state machine, trainer command, safety limits
@@ -86,7 +86,7 @@ tools/                    sample .zwo files, vendor_stats.sh, sd_deploy.sh, web_
 docs/                     plan.html (planning), manual.html (user manual: setup + operation), img/ (screenshots)
 ```
 
-Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), workouts that adapt during the ride (firmware, see HANDOVER), cycling-power fallback, intervals.icu upload.
+Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), cycling-power fallback, intervals.icu upload.
 
 ## Architecture rules
 
@@ -200,6 +200,7 @@ Hardware must not be damaged by this code, and the rider must never be stuck wit
 - GPIO 1/2 are never driven by two peripherals at once: ST7701 init IO is deleted before the SDMMC host starts; CS 42 is held high. Don't touch GPIO 0, 19/20, 43/44.
 - Buzzer only via `bsp_beep()` (timer-bounded, ≤ 1 s). No PWM on unknown expander pins.
 - Flash wear: no periodic NVS/flash writes. NVS only on pairing/forget; Wi-Fi storage RAM-only; logs never go to flash. SD writes batched (10 s).
+- Adaptive parts (`goal_t`, `Jr*` attributes on `SteadyState`, controller `adapt_update` in `ride.c`, see HANDOVER): the target never leaves the part's bounds or Max ERG; without HR it never rises.
 - Trainer: idle/pause/stop/finish → lowest resistance (flat SIM road if resistance mode is refused). ERG ≤ `max_erg_w` and ≤ 1500 W hard cap; SIM grade −10…+20 %; one control-point write in flight, ≤ 4/s, SIM ≤ 2/s. Spin-down is not exposed.
 - Stopping a ride needs a long press. Wi-Fi is off while riding. OTA needs on-device approval, checks the project name, and relies on bootloader rollback (`esp_ota_mark_app_valid_cancel_rollback()` only after full start-up).
 - Stale sensor data (> 3 s trainer, > 5 s HR) is recorded as unknown, never repeated.

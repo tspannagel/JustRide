@@ -40,7 +40,6 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 2. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
 3. Is it OK that the web app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
-4. Workouts that adapt *during* the ride (user wants it, 2026-10-29): which rules? Proposal below.
 
 ## Must verify on real hardware (don't assume)
 
@@ -74,10 +73,11 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 2. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
 3. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).
 
-## Proposal: workouts that adapt during the ride (not built)
+## Adaptive workouts (built 2026-10-29, not yet ridden)
 
-Firmware, pure code in `ride/` with host tests, reviewed against the safety rules. Ideas, each off unless the rider enables it:
-- HR guard: if HR stays above a ceiling (e.g. 92 % of max HR) for 30 s in an ERG interval, lower the target 5 % per 30 s, at most −20 %; back up slowly when HR drops. Never raises targets above the workout.
-- Cadence guard: cadence below 60 rpm for 10 s in ERG → drop the target 10 % (avoids the ERG "death spiral"); restore when cadence recovers.
-- Fail a VO2max/threshold interval twice (power < 85 % of target for 20 s) → the next repeats at −5 %.
-- Show every adjustment on the ride screen and in the CSV (target_w already recorded), so the web app can learn from it (next workout's difficulty).
+User's choices: HR range adjusts power; an average watt goal is held (shortfalls made up later); cadence is a cue only; set up from builder blocks, generator presets (HR steady, Steady average) and a device quick start (Workouts → Adaptive ride).
+- `.zwo`: `SteadyState` with `JrHrLow/JrHrHigh`, `JrAvg="1"`, `JrCadLow/JrCadHigh`, `JrMin/JrMax` (FTP fractions). Parsed into `goal_t` (≤ 16 per workout, `segment_t.goal` 1-based). Zwift ignores the attributes.
+- Controller in `ride.c` (`adapt_update`, once per recorded second, host-tested): HR above range −5 W / 20 s (−10 W if > 5 bpm above), below +5 W / 20 s (not in hold-average parts); no HR → never raises, after 60 s back towards plan; hold-average spreads the shortfall over the remaining part (≥ 60 s), capped by the HR ceiling. Always within the part's bounds (default −30 % / +15 %, ≥ 30 % FTP) and Max ERG; sent in 5 W steps. Cadence: beep after 5 s out of range, ≤ 1 per minute.
+- To verify on the bike: HR step sizes feel right (KICKR response lag), the cadence beep isn't annoying, hold-average after a pause.
+- Not done: interval-failure rules (lower the next repeat), learning from adjustments in the web app.
+
