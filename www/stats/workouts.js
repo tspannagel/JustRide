@@ -38,7 +38,9 @@ function expand(w) {
     } else if (b.type === 'steady') {
       for (let i = 0; i < b.dur; i++) out.push(b.p);
     } else {
-      for (let i = 0; i < b.dur; i++) out.push(b.lo + ((b.hi - b.lo) * i) / Math.max(1, b.dur - 1));
+      // Warm-up and ramp climb from lo to hi; a cool-down starts at hi and ends at lo
+      const [from, to] = b.type === 'cooldown' ? [b.hi, b.lo] : [b.lo, b.hi];
+      for (let i = 0; i < b.dur; i++) out.push(from + ((to - from) * i) / Math.max(1, b.dur - 1));
     }
   }
   return out;
