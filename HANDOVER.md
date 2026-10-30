@@ -7,7 +7,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: Waveshare ESP32-S3-Touch-LCD-4 V3 chosen. Not confirmed whether the user has received it yet.
 - Firmware: everything is written, including Zwift Ride support (unverified button table) and multiple riders (2026-10-27). **The firmware compiles and links with ESP-IDF 5.3.2 in CI and on the user's Mac** (`.github/workflows/ci.yml`; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. `dependencies.lock` is committed (pins component versions).
-- Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
+- Verified off-device: pure components (proto_ftms incl. the control-point state machine, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.html` with screenshots rendered from `main/ui.c` by `tools/ui_shots/shots.sh` (device screens) and of the stats app with generated sample rides.
 
 ## Decisions made
