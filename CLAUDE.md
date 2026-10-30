@@ -72,7 +72,7 @@ components/
   drv_ftms/               FTMS trainer driver: metrics out, control point with one write in flight
   drv_hr/                 heart-rate strap (0x180D)
   drv_zap/                Zwift Ride (plain ZAP): handshake, button edges -> input events, raw hex dump
-  proto_ftms/             pure codec: Indoor Bike Data parsing, control point encode/decode
+  proto_ftms/             pure codec: Indoor Bike Data parsing, control point encode/decode; ftms_ctl.c control-point state machine
   proto_zap/              pure codec: RideOn handshake, 0x23 keypad protobuf, button table (unverified)
   input_map/              pure: input events -> ride actions by ride state (long press for stop/skip/start)
   workout/                pure: .zwo parser + workout timeline
@@ -102,7 +102,7 @@ Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), 
 - Device drivers are a `ble_drv_t`: advertised service (= `matches(adv)`), wanted characteristics, `on_ready`, `on_notify`, `on_disconnect`; trainers add a `set(cmd)` mailbox (`drv_ftms_set`). ble_mgr does all GATT work.
 - Codecs and parsers (`proto_*`, `zwo`, `metrics`, `vshift`, CSV/FIT writers) are pure C with no ESP-IDF dependencies so they run in host tests.
 - Integers with fixed units on the bus; no floats in event structs.
-- Trainer control point: one command in flight, wait for the 0x80 response (≤ 1 s timeout), max 4 writes/s, SIM grade updates max 2/s. After reconnect: Request Control, Start, resend current target.
+- Trainer control point: one command in flight, wait for the 0x80 response (≤ 1 s timeout), max 4 writes/s, SIM grade updates max 2/s. After reconnect: Request Control, Start, resend current target. These rules live in the pure `ftms_ctl.c`; `drv_ftms.c` is only queues, BLE writes and logging.
 
 ## Protocol reference
 
@@ -200,7 +200,7 @@ Hardware must not be damaged by this code, and the rider must never be stuck wit
 - Stopping a ride needs a long press. Wi-Fi is off while riding. OTA needs on-device approval, checks the project name, and relies on bootloader rollback (`esp_ota_mark_app_valid_cancel_rollback()` only after full start-up).
 - Stale sensor data (> 3 s trainer, > 5 s HR) is recorded as unknown, never repeated.
 - Controller input: stop, skip and start need a held button; a disconnect never generates releases (a held button can't become a long press).
-- Limits live in pure code (`ride.c`, `vshift.c`) and have host tests; keep it that way.
+- Limits live in pure code (`ride.c`, `vshift.c`, `ftms_ctl.c`) and have host tests; keep it that way.
 
 ## Working with the user
 

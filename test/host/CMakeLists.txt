@@ -32,6 +32,7 @@ include_directories(
 )
 
 jr_test(proto_ftms ${C}/proto_ftms/proto_ftms.c)
+jr_test(ftms_ctl ${C}/proto_ftms/ftms_ctl.c ${C}/proto_ftms/proto_ftms.c)
 jr_test(workout ${C}/workout/zwo.c ${C}/workout/workout.c)
 jr_test(metrics ${C}/metrics/metrics.c)
 jr_test(vshift ${C}/vshift/vshift.c)
