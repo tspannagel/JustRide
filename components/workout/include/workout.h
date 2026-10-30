@@ -39,6 +39,11 @@ typedef struct {
     uint32_t total_s;
     segment_t seg[WORKOUT_MAX_SEGMENTS];
     goal_t goals[WORKOUT_MAX_GOALS];
+    // FTP ramp test: segments [ramp_first, ramp_end) are the ramp, ramp_end is the
+    // cool-down. A .zwo marks one with JrRampTest="1" on <workout>; the device then
+    // replaces its segments with workout_ramp_test() for the rider.
+    bool ramp_test;
+    uint8_t ramp_first, ramp_end;
 } workout_t;
 
 // Adds an adaptive segment's goals; fills in default bounds (start power -30 % /
@@ -48,7 +53,18 @@ uint8_t workout_add_goal(workout_t *w, uint16_t p_pm, goal_t g);
 // Goals of segment idx, NULL for a fixed segment
 const goal_t *workout_goal(const workout_t *w, int idx);
 
-// Parse a .zwo document. Returns false if it has no usable segments.
+// FTP ramp test from the rider's weight, so a first test needs no FTP: 5 min warm-up,
+// 1-minute steps from 1.5 W/kg rising by 0.25 W/kg (5 W multiples, at least 10 W)
+// up to max(7 W/kg, 2 x FTP) but not above max_w, then 5 min cool-down. Targets are
+// stored per mille of ftp_w (exact watts at 100 % intensity). Keeps w->name if set.
+#define RAMP_WARMUP_S 300
+#define RAMP_STEP_S 60
+#define RAMP_COOLDOWN_S 300
+void workout_ramp_test(workout_t *w, uint16_t ftp_w, uint8_t weight_kg, uint16_t max_w);
+// First step and step size of that ramp, W
+void workout_ramp_steps(uint8_t weight_kg, uint16_t *start_w, uint16_t *step_w);
+
+// Parse a .zwo document. Returns false if it has no usable segments (and isn't a ramp test).
 // Extra segments beyond WORKOUT_MAX_SEGMENTS are dropped.
 bool zwo_parse(const char *xml, size_t len, workout_t *out);
 

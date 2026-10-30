@@ -13,6 +13,7 @@ typedef struct {
     char id[8];           // "u1", "u2", ...: folder under /rides and BLE key; never reused
     char name[SETTINGS_NAME_LEN];
     uint16_t ftp_w;
+    bool ftp_known;       // false: still the default guess (no test, never entered)
     uint16_t max_erg_w;
     uint8_t weight_kg;
     uint8_t max_hr;

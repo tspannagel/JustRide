@@ -16,6 +16,7 @@ typedef struct {
     double cadence, cadence_resting;
     double repeat, on_duration, off_duration, on_power, off_power;
     double hr_lo, hr_hi, cad_lo, cad_hi, avg, p_min, p_max;  // JustRide adaptive goals
+    double ramp_test;                                         // JustRide: on <workout>
 } attrs_t;
 
 static const char *find_comment_end(const char *p, const char *end)
@@ -57,6 +58,7 @@ static double *attr_slot(attrs_t *a, const char *name, size_t len)
         {"JrAvg", offsetof(attrs_t, avg)},
         {"JrMin", offsetof(attrs_t, p_min)},
         {"JrMax", offsetof(attrs_t, p_max)},
+        {"JrRampTest", offsetof(attrs_t, ramp_test)},
     };
     for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (tag_is(name, len, map[i].name)) {
@@ -126,7 +128,9 @@ static void add(workout_t *w, double dur, double p0, double p1, double cad, seg_
 
 static void add_element(workout_t *w, const char *tag, size_t len, const attrs_t *a)
 {
-    if (tag_is(tag, len, "SteadyState")) {
+    if (tag_is(tag, len, "workout")) {
+        w->ramp_test = a->ramp_test >= 0.5;  // segments come from workout_ramp_test()
+    } else if (tag_is(tag, len, "SteadyState")) {
         int n = w->n;
         add(w, a->duration, a->power, a->power, a->cadence, SEG_ERG);
         if (w->n > n) {
@@ -206,5 +210,5 @@ bool zwo_parse(const char *xml, size_t len, workout_t *out)
         }
         add_element(out, tag, tag_len, &a);
     }
-    return out->n > 0;
+    return out->n > 0 || out->ramp_test;
 }

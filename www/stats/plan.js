@@ -23,8 +23,9 @@ const dow = (key) => (new Date(key + 'T00:00:00Z').getUTCDay() + 6) % 7;
 // Monday of the week containing key
 const monday = (key) => addDays(key, -dow(key));
 
-// Sessions for a plan setup: {goal, start, weeks, days: [0..6], longDay, hours}
-export function buildPlan(setup) {
+// Sessions for a plan setup: {goal, start, weeks, days: [0..6], longDay, hours}.
+// firstTest: the rider's FTP is still a guess, so the first hard day is a ramp test.
+export function buildPlan(setup, firstTest = false) {
   const { goal, weeks, hours } = setup;
   const days = [...setup.days].sort((a, b) => a - b);
   const longDay = days.includes(setup.longDay) ? setup.longDay : days[days.length - 1];
@@ -49,7 +50,7 @@ export function buildPlan(setup) {
     const phase = w % 4;                                   // 0,1,2 build, 3 recovery
     const vol = recovery ? 0.65 : last ? 0.75 : [0.9, 1.0, 1.1][phase];
     const diff = recovery ? 2 : last ? 3 : Math.min(5, 2 + phase + Math.floor(w / 4));
-    let hardIdx = w, tested = !(goal === 'ftp' && (w === 0 || last));
+    let hardIdx = w, tested = !((goal === 'ftp' || firstTest) && w === 0) && !(goal === 'ftp' && last);
     for (const d of days) {
       const date = addDays(start, w * 7 + d);
       if (date < setup.start) continue;
@@ -233,7 +234,7 @@ function renderSetup() {
   $('#plan-weeks-v').textContent = `${s.weeks} weeks`;
   $('#plan-hours-v').textContent = `${s.hours} h / week`;
   $('#plan-cancel').hidden = !ui.plan;
-  const preview = s.days.length ? buildPlan(s) : null;
+  const preview = s.days.length ? buildPlan(s, !ui.ctxFn().ftpKnown) : null;
   $('#plan-preview').innerHTML = preview ? calendar(preview, true) : empty('Pick at least one day', 'Choose the days you can ride.', 'calendar');
 }
 
@@ -325,7 +326,7 @@ async function onClick(e) {
   switch (b.id) {
     case 'plan-create': {
       if (!s.days.length) return toast('Pick at least one day', 'bad');
-      const plan = buildPlan(s);
+      const plan = buildPlan(s, !ui.ctxFn().ftpKnown);
       if (ui.plan?.synced) plan.synced = ui.plan.synced;   // so the old plan's files get replaced
       ui.plan = plan;
       ui.setup = null;

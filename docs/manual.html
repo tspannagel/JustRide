@@ -116,7 +116,8 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
   <li>When you <b>pause</b>, <b>stop</b>, or are on the home screen, the trainer is set to its <b>lowest resistance</b>.</li>
   <li><b>Stop needs a long press</b>, so a stray tap mid-interval doesn't end the ride.</li>
   <li>Simulated gradients are limited to −10 … +20 %.</li>
-  <li>Your FTP is never raised automatically; the device only <i>offers</i> a new value after a ride.</li>
+  <li>Your FTP is never changed automatically; the device only <i>offers</i> a new value after a ride or an FTP test.</li>
+  <li>During an FTP test the trainer drops to the cool-down by itself when you can't keep up (see <a href="#ftptest">FTP test</a>).</li>
   <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on when you leave the ride summary.</li>
   <li>The firmware never runs a trainer spin-down. It drives the board's power, reset and buzzer lines only the way Waveshare's own examples do.</li>
 </ul>
@@ -192,7 +193,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <figure class="device"><img src="img/home-first-start.png" alt="Home screen on first start: trainer searching, heart rate, Zwift Ride and watch not connected, warning that the clock is not set"><figcaption>First start: nothing paired yet, clock not set.</figcaption></figure>
   <figure class="device"><img src="img/home.png" alt="Home screen: rider name at the top right, all three devices connected with green dots, Free ride, Workouts, Settings and Wi-Fi tiles"><figcaption>Everything connected (green dots).</figcaption></figure>
 </div>
-<p>Power the board. The home screen shows the active <b>rider</b> (top right), the connection status of trainer, heart-rate strap, Zwift Ride and watch (a watch or bike computer receiving power and cadence, see <a href="#watch">Record on an Apple Watch too</a>; <i>2 connected</i> when both are), and the tiles <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>. Warnings (no SD card, clock not set) appear in orange under the status.</p>
+<p>Power the board. The home screen shows the active <b>rider</b> (top right), the connection status of trainer, heart-rate strap, Zwift Ride and watch (a watch or bike computer receiving power and cadence, see <a href="#watch">Record on an Apple Watch too</a>; <i>2 connected</i> when both are), and the tiles <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>. Warnings (no SD card, clock not set) appear in orange under the status. As long as the rider's FTP is only the default guess, <span class="btn">FTP not tested yet: take the ramp test</span> appears below them (see <a href="#ftptest">FTP test</a>).</p>
 <p>On first boot the device writes <code>/config/settings.json</code> with one rider called “Rider” and a random password for its own Wi-Fi hotspot. Rename the rider and set your values on the device (<a href="#riders">Riders</a>). Your home Wi-Fi is set in <code>settings.json</code> on your computer: unplug the board, move the card, edit, move it back:</p>
 <pre><code>"wifi_ssid": "MyHomeWifi",
 "wifi_password": "secret",</code></pre>
@@ -232,7 +233,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3>Switch, add, rename, delete</h3>
 <ul>
   <li><b>Switch:</b> tap your name at the top right of the home screen, then a name. Only possible while no ride is running.</li>
-  <li><b>Add:</b> <span class="btn">Add</span>, type a name (1–15 letters, digits or spaces), confirm with <span class="btn">✓</span>. The new rider becomes active and starts with FTP 200 W, Max ERG 600 W, 75 kg, max HR 185.</li>
+  <li><b>Add:</b> <span class="btn">Add</span>, type a name (1–15 letters, digits or spaces), confirm with <span class="btn">✓</span>. The new rider becomes active and starts with FTP 200 W, Max ERG 600 W, 75 kg, max HR 185. Set the weight first, then do the <a href="#ftptest">FTP test</a>: 200 W is only a guess.</li>
   <li><b>Rename:</b> renames the active rider.</li>
   <li><b>Delete:</b> press and hold <span class="btn">Hold to delete</span>. This deletes the active rider; the last rider can't be deleted. Their ride files stay on the SD card.</li>
 </ul>
@@ -246,6 +247,21 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td>Max HR</td><td>±1 bpm</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>
 </table></div>
 <p>Weight doesn't change how hard the trainer feels: the trainer's simulation protocol has no weight field.</p>
+
+<h3 id="ftptest">FTP test (do this first)</h3>
+<div class="shots">
+  <figure class="device"><img src="img/ftp-test-preview.png" alt="FTP ramp test preview: a staircase profile rising in zone colours, time 0:31:00, no average, IF or TSS, note: from 115 W, +20 W every minute until you can't hold it"><figcaption>The ramp test for a 75 kg rider.</figcaption></figure>
+  <figure class="device"><img src="img/ride-ftp-test.png" alt="Ride screen during the FTP test: step 9, power 278 W, target 275 W, hold it as long as you can"><figcaption>During the test.</figcaption></figure>
+</div>
+<p>Every workout and plan scales with your FTP, so a new rider should start with a test. The device has a built-in <b>ramp test</b>: <span class="btn">Workouts → FTP ramp test</span>, or the button on the home screen while your FTP is untested. It takes about 20–25 minutes and needs no pacing:</p>
+<ol>
+  <li>5 minutes warm-up.</li>
+  <li>Then the target rises every minute. It starts at 1.5 W per kg of your weight and adds 0.25 W/kg each minute (75 kg: 115 W, then +20 W). Set your weight before the test; your current FTP doesn't matter.</li>
+  <li>Ride until you really can't hold the target. When your cadence stays under 60 rpm, or your power under 80 % of the target, for 10 seconds, the device beeps three times and switches to an easy 5-minute cool-down. The same happens if the trainer stops sending data for that long (connection lost), so you never come back to a step you didn't ride up to. You can also end the test yourself with <span class="btn">Skip</span>.</li>
+  <li>Stop the ride as usual (hold <span class="btn">Hold to stop</span>). Your FTP is <b>75 % of your best minute</b>. The summary shows it and offers <span class="btn">Set FTP to … W</span>; after a test this can also be lower than your current FTP.</li>
+</ol>
+<p>The <span class="btn">−</span>/<span class="btn">+</span> intensity buttons do nothing during the test, so the result stays comparable. The steps never go above your Max ERG; if you reach it, raise Max ERG and test again. A test with less than 2 minutes of the ramp gives no result. Repeat the test every 6–8 weeks, or let the <b>Raise my FTP</b> plan schedule it (<a href="#webapp-plan">Training plans</a>).</p>
+<p>If you already know your FTP from another app, simply enter it under <span class="btn">Settings</span>: the device then counts it as known.</p>
 
 <h3 id="ftp">FTP from your rides</h3>
 <p>After every ride of 20 minutes or longer, the device takes 95 % of your best 20-minute power in that ride. If that is higher than your current FTP, the summary screen offers <span class="btn">Set FTP to … W</span> (see <a href="#after">After the ride</a>). One tap accepts it; otherwise nothing changes. It is never applied on its own, because a single bad power reading would otherwise raise every future ERG target.</p>
@@ -304,8 +320,9 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3 id="after">After the ride</h3>
 <div class="shots">
   <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; Set FTP to 262 W and Done buttons"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
+  <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, so your FTP is 237 W; Set FTP to 237 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
 </div>
-<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a>). Tap <span class="btn">Done</span>.</p>
+<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, or it was an FTP test, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 
@@ -421,6 +438,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td><code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code></td><td><code>Duration</code>, <code>PowerLow</code> (start), <code>PowerHigh</code> (end)</td><td>target changes evenly from start to end</td></tr>
   <tr><td><code>IntervalsT</code></td><td><code>Repeat</code>, <code>OnDuration</code>, <code>OffDuration</code>, <code>OnPower</code>, <code>OffPower</code></td><td>repeated on/off pairs</td></tr>
   <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: free ride with virtual gears for that time</td></tr>
+  <tr><td><code>workout</code> (JustRide only)</td><td><code>JrRampTest="1"</code></td><td>marks an FTP ramp test: the device replaces the segments with its own ramp for the active rider (see <a href="#ftptest">FTP test</a>). The generator writes it for <i>FTP ramp test</i></td></tr>
   <tr><td><code>SteadyState</code> (adaptive, JustRide only)</td><td><code>JrHrLow</code>, <code>JrHrHigh</code> (bpm), <code>JrAvg="1"</code> (hold the average), <code>JrCadLow</code>, <code>JrCadHigh</code> (rpm), <code>JrMin</code>, <code>JrMax</code> (bounds, fraction of FTP)</td><td>adaptive part (see <a href="#adaptive">Adaptive rides</a>); Zwift ignores these attributes and rides it as a steady part. At most 16 per workout</td></tr>
   <tr><td>any of the above</td><td><code>Cadence</code> (rpm), <code>CadenceResting</code> (rpm, for <code>IntervalsT</code> off parts)</td><td>cadence shown as a target on the ride screen</td></tr>
 </table></div>
@@ -468,7 +486,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p><b>Add to calendar:</b> once a workout is saved on the device, <span class="btn">Add to calendar</span> (next to <span class="btn">Download</span>) puts it in your calendar. Choose the day and your preferred training time (remembered for next time). On an iPhone or iPad the calendar asks right away whether to add the event; on a computer a <code>.ics</code> file is downloaded, and opening it adds the event (Apple Calendar, Outlook, Google Calendar via <i>Import</i>). The event has the workout's duration, TSS and IF, the average power at the rider's FTP, where to find it on the device, and a reminder 15 minutes before. Adding the same workout at the same time again updates the event instead of duplicating it. The calendar entry doesn't start anything: start the workout on the device as usual.</p>
 
 <h3 id="webapp-plan">7.5 Training plans</h3>
-<p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test.</p>
+<p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test. Any plan starts with one while the rider's FTP is untested, and the <span class="btn">Today</span> page suggests the test until then.</p>
 <p>After <span class="btn">Start plan</span> the <b>next 7 days</b> are put on the device as workouts named <i>Plan &lt;date&gt; &lt;type&gt;</i>, listed first under <span class="btn">Workouts</span>. Ride the one for today. Each time you open the web app they're rebuilt for your current form and bests (adapt to me), and past ones are removed. If you edit one of them in the builder, it's kept as you saved it. With more than one rider, the files also carry the rider's name. The calendar ticks off the days you rode and shows planned vs. ridden load per week.</p>
 <div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
 <p><b>Missed a session?</b> The plan bends a little instead of breaking. When you open the web app after a day you didn't ride (any ride that day counts as done):</p>
@@ -510,8 +528,8 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   "user": "u1",
   "next_user_id": 3,
   "users": [
-    { "id": "u1", "name": "Sam",  "ftp_w": 250, "max_erg_w": 600, "weight_kg": 75, "max_hr": 185 },
-    { "id": "u2", "name": "Anna", "ftp_w": 190, "max_erg_w": 450, "weight_kg": 62, "max_hr": 178 }
+    { "id": "u1", "name": "Sam",  "ftp_w": 250, "ftp_known": true, "max_erg_w": 600, "weight_kg": 75, "max_hr": 185 },
+    { "id": "u2", "name": "Anna", "ftp_w": 190, "ftp_known": true, "max_erg_w": 450, "weight_kg": 62, "max_hr": 178 }
   ],
   "crr": 0.004,
   "cw": 0.51,
@@ -526,6 +544,7 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   <tr><td><code>users[].id</code></td><td></td><td><code>u1</code> … <code>u9999</code></td><td>Folder name under <code>/rides/</code> and key for the paired strap. Ids are never reused, so a new rider never inherits someone's rides. Don't change it by hand.</td></tr>
   <tr><td><code>users[].name</code></td><td>Rider</td><td>1–15 chars, ASCII</td><td>Shown on the device and in the statistics</td></tr>
   <tr><td><code>users[].ftp_w</code></td><td>200</td><td>50–600</td><td>FTP; workouts are scaled to it</td></tr>
+  <tr><td><code>users[].ftp_known</code></td><td>false</td><td>true/false</td><td><code>false</code>: the FTP is still the default guess, so the device and web app suggest the <a href="#ftptest">FTP test</a>. Becomes <code>true</code> when you accept a result or enter an FTP. Missing (older files): <code>true</code> unless the FTP is 200</td></tr>
   <tr><td><code>users[].max_erg_w</code></td><td>600</td><td>100–1500</td><td>Highest ERG target the device will ever send</td></tr>
   <tr><td><code>users[].weight_kg</code></td><td>75</td><td>30–200</td><td>W/kg in the statistics</td></tr>
   <tr><td><code>users[].max_hr</code></td><td>185</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>

@@ -176,6 +176,56 @@ static void test_adaptive_goals(void)
     CHECK_EQ(one.goals[0].max_pm, 300);
 }
 
+static void test_ramp_test(void)
+{
+    static workout_t w;
+    uint16_t start, step;
+    workout_ramp_steps(80, &start, &step);
+    CHECK_EQ(start, 120);
+    CHECK_EQ(step, 20);
+    workout_ramp_steps(60, &start, &step);
+    CHECK_EQ(start, 90);
+    CHECK_EQ(step, 15);
+    workout_ramp_steps(30, &start, &step);
+    CHECK_EQ(start, 45);
+    CHECK_EQ(step, 10);
+
+    // 80 kg, FTP 200: up to max(7 W/kg, 2 x FTP) = 560 W, but Max ERG 400
+    memset(&w, 0, sizeof(w));
+    workout_ramp_test(&w, 200, 80, 400);
+    CHECK(w.ramp_test);
+    CHECK_EQ(w.ramp_first, 1);
+    CHECK_EQ(w.ramp_end, 16);
+    CHECK_EQ(w.n, 17);
+    CHECK_EQ(w.total_s, RAMP_WARMUP_S + 15 * RAMP_STEP_S + RAMP_COOLDOWN_S);
+    CHECK(strcmp(w.name, "FTP ramp test") == 0);
+    // Exact watts at any FTP
+    for (uint16_t ftp = 50; ftp <= 600; ftp += 37) {
+        workout_ramp_test(&w, ftp, 80, 1500);
+        for (int i = w.ramp_first; i < w.ramp_end; i++) {
+            CHECK_EQ(w.seg[i].p_start * ftp / 1000, 120 + 20 * (i - w.ramp_first));
+        }
+        CHECK_EQ(w.seg[w.ramp_end - 1].p_start * ftp / 1000, ftp * 2 > 560 ? 120 + (ftp * 2 - 120) / 20 * 20 : 560);
+    }
+    // Max ERG below the first step: one step anyway
+    workout_ramp_test(&w, 200, 80, 100);
+    CHECK_EQ(w.ramp_end - w.ramp_first, 1);
+
+    // A .zwo marks a test; its name is kept, the steps are the device's
+    const char *xml = "<workout_file><name>Plan 2026-11-02 Ramp</name><workout JrRampTest=\"1\">"
+                      "<SteadyState Duration=\"60\" Power=\"0.5\"/></workout></workout_file>";
+    CHECK(zwo_parse(xml, strlen(xml), &w));
+    CHECK(w.ramp_test);
+    workout_ramp_test(&w, 200, 80, 400);
+    CHECK(strcmp(w.name, "Plan 2026-11-02 Ramp") == 0);
+    CHECK_EQ(w.n, 17);
+    const char *bare = "<workout_file><workout JrRampTest=\"1\"></workout></workout_file>";
+    CHECK(zwo_parse(bare, strlen(bare), &w));
+    const char *plain = "<workout_file><workout><SteadyState Duration=\"60\" Power=\"0.5\"/></workout></workout_file>";
+    CHECK(zwo_parse(plain, strlen(plain), &w));
+    CHECK(!w.ramp_test);
+}
+
 int main(void)
 {
     test_sweet_spot();
@@ -183,5 +233,6 @@ int main(void)
     test_garbage_and_limits();
     test_estimate();
     test_adaptive_goals();
+    test_ramp_test();
     return test_summary("workout");
 }

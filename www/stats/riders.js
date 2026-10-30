@@ -31,6 +31,7 @@ function riderCard(u) {
       <span class="avatar" aria-hidden="true">${esc(u.name.trim()[0] || '?')}</span>
       <div class="rider-title"><input class="rider-name" value="${esc(u.name)}" maxlength="15" aria-label="Name" spellcheck="false">
         <span class="wkg"><b>${wkg}</b> W/kg</span></div>
+      ${u.ftp_known === false ? '<span class="pill warn" title="Do the FTP ramp test on the device, or enter your FTP">FTP not tested</span>' : ''}
       ${u.active ? `<span class="pill good">${icon('check')} Active on the device</span>`
         : `<button class="btn ghost" data-act="select">${icon('user')} Make active</button>`}
     </div>

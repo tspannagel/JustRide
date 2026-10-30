@@ -315,6 +315,7 @@ static esp_err_t send_users(httpd_req_t *req, const settings_t *s)
         cJSON_AddStringToObject(o, "name", u->name);
         cJSON_AddBoolToObject(o, "active", i == s->user);
         cJSON_AddNumberToObject(o, "ftp_w", u->ftp_w);
+        cJSON_AddBoolToObject(o, "ftp_known", u->ftp_known);
         cJSON_AddNumberToObject(o, "max_erg_w", u->max_erg_w);
         cJSON_AddNumberToObject(o, "weight_kg", u->weight_kg);
         cJSON_AddNumberToObject(o, "max_hr", u->max_hr);

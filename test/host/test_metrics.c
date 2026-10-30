@@ -107,6 +107,10 @@ static void test_bests(void)
     CHECK_EQ(metrics_ftp_estimate(b), 0);
     b[8] = 263;                       // 20 min
     CHECK_EQ(metrics_ftp_estimate(b), 250);
+    b[4] = 333;                       // 1 min
+    CHECK_EQ(metrics_ramp_ftp(b), 250);  // 75 % of the best minute
+    b[4] = -1;
+    CHECK_EQ(metrics_ramp_ftp(b), 0);
     free(s);
 }
 

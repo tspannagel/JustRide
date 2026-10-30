@@ -15,7 +15,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Topic | Decision |
 |---|---|
 | Framework | ESP-IDF ≥ 5.3, C11 (confirmed 2026-10-26) |
-| Riders | Up to 8 in settings.json, picked on the home screen; per rider: rides folder, FTP, max ERG, weight (W/kg only), max HR (HR zones), HR strap. FTP is only suggested after a ride (95 % of best 20 min), never applied automatically (2026-10-27) |
+| Riders | Up to 8 in settings.json, picked on the home screen; per rider: rides folder, FTP, max ERG, weight (W/kg only), max HR (HR zones), HR strap. FTP is only suggested after a ride (95 % of best 20 min), never applied automatically (2026-10-27). Built-in FTP ramp test (2026-10-30): weight-based steps, auto-end into cool-down, 75 % of best minute, `ftp_known` flag drives the prompts; fail thresholds (60 rpm / 80 % / 10 s) still to be tried on the KICKR |
 | Controllers owned | Zwift Ride only → plain ZAP implemented (M4); encrypted ZAP (M5) not needed for now |
 | FIT | Own ~300-line encoder instead of the Garmin SDK (validated with fitdecode) |
 | Stats persistence | No OPFS (needs a secure context; plain-HTTP LAN isn't). Small CSVs per visit, ride CSV on demand |

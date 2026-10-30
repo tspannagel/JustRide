@@ -31,6 +31,13 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define ADAPT_CAD_CUE_S 5        // cadence out of range this long: cue
 #define ADAPT_CAD_BEEP_GAP_S 60  // at most one cadence beep per minute
 
+// FTP ramp test (workout_t.ramp_test): the ramp ends, and the cool-down starts, when the
+// rider can't hold it. Skip ends it too; intensity stays at 100 %.
+#define RAMP_FAIL_CAD_RPM 60     // cadence below this
+#define RAMP_FAIL_POWER_PCT 80   // or power below this % of the target
+#define RAMP_FAIL_S 10           // for this many seconds in a row (no trainer data counts too)
+#define RAMP_MIN_S 120           // a result needs at least this much of the ramp (metrics_ramp_ftp)
+
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
@@ -77,6 +84,10 @@ typedef struct {
     uint16_t cad_beep_s;
     int8_t hr_cue, cad_cue;  // -1 below range, 0 in range or no goal, +1 above
 
+    // ramp test
+    uint16_t ramp_s;         // seconds ridden in the ramp
+    uint8_t ramp_low_s;      // seconds in a row below cadence or power
+
     metrics_t m;
 } ride_t;
 
@@ -109,6 +120,10 @@ typedef struct {
     int8_t hr_cue, cad_cue;  // -1 below, 0 ok, +1 above
     int16_t avg_goal_w;      // hold-average: the average to hold
     int16_t seg_avg_w;       // average power so far in this segment
+    // ramp test
+    bool ramp_test;
+    uint8_t ramp_step;       // 1-based step while in the ramp, 0 outside
+    uint16_t ramp_s;         // seconds ridden in the ramp (a result needs RAMP_MIN_S)
     metrics_summary_t sum;
 } ride_view_t;
 
