@@ -47,7 +47,6 @@ int main(void)
     for (int i = 0; i < tz_n_presets; i++) {
         compare(tz_presets[i].posix);
     }
-    compare("EST5EDT");                   // DST without a rule: US default
     compare("XXX3YYY,J60/1,J300/1");      // Julian days without Feb 29
     compare("XXX-2YYY-3,59/-1,300/26");   // zero-based days, negative and > 24 h times
     compare("<+0545>-5:45");
@@ -58,7 +57,7 @@ int main(void)
     CHECK_EQ(tz_preset_index("nope"), -1);
 
     const char *bad[] = {"", "UT0", "CET", "CET-1CEST,M3.5.0", "CET-1CEST,M13.5.0,M10.5.0", "CET-25",
-                         "CET-1CEST,M3.5.0,M10.5.0/3x", "<AB>1", "CET-1 CEST", NULL,
+                         "CET-1CEST,M3.5.0,M10.5.0/3x", "<AB>1", "CET-1 CEST", "EST5EDT", NULL,
                          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA0"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         CHECK(!tz_valid(bad[i]));

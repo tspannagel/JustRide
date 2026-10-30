@@ -16,8 +16,8 @@ typedef struct {
 extern const tz_preset_t tz_presets[];
 extern const int tz_n_presets;
 
-// Supported: std offset [dst [offset] [,start[/time],end[/time]]] with Mm.w.d,
-// Jn and n dates; DST without a rule uses the US rule, like glibc.
+// Supported: std offset [dst [offset] ,start[/time],end[/time]] with Mm.w.d,
+// Jn and n dates. A DST zone needs its rule ("EST5EDT" alone is refused).
 bool tz_valid(const char *posix);
 // Seconds to add to UTC for local time; 0 if the rule is invalid.
 int32_t tz_offset(const char *posix, uint32_t utc);

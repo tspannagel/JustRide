@@ -171,10 +171,7 @@ static bool parse(const char *s, tz_t *tz)
     if (*s && *s != ',' && !hms(&s, 24, &tz->dst_off)) {
         return false;
     }
-    if (!*s) {
-        const char *us = ",M3.2.0,M11.1.0";
-        s = us;
-    }
+    // DST without rules ("EST5EDT") means different things to different libcs: refuse it
     return *s++ == ',' && rule(&s, &tz->start) && *s++ == ',' && rule(&s, &tz->end) && !*s;
 }
 
