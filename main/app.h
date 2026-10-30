@@ -34,7 +34,8 @@ bool app_start_workout_mem(const workout_t *w);
 // The workout of the current ride. Only changes while idle, so the UI may read
 // it without a lock during a ride.
 const workout_t *app_workout(void);
-// Turn Wi-Fi on, only while idle (checked under the same lock that starts a ride).
+// Ask for Wi-Fi on. The control task turns it on unless a ride is running or starting
+// (only that task switches Wi-Fi on, so a ride never starts with it on).
 void app_web_start(void);
 
 // Settings and user changes, only while idle. Saved to the SD card.

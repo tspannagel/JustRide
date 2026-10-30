@@ -65,6 +65,35 @@ export function buildPlan(setup) {
   return { version: 1, ...setup, longDay, start: setup.start, created: new Date().toISOString(), sessions, synced: {} };
 }
 
+// ---- Loading --------------------------------------------------------------------------------
+// The plan file is on the SD card, which any device on the network can write: keep only what
+// this app understands, with the types it expects (it ends up in the page and decides which
+// workouts on the device get replaced or deleted).
+
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const PLAN_FILE = /^Plan \d{4}-\d{2}-\d{2} [A-Za-z0-9 ._-]*\.zwo$/;   // what planFile() makes
+const clampInt = (v, lo, hi, def) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def; };
+
+export function cleanPlan(p) {
+  if (!p || typeof p !== 'object' || !Array.isArray(p.sessions)) return null;
+  const sessions = p.sessions
+    .filter((s) => s && typeof s === 'object' && DAY_KEY.test(s.date) && Object.hasOwn(GEN_TYPES, s.type) &&
+      (s.orig === undefined || DAY_KEY.test(s.orig)))
+    .map((s) => ({ ...s, minutes: clampInt(s.minutes, 10, 240, 60), difficulty: clampInt(s.difficulty, 1, 5, 3),
+      week: clampInt(s.week, 0, 52, 0) }));
+  const synced = {};
+  for (const [name, h] of Object.entries(p.synced && typeof p.synced === 'object' ? p.synced : {})) {
+    if (PLAN_FILE.test(name) && typeof h === 'string') synced[name] = h;
+  }
+  return { ...p, sessions, synced, weeks: clampInt(p.weeks, 1, 52, 1),
+    start: DAY_KEY.test(p.start) ? p.start : sessions[0]?.date || todayKey(),
+    goal: Object.hasOwn(GOALS, p.goal) ? p.goal : 'maintain',
+    hours: Math.min(14, Math.max(2, Number(p.hours) || 5)),
+    longDay: clampInt(p.longDay, 0, 6, 6), days: Array.isArray(p.days) ? p.days.map((d) => clampInt(d, 0, 6, 0)) : [] };
+}
+
+export const readPlan = async (user) => cleanPlan(await api.plan(user));
+
 // ---- Missed sessions ------------------------------------------------------------------------
 // A session counts as ridden if any ride was recorded that (local) day. A missed key session
 // (anything but endurance/recovery) moves once to the next easy day within MOVE_DAYS, not the
@@ -172,7 +201,7 @@ export async function showPlan(user, rides, riderLabel) {
   ui.user = user;
   ui.rides = rides;
   ui.riderLabel = riderLabel;
-  try { ui.plan = await api.plan(user.id); } catch { ui.plan = null; }
+  try { ui.plan = await readPlan(user.id); } catch { ui.plan = null; }
   if (!ui.plan?.sessions?.length) ui.plan = null;   // ended (or never made)
   else reschedule(ui.plan, rideDays(rides), todayKey());   // saved with the next sync
   render();
@@ -334,7 +363,7 @@ async function sync(report) {
 // Called on start-up for the active rider: keeps the next week on the device
 export async function autoSync(user, ctx, riderLabel) {
   let plan;
-  try { plan = await api.plan(user.id); } catch { return null; }
+  try { plan = await readPlan(user.id); } catch { return null; }
   if (!plan?.sessions?.length) return null;
   try { return await syncPlan(user, plan, ctx, riderLabel); } catch { return null; }
 }

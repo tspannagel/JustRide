@@ -40,6 +40,7 @@ typedef struct {
     control_cmd_t acked;         // last command the trainer accepted (or rejected for good)
     control_cmd_t sent;
     uint32_t sent_ms, last_write_ms, last_sim_ms, retry_ms;
+    bool retry_pending;          // retry_ms is set (a time can't mean "none": ms wrap after 49.7 days)
 } ftms_ctl_t;
 
 void ftms_ctl_init(ftms_ctl_t *c);

@@ -4,7 +4,7 @@
 import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, formState, dated, dayKey, todayKey,
   SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor } from './core.js';
 import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
-import { initPlan, showPlan, autoSync, nextSession } from './plan.js';
+import { initPlan, showPlan, autoSync, nextSession, readPlan } from './plan.js';
 import { initRiders, showRiders } from './riders.js';
 
 const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, rideOpen: null, range: 90 };
@@ -101,7 +101,7 @@ async function today() {
 
   // Next planned session
   let plan = null;
-  try { plan = await api.plan(S.user.id); } catch { /* no plan */ }
+  try { plan = await readPlan(S.user.id); } catch { /* no plan */ }
   const next = nextSession(plan, S.rides, todayKey());
   $('#next-card').innerHTML = next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
       <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>
