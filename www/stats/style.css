@@ -366,6 +366,7 @@ dialog[open] { animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .cal-day.today { box-shadow: 0 0 0 2px var(--accent); }
 .cal-day.past:not(.done) { opacity: 0.55; }
 .cal-day.done { border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.cal-day.moved { opacity: 0.55; border-top-style: dashed; }
 .cal-day.missed b { text-decoration: line-through; text-decoration-color: var(--text-3); }
 .cal-date { color: var(--text-3); font-weight: 600; display: flex; align-items: center; gap: 4px; }
 .cal-date .i { width: 13px; height: 13px; color: var(--good); }

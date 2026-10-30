@@ -1,10 +1,10 @@
 // JustRide web app: start-up, navigation and the statistics views (Today, Rides, Power,
 // Device). The CSV files the head unit writes are parsed in JS, so the app is usable
 // within a second; DuckDB-WASM (34 MB) is only loaded when the SQL console is used.
-import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, formState, dated, dayKey,
+import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, formState, dated, dayKey, todayKey,
   SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor } from './core.js';
 import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
-import { initPlan, showPlan, autoSync } from './plan.js';
+import { initPlan, showPlan, autoSync, nextSession } from './plan.js';
 import { initRiders, showRiders } from './riders.js';
 
 const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, rideOpen: null, range: 90 };
@@ -29,7 +29,7 @@ function unique(rows, key) {
 function ctx() {
   const ftp = S.user.ftp_w || S.rides.find((r) => r.ftp_w)?.ftp_w || null;
   const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
-  return { userId: S.user.id, ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
+  return { userId: S.user.id, rides: S.rides, ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
 }
 
 // Best watts per duration for rides in the last `days` (null: all time)
@@ -102,7 +102,7 @@ async function today() {
   // Next planned session
   let plan = null;
   try { plan = await api.plan(S.user.id); } catch { /* no plan */ }
-  const next = plan?.sessions?.find((s) => s.date >= dayKey(new Date(Date.now() - new Date().getTimezoneOffset() * 60e3)));
+  const next = nextSession(plan, S.rides, todayKey());
   $('#next-card').innerHTML = next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
       <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>
       <span class="muted small">${fmt.date(new Date(next.date + 'T12:00:00'))} · on the device under Workouts</span>
@@ -386,7 +386,8 @@ async function main() {
   const active = S.users.find((u) => u.active) || S.users[0];
   if (active.id === S.user.id) {
     const r = await autoSync(S.user, ctx(), riderLabel());
-    if (r?.written) toast(`Plan: ${r.written} upcoming workout${r.written === 1 ? '' : 's'} sent to the device`);
+    if (r?.moved.length) toast(`Plan: missed ${r.moved.map((s) => GEN_TYPES[s.type].label).join(', ')} moved to ${r.moved.map((s) => fmt.date(new Date(s.date))).join(', ')}`);
+    else if (r?.written) toast(`Plan: ${r.written} upcoming workout${r.written === 1 ? '' : 's'} sent to the device`);
   }
 }
 

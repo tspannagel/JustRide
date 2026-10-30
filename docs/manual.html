@@ -471,6 +471,13 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test.</p>
 <p>After <span class="btn">Start plan</span> the <b>next 7 days</b> are put on the device as workouts named <i>Plan &lt;date&gt; &lt;type&gt;</i>, listed first under <span class="btn">Workouts</span>. Ride the one for today. Each time you open the web app they're rebuilt for your current form and bests (adapt to me), and past ones are removed. If you edit one of them in the builder, it's kept as you saved it. With more than one rider, the files also carry the rider's name. The calendar ticks off the days you rode and shows planned vs. ridden load per week.</p>
 <div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
+<p><b>Missed a session?</b> The plan bends a little instead of breaking. When you open the web app after a day you didn't ride (any ride that day counts as done):</p>
+<ul>
+  <li>A missed <b>key session</b> (sweet spot, threshold, VO2max, tempo, ramp test) moves to the next <b>easy day</b> in the coming week, not your long ride, and if possible not right next to another hard day. The easy ride on that day is dropped, so the week doesn't get heavier. The calendar shows the old day dashed with <i>moved to …</i> and the new day with <i>from …</i>; the device gets the workout under the new date.</li>
+  <li>A missed <b>easy ride</b> is simply dropped: the plan continues as planned.</li>
+  <li>A session moves <b>only once</b>. Missed again, or no easy day free in the next 7 days, it's dropped. After several missed key sessions, the most recent one gets the free day.</li>
+</ul>
+<p>To ride a session earlier instead, just ride it: the next 7 days are on the device. After a longer break (illness, holidays), <span class="btn">Change</span> rebuilds the plan from today with the weeks that are left.</p>
 <p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit.</p>
 
 <h3 id="webapp-riders">7.6 Riders</h3>

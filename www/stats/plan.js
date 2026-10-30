@@ -2,6 +2,7 @@
 // (/plans/<user>.json). The next 7 days are written to the device as ordinary workouts
 // ("Plan 2026-11-02 Sweet spot.zwo", listed first on the device), generated at sync
 // time so they follow the rider's current form. Files the rider edited are left alone.
+// A missed key session moves to the next easy day (see reschedule()).
 import { $, api, esc, fmt, icon, toast, todayKey, addDays, dated, dayKey, empty } from './core.js';
 import { generate, toZwo, load, profileSvg, GEN_TYPES, fileName } from './workouts.js';
 
@@ -14,9 +15,13 @@ const GOALS = {
 };
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SYNC_DAYS = 7;
+const EASY = new Set(['endurance', 'recovery']);
+const MOVE_DAYS = 7;   // a missed key session moves at most this far ahead of today
 
+// 0 = Monday
+const dow = (key) => (new Date(key + 'T00:00:00Z').getUTCDay() + 6) % 7;
 // Monday of the week containing key
-const monday = (key) => addDays(key, -((new Date(key + 'T00:00:00Z').getUTCDay() + 6) % 7));
+const monday = (key) => addDays(key, -dow(key));
 
 // Sessions for a plan setup: {goal, start, weeks, days: [0..6], longDay, hours}
 export function buildPlan(setup) {
@@ -60,6 +65,55 @@ export function buildPlan(setup) {
   return { version: 1, ...setup, longDay, start: setup.start, created: new Date().toISOString(), sessions, synced: {} };
 }
 
+// ---- Missed sessions ------------------------------------------------------------------------
+// A session counts as ridden if any ride was recorded that (local) day. A missed key session
+// (anything but endurance/recovery) moves once to the next easy day within MOVE_DAYS, not the
+// long ride, preferably with no key session the day before or after; the easy session there
+// is dropped, so the week's load stays about the same. Missed easy sessions, sessions that
+// were already moved and key sessions with no free day are dropped. Sessions are only ever
+// moved forward and stay in the plan (dropped: 'missed' | 'replaced', orig: first date).
+
+// Rides by local day: Map(date key -> {tss, secs})
+export function rideDays(rides) {
+  const m = new Map();
+  for (const r of rides.filter(dated)) {
+    const k = dayKey(new Date(r.start_utc.getTime() - r.start_utc.getTimezoneOffset() * 60e3));
+    const o = m.get(k) || { tss: 0, secs: 0 };
+    o.tss += r.tss || 0; o.secs += r.duration_s || 0;
+    m.set(k, o);
+  }
+  return m;
+}
+
+// Moves/drops missed sessions in place. Returns the sessions that moved.
+export function reschedule(plan, ridden, today) {
+  const moved = [];
+  const live = () => plan.sessions.filter((x) => !x.dropped);
+  // Newest first: when there are fewer free days than missed sessions, the latest (furthest
+  // along in the build-up) gets one
+  const missed = live().filter((x) => x.date < today && !ridden.has(x.date)).sort((a, b) => b.date.localeCompare(a.date));
+  for (const s of missed) {
+    if (EASY.has(s.type) || s.orig || s.date < addDays(today, -MOVE_DAYS)) { s.dropped = 'missed'; continue; }
+    const keyOn = (d) => live().some((x) => x !== s && x.date === d && !EASY.has(x.type));
+    const slots = live().filter((x) => EASY.has(x.type) && x.date >= today && x.date < addDays(today, MOVE_DAYS) &&
+      dow(x.date) !== plan.longDay && !ridden.has(x.date)).sort((a, b) => a.date.localeCompare(b.date));
+    const slot = slots.find((x) => !keyOn(addDays(x.date, -1)) && !keyOn(addDays(x.date, 1))) || slots[0];
+    if (!slot) { s.dropped = 'missed'; continue; }
+    slot.dropped = 'replaced';
+    s.orig = s.date;
+    s.date = slot.date;
+    moved.push(s);
+  }
+  return moved;
+}
+
+// The next session still to ride (today included), after moving missed ones
+export function nextSession(plan, rides, today) {
+  if (!plan?.sessions?.length) return null;
+  reschedule(plan, rideDays(rides), today);
+  return plan.sessions.filter((s) => !s.dropped && s.date >= today).sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+}
+
 // ---- Sync to the device -----------------------------------------------------------------
 
 const planFile = (s, rider) => fileName(`Plan ${s.date} ${rider ? `${rider} - ` : ''}${GEN_TYPES[s.type].label}`);
@@ -68,14 +122,19 @@ const hash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) h =
 // Writes the next days, removes this plan's older files. Returns {written, removed, kept}.
 export async function syncPlan(user, plan, ctx, riderLabel) {
   const today = todayKey(), until = addDays(today, SYNC_DAYS - 1);
+  const res = { written: 0, removed: 0, kept: 0, same: 0, moved: reschedule(plan, rideDays(ctx.rides || []), today) };
   const want = new Map();
-  for (const s of plan.sessions) if (s.date >= today && s.date <= until) want.set(planFile(s, riderLabel), s);
-  const res = { written: 0, removed: 0, kept: 0, same: 0 };
+  for (const s of plan.sessions) if (!s.dropped && s.date >= today && s.date <= until) want.set(planFile(s, riderLabel), s);
   const synced = plan.synced || {};
-  // Remove our files that are no longer wanted (past days, changed plan)
+  // Remove our files that are no longer wanted (past days, moved or changed plan); a coming
+  // day's file the rider edited stays (it's theirs now)
   for (const name of Object.keys(synced)) {
     if (want.has(name)) continue;
-    try { await api.deleteWorkout(name); res.removed++; } catch { /* already gone */ }
+    const day = name.match(/^Plan (\d{4}-\d{2}-\d{2})/)?.[1];
+    const cur = day >= today ? await api.workout(name).catch(() => null) : null;
+    if (!cur || hash(cur) === synced[name]) {
+      try { await api.deleteWorkout(name); res.removed++; } catch { /* already gone */ }
+    }
     delete synced[name];
   }
   const onDevice = new Set((await api.workouts()).map((f) => f.name));
@@ -115,6 +174,7 @@ export async function showPlan(user, rides, riderLabel) {
   ui.riderLabel = riderLabel;
   try { ui.plan = await api.plan(user.id); } catch { ui.plan = null; }
   if (!ui.plan?.sessions?.length) ui.plan = null;   // ended (or never made)
+  else reschedule(ui.plan, rideDays(rides), todayKey());   // saved with the next sync
   render();
 }
 
@@ -159,21 +219,16 @@ function onSetupInput(e) {
 }
 
 // Actual rides by day, for ticks and the weekly bars
-function actualByDay() {
-  const m = new Map();
-  for (const r of ui.rides.filter(dated)) {
-    const k = dayKey(new Date(r.start_utc.getTime() - r.start_utc.getTimezoneOffset() * 60e3));
-    const o = m.get(k) || { tss: 0, secs: 0 };
-    o.tss += r.tss || 0; o.secs += r.duration_s || 0;
-    m.set(k, o);
-  }
-  return m;
-}
+const actualByDay = () => rideDays(ui.rides);
 
 function calendar(plan, preview = false) {
   const ctx = ui.ctxFn();
   const today = todayKey(), done = actualByDay();
-  const byDate = new Map(plan.sessions.map((s) => [s.date, s]));
+  const byDate = new Map(), movedFrom = new Map();
+  for (const s of plan.sessions) {
+    if (!s.dropped || !byDate.has(s.date)) byDate.set(s.date, s);   // the live session wins
+    if (s.orig) movedFrom.set(s.orig, s);
+  }
   const start = monday(plan.start);
   let html = `<div class="cal"><div class="cal-head"><span></span>${DAYS.map((d) => `<span>${d}</span>`).join('')}<span>Load</span></div>`;
   for (let w = 0; w < plan.weeks; w++) {
@@ -182,14 +237,20 @@ function calendar(plan, preview = false) {
       const date = addDays(start, w * 7 + d), s = byDate.get(date), a = done.get(date);
       if (a && !preview) actual += a.tss;
       const cls = ['cal-day', date === today ? 'today' : '', date < today ? 'past' : ''].join(' ');
+      const m = !s && !preview && movedFrom.get(date);
+      if (m) {
+        return `<div class="${cls} has moved" style="--zc:var(--z${GEN_TYPES[m.type].zone + 1})" title="Missed, moved to ${DAYS[dow(m.date)]} ${Number(m.date.slice(8))}">
+          <span class="cal-date">${Number(date.slice(8))}</span><b>${esc(GEN_TYPES[m.type].label)}</b>
+          <span class="cal-meta">moved to ${DAYS[dow(m.date)]} ${Number(m.date.slice(8))}</span>${a ? `<span class="cal-extra">${icon('check')} ${fmt.num(a.tss)} TSS</span>` : ''}</div>`;
+      }
       if (!s) return `<div class="${cls}"><span class="cal-date">${Number(date.slice(8))}</span>${a && !preview ? `<span class="cal-extra">${icon('check')} ${fmt.num(a.tss)} TSS</span>` : ''}</div>`;
       const wk = generate(s.type, s.minutes, s.difficulty, ctx, false);
       const L = load(wk, ctx.ftp || 200);
-      planned += L.tss;
-      const state = preview ? '' : a ? 'done' : date < today ? 'missed' : '';
+      if (!s.dropped) planned += L.tss;
+      const state = preview ? '' : a ? 'done' : s.dropped || date < today ? 'missed' : '';
       return `<div class="${cls} has ${state}" style="--zc:var(--z${GEN_TYPES[s.type].zone + 1})" title="${esc(wk.name)}">
         <span class="cal-date">${Number(date.slice(8))}${state === 'done' ? icon('check') : ''}</span>
-        <b>${esc(GEN_TYPES[s.type].label)}</b><span class="cal-meta">${s.minutes} min · ${fmt.num(L.tss)}</span>
+        <b>${esc(GEN_TYPES[s.type].label)}</b><span class="cal-meta">${s.orig && !preview ? `from ${DAYS[dow(s.orig)]} · ` : ''}${s.minutes} min · ${fmt.num(L.tss)}</span>
         ${profileSvg(wk, { height: 28, width: 140, compact: true })}</div>`;
     }).join('');
     const max = Math.max(planned, actual, 1);
@@ -205,16 +266,16 @@ function renderPlan() {
   const p = ui.plan, today = todayKey();
   const end = addDays(monday(p.start), p.weeks * 7 - 1);
   const week = Math.min(p.weeks, Math.max(1, Math.floor((new Date(today) - new Date(monday(p.start))) / (7 * 86400e3)) + 1));
-  const next = p.sessions.find((s) => s.date >= today);
+  const next = nextSession(p, ui.rides, today);
   const done = actualByDay();
-  const past = p.sessions.filter((s) => s.date < today);
-  const hit = past.filter((s) => done.has(s.date)).length;
+  const past = p.sessions.filter((s) => s.dropped !== 'replaced' && s.date < today);
+  const hit = past.filter((s) => !s.dropped && done.has(s.date)).length;
   $('#plan-title').textContent = GOALS[p.goal]?.label || 'Training plan';
   $('#plan-sub').textContent = today > end ? `Finished on ${fmt.date(new Date(end))}` :
     `Week ${week} of ${p.weeks} · ${past.length ? `${hit} of ${past.length} sessions ridden` : 'starts ' + fmt.date(new Date(p.start))}`;
   $('#plan-progress').style.setProperty('--p', `${Math.min(100, (week / p.weeks) * 100)}%`);
   $('#plan-next').innerHTML = next ? `<span class="eyebrow">${next.date === today ? 'Today' : fmt.date(new Date(next.date))}</span>
-    <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b><span class="muted small">On the device under Workouts as "${esc(planFile(next, ui.riderLabel).replace(/\.zwo$/, ''))}"</span>`
+    <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>${next.orig ? `<span class="muted small">Moved from ${fmt.date(new Date(next.orig))}, when it was missed</span>` : ''}<span class="muted small">On the device under Workouts as "${esc(planFile(next, ui.riderLabel).replace(/\.zwo$/, ''))}"</span>`
     : '<b>No sessions left</b>';
   $('#plan-sync-info').textContent = p.lastSync ? `Last sent to the device ${fmt.rel(new Date(p.lastSync))} ${new Date(p.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Not sent to the device yet';
   $('#plan-cal').innerHTML = calendar(p);
@@ -266,7 +327,7 @@ async function onClick(e) {
 async function sync(report) {
   try {
     const r = await syncPlan(ui.user, ui.plan, ui.ctxFn(), ui.riderLabel);
-    if (report) toast(`Device updated: ${r.written} workout${r.written === 1 ? '' : 's'} written${r.removed ? `, ${r.removed} old removed` : ''}${r.kept ? `, ${r.kept} edited kept` : ''}`);
+    if (report) toast(`Device updated: ${r.written} workout${r.written === 1 ? '' : 's'} written${r.removed ? `, ${r.removed} old removed` : ''}${r.kept ? `, ${r.kept} edited kept` : ''}${r.moved.length ? `, ${r.moved.length} missed moved` : ''}`);
   } catch (err) { toast(`Could not update the device: ${err.message}`, 'bad'); }
 }
 
