@@ -82,6 +82,7 @@ Added the same day, host-tested but not built in this session (no ESP-IDF/LVGL i
 - Lap/interval summary for 10 s on the stats line; power zone + time in it in the power caption.
 - Routes: web app GPX -> `/workouts/<name>.route` (10 m, smoothed); device `route` component; SIM grade by distance; profile on preview + ride screen; `tools/workouts/Sample climb.route` (made up).
 - To verify: `idf.py build`, `tools/ui_shots/shots.sh` (new shots: ride-interval-done, ride-auto-paused, route-preview, ride-route), auto-pause thresholds on the KICKR (does its cadence drop to 0 fast enough? does the flywheel speed fall below 5 km/h?), route distance vs. KICKR speed in SIM with virtual gears.
+- Race your best (routes only: in ERG the power is set, so a race would compare intensity): `recorder_find_ghost()` picks rides with the route's name that covered it, measures the 3 fastest by average speed from their CSVs (outside the app lock, at start), `ride_set_ghost`; gap = seconds the best ride needed for the same distance minus ours, frozen at the end.
 - Virtual shifting v2 waits until v1 has been tried on the bike; intervals.icu/Strava upload skipped for now (user).
 
 ## Adaptive workouts (built 2026-10-29, not yet ridden)

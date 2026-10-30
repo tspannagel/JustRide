@@ -79,7 +79,7 @@ components/
   vshift/                 pure: gear table, strategy-A grade scaling
   metrics/                pure: NP, IF, TSS, kJ, distance, best efforts
   ride/                   pure: ride state machine, trainer command, safety limits, auto-pause, lap/interval feedback
-  route/                  pure: .route parser (line by line), elevation/gradient by distance (100 m window, clamped)
+  route/                  pure: .route parser (line by line), elevation/gradient by distance (100 m window, clamped); ghost.c: best earlier ride as distance per second (race your best)
   recorder/               csv.c/fit.c pure writers; recorder.c SD files, journal, crash recovery
   settings/               settings.json, gears.json
   tz/                     pure: local time from a POSIX TZ rule (ride names, FIT local time), preset list

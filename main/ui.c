@@ -1225,6 +1225,25 @@ static void build_ride(void)
     r_grade_plus = grow(button(b2, LV_SYMBOL_UP " Grade", 0, 56, on_action, (void *)ACT_GRADE_PLUS));
 }
 
+// "12 s ahead of your best", "1:05 behind your best"; finished: "23 s faster than your best"
+static void race_text(char *buf, size_t n, const ride_view_t *v)
+{
+    int32_t s = v->race_gap_s < 0 ? -v->race_gap_s : v->race_gap_s;
+    char t[16];
+    if (s < 60) {
+        snprintf(t, sizeof(t), "%ld s", (long)s);
+    } else {
+        snprintf(t, sizeof(t), "%ld:%02ld", (long)(s / 60), (long)(s % 60));
+    }
+    if (v->race_gap_s == 0) {
+        snprintf(buf, n, v->route_done ? "as fast as your best" : "level with your best");
+    } else if (v->route_done) {
+        snprintf(buf, n, "%s %s than your best", t, v->race_gap_s > 0 ? "faster" : "slower");
+    } else {
+        snprintf(buf, n, "%s %s your best", t, v->race_gap_s > 0 ? "ahead of" : "behind");
+    }
+}
+
 static void update_ride(const ride_view_t *v)
 {
     char t[16];
@@ -1319,10 +1338,17 @@ static void update_ride(const ride_view_t *v)
         } else {
             lv_label_set_text_fmt(r_target, "Target %d W  -  %u %%", v->target_w, v->intensity);
         }
+    } else if (v->race) {
+        // Racing the best earlier ride on this route: the gap instead of the sent grade
+        char gap[40];
+        race_text(gap, sizeof(gap), v);
+        lv_label_set_text_fmt(r_target, "Road %s%d.%d %%  -  %s", v->base_grade < 0 ? "-" : "+", abs(v->base_grade) / 100,
+                              abs(v->base_grade % 100) / 10, gap);
     } else {
         lv_label_set_text_fmt(r_target, "Road %+d.%d %%  -  sent %+d.%02d %%", v->base_grade / 100,
                               abs(v->base_grade % 100) / 10, v->grade / 100, abs(v->grade % 100));
     }
+    lv_obj_set_style_text_color(r_target, rgb(!v->race || erg ? C_MUTED : v->race_gap_s >= 0 ? C_OK : C_WARN), 0);
 
     if (v->cadence_rpm10 >= 0) {
         lv_label_set_text_fmt(r_cad, "%d", (v->cadence_rpm10 + 5) / 10);
@@ -1436,8 +1462,14 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
                               st->ftp_test_w);
     } else if (st->ftp_test) {
         lv_label_set_text(sum_note, st->saving ? "" : "FTP test: under 2 min of the ramp, no result.");
+    } else if (v->race && v->route_done) {
+        char gap[40];
+        race_text(gap, sizeof(gap), v);
+        lv_label_set_text_fmt(sum_note, "Route: %s%s", gap, v->race_gap_s > 0 ? ". New best!" : ".");
+    } else if (v->route_done) {
+        lv_label_set_text(sum_note, "Route done. Next time you race this ride.");
     }
-    show(sum_note, !st->saving && (!st->saved || st->ftp_test));
+    show(sum_note, !st->saving && (!st->saved || st->ftp_test || v->route_done));
 
     // 95 % of this ride's best 20 min beat the FTP: offer it, never apply it silently.
     // A test's result is already applied: offer the old value back.

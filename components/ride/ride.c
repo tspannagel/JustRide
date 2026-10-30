@@ -58,6 +58,12 @@ void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t
 
 static uint32_t ride_dist_m(const ride_t *r) { return (uint32_t)(r->m.distance_mm / 1000); }
 
+void ride_set_ghost(ride_t *r, const ghost_t *g)
+{
+    // Only a ride that finished the route can be raced
+    r->ghost = r->route && g && ghost_time_at(g, route_length_m(r->route)) > 0 ? g : NULL;
+}
+
 // The road grade before virtual gearing: the route's, or the rider's own (Grade buttons)
 static int16_t road_grade(const ride_t *r)
 {
@@ -483,10 +489,6 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
         block_close(r, &r->seg_blk, BLOCK_INTERVAL, r->seg_closing);
         r->seg_closing = 0;
     }
-    if (r->route && !r->route_done && ride_dist_m(r) >= route_length_m(r->route)) {
-        r->route_done = true;  // on along a flat road
-        *beeps = 3;
-    }
     int z = metrics_zone(sample->power_w, r->cfg.ftp_w);
     if (z >= 0) {
         r->zone_s[z]++;
@@ -494,6 +496,11 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     r->n_samples++;
     metrics_add(&r->m, sample);
     r->p3[r->n_samples % 3] = sample->power_w;
+    if (r->route && !r->route_done && ride_dist_m(r) >= route_length_m(r->route)) {
+        r->route_done = true;  // on along a flat road
+        r->route_finish_s = r->n_samples;
+        *beeps = 3;
+    }
 
     if (r->wo && !r->wo_done && *beeps == 0) {
         workout_pos_t pos;
@@ -526,6 +533,15 @@ void ride_view(const ride_t *r, ride_view_t *v)
         v->route_len_m = route_length_m(r->route);
         v->route_dist_m = ride_dist_m(r);
         v->route_done = r->route_done;
+        if (r->ghost) {
+            // How much longer the best ride needed to get as far (finished: to the end)
+            uint32_t len = route_length_m(r->route);
+            uint32_t d = r->route_done ? len : ride_dist_m(r);
+            int32_t t = r->route_done ? (int32_t)r->route_finish_s : (int32_t)r->n_samples;
+            int32_t gt = ghost_time_at(r->ghost, d);
+            v->race = gt >= 0;
+            v->race_gap_s = gt >= 0 ? gt - t : 0;
+        }
     }
     v->gear = r->gear + 1;
     v->gears = r->cfg.gears.n;

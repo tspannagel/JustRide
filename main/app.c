@@ -37,6 +37,7 @@ static app_status_t s_status;
 static settings_t s_settings;
 EXT_RAM_BSS_ATTR static workout_t s_wo;  // PSRAM: internal RAM is tight
 EXT_RAM_BSS_ATTR static route_t s_route;  // 80 KB
+EXT_RAM_BSS_ATTR static ghost_t s_ghost;  // best earlier ride on s_route, control task only
 static input_map_t s_input;
 static bool s_finish_pending;
 static uint8_t s_beeps_left;
@@ -208,10 +209,25 @@ static void task(void *arg)
         }
         if (start) {
             web_stop();  // waits for running web requests, which may need the lock
+            // A route: race the best earlier ride on it. Read from the SD card without
+            // the lock (a few CSV files), so the UI keeps running.
+            char user[sizeof(s_settings.users[0].id)] = "", route[ROUTE_NAME_LEN] = "";
+            uint32_t len_m = 0;
+            lock();
+            if (s_start_route) {
+                snprintf(user, sizeof(user), "%s", settings_user(&s_settings)->id);
+                snprintf(route, sizeof(route), "%s", s_start_route->name);
+                len_m = route_length_m(s_start_route);
+            }
+            unlock();
+            bool race = len_m && recorder_find_ghost(user, route, len_m, &s_ghost);
             lock();
             if (s_start_pending) {
                 s_start_pending = false;
                 start_ride(s_start_wo, s_start_route);
+                if (race && s_ride.route && strcmp(s_ride.route->name, route) == 0) {
+                    ride_set_ghost(&s_ride, &s_ghost);
+                }
             }
             unlock();
         }

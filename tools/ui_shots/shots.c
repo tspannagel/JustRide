@@ -272,6 +272,8 @@ int main(int argc, char **argv)
     g_view.route_dist_m = 3120;
     g_view.base_grade = route_grade(&g_route, 3120);
     g_view.grade = g_view.base_grade - 40;
+    g_view.race = true;
+    g_view.race_gap_s = 14;
     refresh(NULL);
     save("ride-route");
     g_route_on = NULL;
@@ -329,6 +331,16 @@ int main(int argc, char **argv)
     g_status.ftp_prev_w = 200;
     refresh(NULL);
     save("summary-ftp-test");
+
+    // A route, faster than the best earlier ride on it
+    g_status.ftp_test = false;
+    g_status.ftp_prev_w = 0;
+    g_view.route = true;
+    g_view.route_done = true;
+    g_view.race = true;
+    g_view.race_gap_s = 23;
+    refresh(NULL);
+    save("summary-route");
 
     return 0;
 }

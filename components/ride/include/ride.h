@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "jr_types.h"
 #include "metrics.h"
+#include "ghost.h"
 #include "route.h"
 #include "vshift.h"
 #include "workout.h"
@@ -86,6 +87,8 @@ typedef struct {
     const workout_t *wo;     // NULL in free ride
     const route_t *route;    // route ride: SIM grade from the route by distance; NULL otherwise
     bool route_done;         // past its end: flat road
+    const ghost_t *ghost;    // best earlier ride on this route, NULL: none
+    uint32_t route_finish_s; // ride seconds at the route's end
     int32_t wo_offset_s;     // workout time = timer + offset (skips)
     int last_seg;
     bool wo_done;
@@ -160,6 +163,8 @@ typedef struct {
     uint32_t route_dist_m;   // distance on it
     uint32_t route_len_m;
     bool route_done;
+    bool race;               // racing the best earlier ride on this route
+    int32_t race_gap_s;      // seconds ahead of it (negative: behind); final once route_done
     int8_t zone;             // of the shown power, -1 unknown
     uint32_t zone_s;         // seconds in that zone this ride
     ride_last_block_t last_blk;  // kind BLOCK_NONE when there's nothing to show
@@ -187,6 +192,8 @@ void ride_init(ride_t *r, const ride_config_t *cfg);
 void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc);
 // Start a route ride (SIM, gears work, grade from the route). route must stay valid until the ride ends.
 void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t utc);
+// Race a best earlier ride on the route (after ride_start_route; g stays valid until the ride ends)
+void ride_set_ghost(ride_t *r, const ghost_t *g);
 void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms);
 void ride_action(ride_t *r, action_t a);
 

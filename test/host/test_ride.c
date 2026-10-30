@@ -340,6 +340,50 @@ static void test_route_ride(void)
     CHECK(beeps >= 3);
 }
 
+// Race the best earlier ride: 1 km route; the ghost rode it at 10 m/s (100 s)
+static void test_race_ghost(void)
+{
+    static ghost_t g;
+    ghost_begin(&g);
+    for (int i = 0; i < 300; i++) {
+        ride_sample_t s = {.speed_kmh100 = 3600};
+        ghost_add(&g, &s);
+    }
+    steep_route();
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start_route(&r, &route, now, 0);
+    ride_set_ghost(&r, &g);
+    // ride_for: 30 km/h = 8.33 m/s, slower than the ghost
+    ride_for(&now, 60, 200, NULL);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.race);
+    // ~500 m done in 60 s; the ghost was there after 50 s: about 10 s behind
+    CHECK(v.race_gap_s <= -9 && v.race_gap_s >= -11);
+    ride_for(&now, 80, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(v.route_done);
+    int32_t final_gap = v.race_gap_s;
+    CHECK(final_gap <= -19 && final_gap >= -21);  // 120 s vs 100 s
+    ride_for(&now, 30, 200, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.race_gap_s, final_gap);  // frozen at the finish
+
+    // A ghost that never finished the route isn't raced
+    ghost_begin(&g);
+    for (int i = 0; i < 50; i++) {
+        ride_sample_t s = {.speed_kmh100 = 3600};
+        ghost_add(&g, &s);
+    }
+    ride_init(&r, &cfg);
+    ride_start_route(&r, &route, now, 0);
+    ride_set_ghost(&r, &g);
+    ride_for(&now, 10, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(!v.race);
+}
+
 // No auto-pause in the ramp of a ramp test: its own rule ends the ramp
 static void test_no_auto_pause_in_ramp(void)
 {
@@ -606,6 +650,7 @@ int main(void)
     test_no_auto_pause_in_ramp();
     test_lap_and_interval_feedback();
     test_route_ride();
+    test_race_ghost();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

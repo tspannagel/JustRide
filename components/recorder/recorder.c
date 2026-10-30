@@ -292,3 +292,74 @@ void recorder_recover(void)
     ESP_LOGW(TAG, "recovering interrupted ride %s/%s (%u s)", info->user_id, s_meta.id, (unsigned)s_n);
     write_outputs();
 }
+
+// ---- Racing an earlier ride ---------------------------------------------------------
+
+static bool load_ghost(const char *user_id, const char *ride_id, ghost_t *g)
+{
+    char p[96], row[CSV_ROW_MAX + 8];
+    snprintf(p, sizeof(p), RIDES_DIR "/%s/%s.csv", user_id, ride_id);
+    FILE *f = fopen(p, "r");
+    if (!f) {
+        return false;
+    }
+    ghost_begin(g);
+    ride_sample_t s;
+    while (fgets(row, sizeof(row), f)) {
+        if (csv_parse_row(row, &s) && !ghost_add(g, &s)) {
+            break;  // longer than GHOST_MAX_S: the start is enough to race
+        }
+    }
+    fclose(f);
+    return g->n > 0;
+}
+
+bool recorder_find_ghost(const char *user_id, const char *route_name, uint32_t len_m, ghost_t *g)
+{
+    char p[96], line[256];
+    snprintf(p, sizeof(p), RIDES_DIR "/%s/summary.csv", user_id);
+    FILE *f = fopen(p, "r");
+    if (!f || !route_name[0] || len_m == 0) {
+        if (f) {
+            fclose(f);
+        }
+        return false;
+    }
+    // Candidates: whole route ridden, best average speed first (only a hint: the
+    // ride may have gone on after the end, so each one is measured below)
+    struct {
+        char id[24];
+        uint32_t mps1000;
+    } top[RECORDER_GHOST_TRIES] = {0};
+    ghost_summary_t row;
+    while (fgets(line, sizeof(line), f)) {
+        if (!ghost_summary_row(line, &row) || strcmp(row.workout, route_name) != 0 || row.distance_m < len_m ||
+            row.duration_s == 0) {
+            continue;
+        }
+        uint32_t v = (uint32_t)((uint64_t)row.distance_m * 1000 / row.duration_s);
+        for (int i = 0; i < RECORDER_GHOST_TRIES; i++) {
+            if (v > top[i].mps1000) {
+                memmove(&top[i + 1], &top[i], sizeof(top[0]) * (RECORDER_GHOST_TRIES - 1 - i));
+                snprintf(top[i].id, sizeof(top[i].id), "%s", row.ride_id);
+                top[i].mps1000 = v;
+                break;
+            }
+        }
+    }
+    fclose(f);
+    int best = -1;
+    int32_t best_s = 0;
+    for (int i = 0; i < RECORDER_GHOST_TRIES && top[i].id[0]; i++) {
+        int32_t t = load_ghost(user_id, top[i].id, g) ? ghost_time_at(g, len_m) : -1;
+        if (t > 0 && (best < 0 || t < best_s)) {
+            best = i;
+            best_s = t;
+        }
+    }
+    if (best < 0 || !load_ghost(user_id, top[best].id, g)) {
+        return false;
+    }
+    ESP_LOGI(TAG, "racing %s (%ld s for %lu m)", top[best].id, (long)best_s, (unsigned long)len_m);
+    return true;
+}
