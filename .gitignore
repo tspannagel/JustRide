@@ -95,3 +95,4 @@ Thumbs.db
 # Claude Code: keep project memory and shared settings, ignore personal ones
 # ---------------------------------------------------------------------------
 .claude/settings.local.json
+/docs/img/JustRide.code-workspace
