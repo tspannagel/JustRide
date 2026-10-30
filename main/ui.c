@@ -1147,7 +1147,18 @@ static void update_ride(const ride_view_t *v)
     }
 
     // Paused: orange frame and caption, so it's obvious from the saddle
-    lv_label_set_text(r_power_cap, v->auto_paused ? "PAUSED  -  PEDAL TO RESUME" : paused ? "PAUSED" : "POWER");
+    if (v->auto_paused) {
+        lv_label_set_text(r_power_cap, "PAUSED  -  PEDAL TO RESUME");
+    } else if (paused) {
+        lv_label_set_text(r_power_cap, "PAUSED");
+    } else if (v->zone >= 0) {
+        // Zone of the shown power and the time spent in it this ride
+        char z[16];
+        fmt_time(z, sizeof(z), v->zone_s);
+        lv_label_set_text_fmt(r_power_cap, "POWER  -  Z%d  %s", v->zone + 1, z);
+    } else {
+        lv_label_set_text(r_power_cap, "POWER");
+    }
     lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_parent(r_power_cap), 0), rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_border_width(r_power_card, paused ? 3 : 1, 0);
@@ -1210,9 +1221,23 @@ static void update_ride(const ride_view_t *v)
     } else {
         lv_label_set_text(r_speed, "-");
     }
-    lv_label_set_text_fmt(r_stats, "%lu.%lu km    Avg %d W    NP %d W    %lu kJ    Lap %u",
-                          (unsigned long)(v->sum.distance_m / 1000), (unsigned long)(v->sum.distance_m % 1000 / 100),
-                          v->sum.avg_w, v->sum.np_w, (unsigned long)v->sum.kj, v->lap + 1);
+    const ride_last_block_t *b = &v->last_blk;
+    if (b->kind != BLOCK_NONE) {
+        // A lap or interval just ended: how it went, for a few seconds
+        char dur[16], hr[16] = "";
+        fmt_time(dur, sizeof(dur), b->s);
+        if (b->avg_hr > 0) {
+            snprintf(hr, sizeof(hr), "    %d bpm", b->avg_hr);
+        }
+        lv_label_set_text_fmt(r_stats, "%s %u done:  %s    %d W avg%s", b->kind == BLOCK_LAP ? "Lap" : "Interval",
+                              b->no, dur, b->avg_w, hr);
+    } else {
+        lv_label_set_text_fmt(r_stats, "%lu.%lu km    Avg %d W    NP %d W    %lu kJ    Lap %u",
+                              (unsigned long)(v->sum.distance_m / 1000),
+                              (unsigned long)(v->sum.distance_m % 1000 / 100), v->sum.avg_w, v->sum.np_w,
+                              (unsigned long)v->sum.kj, v->lap + 1);
+    }
+    lv_obj_set_style_text_color(r_stats, rgb(b->kind != BLOCK_NONE ? C_TEXT : C_MUTED), 0);
 
     lv_label_set_text(r_pause_label, paused ? LV_SYMBOL_PLAY " Resume" : LV_SYMBOL_PAUSE " Pause");
     show(r_grade_minus, !erg);

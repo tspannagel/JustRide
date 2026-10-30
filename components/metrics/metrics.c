@@ -111,4 +111,18 @@ static uint16_t share_of_best(const int16_t bests[METRICS_N_BESTS], uint16_t dur
 
 uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS]) { return share_of_best(bests, 1200, 95); }
 
+int metrics_zone(int power_w, uint16_t ftp_w)
+{
+    static const uint16_t upper_pm[METRICS_N_ZONES - 1] = {550, 750, 900, 1050, 1200, 1500};
+    if (power_w < 0 || ftp_w == 0) {
+        return -1;
+    }
+    uint32_t pm = (uint32_t)power_w * 1000 / ftp_w;
+    int z = 0;
+    while (z < METRICS_N_ZONES - 1 && pm >= upper_pm[z]) {
+        z++;
+    }
+    return z;
+}
+
 uint16_t metrics_ramp_ftp(const int16_t bests[METRICS_N_BESTS]) { return share_of_best(bests, 60, 75); }

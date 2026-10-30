@@ -247,6 +247,48 @@ static void test_auto_pause(void)
     CHECK_EQ(r.state, RIDE_RUNNING);
 }
 
+static void test_lap_and_interval_feedback(void)
+{
+    static workout_t w = {.n = 2, .total_s = 120,
+                          .seg = {{.dur_s = 60, .p_start = 500, .p_end = 500},
+                                  {.dur_s = 60, .p_start = 1000, .p_end = 1000}}};
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, &w, now, 0);
+    ride_view_t v;
+    ride_for(&now, 30, 150, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_NONE);
+    CHECK_EQ(v.zone, 2);  // 150 W of 200 = 75 %: tempo
+    CHECK(v.zone_s >= 28 && v.zone_s <= 30);
+
+    ride_action(&r, ACT_LAP);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_LAP);
+    CHECK_EQ(v.last_blk.no, 1);
+    CHECK_EQ(v.last_blk.avg_w, 150);
+    CHECK(v.last_blk.s >= 29 && v.last_blk.s <= 30);
+
+    // The first interval ends at 60 s
+    ride_for(&now, 31, 250, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_INTERVAL);
+    CHECK_EQ(v.last_blk.no, 1);
+    CHECK_EQ(v.last_blk.s, 60);
+    CHECK(v.last_blk.avg_w > 150 && v.last_blk.avg_w < 250);
+    // Shown for RIDE_BLOCK_SHOW_S, then gone
+    ride_for(&now, RIDE_BLOCK_SHOW_S + 1, 250, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_NONE);
+
+    // A quick lap press isn't shown
+    ride_action(&r, ACT_LAP);
+    ride_for(&now, 2, 250, NULL);
+    ride_action(&r, ACT_LAP);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.no, 2);  // still the earlier lap 2 (12 s), not lap 3
+}
+
 // No auto-pause in the ramp of a ramp test: its own rule ends the ramp
 static void test_no_auto_pause_in_ramp(void)
 {
@@ -511,6 +553,7 @@ int main(void)
     test_data_between_ticks_is_fresh();
     test_auto_pause();
     test_no_auto_pause_in_ramp();
+    test_lap_and_interval_feedback();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

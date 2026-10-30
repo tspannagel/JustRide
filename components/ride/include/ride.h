@@ -48,6 +48,29 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define AUTORESUME_CAD_RPM10 300    // 30 rpm
 #define AUTORESUME_MS 2000
 
+#define RIDE_BLOCK_SHOW_S 10  // a finished lap or interval is shown this long
+#define RIDE_BLOCK_MIN_S 5    // shorter ones (a quick skip) aren't
+
+// A lap or a workout interval being ridden
+typedef struct {
+    uint32_t s;
+    uint32_t j;               // energy, J (unknown power counts as 0, like the averages)
+    uint32_t hr_sum;
+    uint16_t hr_n;
+} ride_block_t;
+
+typedef enum { BLOCK_NONE, BLOCK_LAP, BLOCK_INTERVAL } block_kind_t;
+
+// A finished one, for the ride screen
+typedef struct {
+    uint8_t kind;             // block_kind_t
+    uint8_t no;               // 1-based lap or interval number
+    uint32_t s;
+    int16_t avg_w;
+    int16_t avg_hr;           // 0 = none
+    uint32_t until_s;         // shown while timer < this
+} ride_last_block_t;
+
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
@@ -98,6 +121,12 @@ typedef struct {
     uint16_t ramp_s;         // seconds ridden in the ramp
     uint8_t ramp_low_s;      // seconds in a row below cadence or power
 
+    // lap / interval feedback, time in zones
+    ride_block_t lap_blk, seg_blk;
+    ride_last_block_t last_blk;
+    int seg_closing;         // interval (1-based) that ended this tick, closed after its last sample
+    uint32_t zone_s[METRICS_N_ZONES];
+
     // auto-pause
     bool auto_paused;        // paused by auto-pause (resumes by pedalling)
     uint32_t still_since_ms; // not pedalling since, 0 = pedalling
@@ -124,6 +153,9 @@ typedef struct {
     uint8_t intensity;
     uint8_t lap;
     bool auto_paused;
+    int8_t zone;             // of the shown power, -1 unknown
+    uint32_t zone_s;         // seconds in that zone this ride
+    ride_last_block_t last_blk;  // kind BLOCK_NONE when there's nothing to show
     bool has_workout;
     int seg_idx;
     int seg_count;

@@ -145,6 +145,8 @@ static void ride_common(void)
     g_view.gears = 24;
     g_view.intensity = 100;
     g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325, .distance_m = 14260};
+    g_view.zone = 3;
+    g_view.zone_s = 412;
 }
 
 int main(int argc, char **argv)
@@ -222,9 +224,20 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("ride-workout");
 
+    // An interval just ended
+    g_view.last_blk = (ride_last_block_t){.kind = BLOCK_INTERVAL, .no = 3, .s = 600, .avg_w = 251, .avg_hr = 156};
+    refresh(NULL);
+    save("ride-interval-done");
+    g_view.last_blk.kind = BLOCK_NONE;
+
     g_view.state = RIDE_PAUSED;
     refresh(NULL);
     save("ride-paused");
+
+    g_view.auto_paused = true;
+    refresh(NULL);
+    save("ride-auto-paused");
+    g_view.auto_paused = false;
 
     // Adaptive part: HR above its range (orange), the target was lowered
     open_adapt(NULL);

@@ -52,5 +52,10 @@ void metrics_bests(const ride_sample_t *s, size_t n, int16_t out[METRICS_N_BESTS
 
 // FTP estimate: 95 % of the best 20 min power; 0 if the ride is shorter than 20 min.
 uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS]);
+// Power zone 0..6 (Coggan, as the web app: < 55, 75, 90, 105, 120, 150 % FTP, above);
+// -1 for unknown power
+#define METRICS_N_ZONES 7
+int metrics_zone(int power_w, uint16_t ftp_w);
+
 // FTP from a ramp test: 75 % of the best minute; 0 if the ride is shorter than 1 min.
 uint16_t metrics_ramp_ftp(const int16_t bests[METRICS_N_BESTS]);

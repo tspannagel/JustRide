@@ -217,6 +217,7 @@ static int ramp_idx(const ride_t *r)
 // On to the cool-down
 static void ramp_end(ride_t *r)
 {
+    r->seg_closing = r->last_seg + 1;
     r->wo_offset_s += (int32_t)workout_seg_start(r->wo, r->wo->ramp_end) - (int32_t)wo_time(r);
     r->last_seg = r->wo->ramp_end;  // no segment beeps on top of the end beeps
 }
@@ -243,6 +244,32 @@ static bool gear_mode(const ride_t *r)
 {
     workout_pos_t pos;
     return !in_erg(r, &pos);
+}
+
+static void block_add(ride_block_t *b, const ride_sample_t *s)
+{
+    b->s++;
+    b->j += s->power_w > 0 ? (uint32_t)s->power_w : 0;
+    if (s->hr_bpm > 0) {
+        b->hr_sum += (uint32_t)s->hr_bpm;
+        b->hr_n++;
+    }
+}
+
+// A lap or interval ended: show it for a while (unless it was too short), start the next
+static void block_close(ride_t *r, ride_block_t *b, uint8_t kind, int no)
+{
+    if (b->s >= RIDE_BLOCK_MIN_S) {
+        r->last_blk = (ride_last_block_t){
+            .kind = kind,
+            .no = (uint8_t)(no > 255 ? 255 : no),
+            .s = b->s,
+            .avg_w = (int16_t)(b->j / b->s),
+            .avg_hr = (int16_t)(b->hr_n ? b->hr_sum / b->hr_n : 0),
+            .until_s = r->timer_ms / 1000 + RIDE_BLOCK_SHOW_S,
+        };
+    }
+    memset(b, 0, sizeof(*b));
 }
 
 // Every tick, running or paused (see AUTOPAUSE_*)
@@ -299,6 +326,7 @@ void ride_action(ride_t *r, action_t a)
         break;
     case ACT_LAP:
         if (r->state == RIDE_RUNNING && r->lap < 255) {
+            block_close(r, &r->lap_blk, BLOCK_LAP, r->lap + 1);
             r->lap++;
         }
         break;
@@ -407,8 +435,12 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
         if (pos.done) {
             r->wo_done = true; // continue as free ride
             *beeps = 3;
+            r->seg_closing = r->last_seg + 1;
         } else if (pos.idx != r->last_seg) {
             *beeps = r->last_seg < 0 ? 0 : 2;
+            if (r->last_seg >= 0) {
+                r->seg_closing = r->last_seg + 1;
+            }
             r->last_seg = pos.idx;
         }
     }
@@ -420,6 +452,19 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     adapt_update(r, beeps);
     fill_sample(r, sample, utc);
     ramp_update(r, sample, beeps);
+    // This second still belongs to the interval that just ended (sample t covers t..t+1)
+    block_add(&r->lap_blk, sample);
+    if (r->wo && (!r->wo_done || r->seg_closing)) {
+        block_add(&r->seg_blk, sample);
+    }
+    if (r->seg_closing) {
+        block_close(r, &r->seg_blk, BLOCK_INTERVAL, r->seg_closing);
+        r->seg_closing = 0;
+    }
+    int z = metrics_zone(sample->power_w, r->cfg.ftp_w);
+    if (z >= 0) {
+        r->zone_s[z]++;
+    }
     r->n_samples++;
     metrics_add(&r->m, sample);
     r->p3[r->n_samples % 3] = sample->power_w;
@@ -455,6 +500,9 @@ void ride_view(const ride_t *r, ride_view_t *v)
     v->intensity = r->intensity;
     v->lap = r->lap;
     v->auto_paused = r->state == RIDE_PAUSED && r->auto_paused;
+    if (r->last_blk.kind != BLOCK_NONE && v->timer_s < r->last_blk.until_s) {
+        v->last_blk = r->last_blk;
+    }
 
     // 3 s power while riding, instant power otherwise
     v->power_w = fresh ? r->trainer.power_w : -1;
@@ -468,6 +516,8 @@ void ride_view(const ride_t *r, ride_view_t *v)
         }
         v->power_w = n ? (int16_t)(sum / n) : -1;
     }
+    v->zone = (int8_t)metrics_zone(v->power_w, r->cfg.ftp_w);
+    v->zone_s = v->zone >= 0 ? r->zone_s[v->zone] : 0;
 
     if (r->wo) {
         workout_pos_t pos;

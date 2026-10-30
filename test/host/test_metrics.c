@@ -114,8 +114,22 @@ static void test_bests(void)
     free(s);
 }
 
+static void test_zones(void)
+{
+    CHECK_EQ(metrics_zone(-1, 200), -1);
+    CHECK_EQ(metrics_zone(0, 200), 0);
+    CHECK_EQ(metrics_zone(109, 200), 0);   // 54.5 %
+    CHECK_EQ(metrics_zone(110, 200), 1);   // 55 %
+    CHECK_EQ(metrics_zone(209, 200), 3);
+    CHECK_EQ(metrics_zone(210, 200), 4);   // 105 %
+    CHECK_EQ(metrics_zone(299, 200), 5);
+    CHECK_EQ(metrics_zone(300, 200), 6);   // 150 %
+    CHECK_EQ(metrics_zone(1500, 200), 6);
+}
+
 int main(void)
 {
+    test_zones();
     test_one_hour_at_ftp();
     test_intervals_np_above_avg();
     test_unknown_and_stopped();
