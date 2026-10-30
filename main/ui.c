@@ -216,10 +216,10 @@ static lv_obj_t *metric(lv_obj_t *parent, const char *name, uint32_t color, cons
 
 // ---- Workout profile ------------------------------------------------------------
 
-// Zwift-style zone colours by % of FTP
+// Zone colours by % of FTP: the same zone limits as the statistics app (Z6 and Z7 share red)
 static uint32_t zone_color(uint16_t pm)
 {
-    return pm < 600 ? 0x8B949E : pm < 760 ? 0x2F81F7 : pm < 900 ? 0x3FB950 : pm < 1050 ? 0xE3B341 : pm < 1180 ? 0xF0883E : 0xF85149;
+    return pm < 550 ? 0x8B949E : pm < 750 ? 0x2F81F7 : pm < 900 ? 0x3FB950 : pm < 1050 ? 0xE3B341 : pm < 1200 ? 0xF0883E : 0xF85149;
 }
 
 typedef struct {

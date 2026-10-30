@@ -72,6 +72,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
     <li><a href="#wifi">Wi-Fi, statistics, files</a></li>
     <li><a href="#updates">Firmware updates</a></li>
     <li><a href="#settings">Settings reference</a></li>
+    <li><a href="#numbers">How the numbers are calculated</a></li>
     <li><a href="#trouble">Troubleshooting</a></li>
   </ol>
 </nav>
@@ -283,7 +284,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 </div>
 <p>Tap <span class="btn">Workouts</span>, then a workout. The preview shows:</p>
 <ul>
-  <li>the <b>profile</b>: each bar is the target power over time, coloured by zone (grey &lt; 60 %, blue &lt; 76 %, green &lt; 90 %, yellow &lt; 105 %, orange &lt; 118 %, red above). The thin line is 100 % FTP. Free-ride parts are dark and flat;</li>
+  <li>the <b>profile</b>: each bar is the target power over time, coloured by power zone (grey Z1 &lt; 55 %, blue Z2 &lt; 75 %, green Z3 &lt; 90 %, yellow Z4 &lt; 105 %, orange Z5 &lt; 120 %, red Z6/Z7 above; the same zones as in the statistics, see <a href="#numbers">How the numbers are calculated</a>). The thin line is 100 % FTP. Free-ride parts are dark and flat;</li>
   <li><b>duration</b>, <b>average watts</b>, <b>IF</b> and <b>TSS</b> if you ride it exactly on target (free-ride parts are counted as 50 % FTP), and the peak target in watts.</li>
 </ul>
 <p>Tap <span class="btn">Start workout</span> to ride it, or <span class="btn">‹</span> to go back. During the ride a small copy of the profile sits under the timer: the part you have done is dimmed and a white line marks where you are.</p>
@@ -388,7 +389,71 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <p><code>real_ratio</code> = front teeth ÷ rear teeth of the gear your chain is actually in. <code>ratios</code>: 2–30 values, ascending. The gear table is shared by all riders.</p>
 
 <!-- ------------------------------------------------------------------ -->
-<h2 id="trouble">10. Troubleshooting</h2>
+<h2 id="numbers">10. How the numbers are calculated</h2>
+<p>The device records one sample per second while the ride runs (pauses are not recorded). Every number below is computed from these samples, on the device for the ride screen, the summary and the summary files, and in your browser for the statistics. FTP, weight and max heart rate are the rider's values <i>at the time of the ride</i>; changing them later doesn't change old rides.</p>
+
+<h3>Missing data</h3>
+<ul>
+  <li>Trainer values older than 3 seconds and heart rate older than 5 seconds count as <b>unknown</b>: the CSV has an empty field, never a repeated old value.</li>
+  <li>Seconds with unknown power count as <b>0 W</b> in average power, NP, energy and best efforts. A trainer dropout therefore lowers these numbers a little; the time still counts.</li>
+  <li>Averages of cadence and heart rate only use seconds where the value is known and above 0, so coasting doesn't lower your average cadence.</li>
+</ul>
+
+<h3>One ride</h3>
+<div class="scroll"><table>
+  <tr><th>Number</th><th>How</th></tr>
+  <tr><td>Power (ride screen)</td><td>Average of the last 3 seconds while riding; the trainer's latest value otherwise.</td></tr>
+  <tr><td>Time</td><td>Riding time without pauses.</td></tr>
+  <tr><td>Moving time</td><td>Seconds with power or cadence above 0.</td></tr>
+  <tr><td>Distance</td><td>Sum of the trainer's speed over all seconds. The KICKR computes that speed itself from the flywheel, so it is a virtual distance.</td></tr>
+  <tr><td>Average power</td><td>Sum of power ÷ number of seconds (seconds at 0 W included).</td></tr>
+  <tr><td>Max power</td><td>Highest single second.</td></tr>
+  <tr><td>Energy (kJ)</td><td>Sum of power over all seconds ÷ 1000 (1 W for 1 s = 1 J). The FIT file reports the same number as kcal, the usual approximation: the body is about 24 % efficient and 1 kcal = 4.184 kJ, so the two roughly cancel.</td></tr>
+  <tr><td>NP (normalized power)</td><td>Rolling 30-second average of power; raise each value to the 4th power, average them, take the 4th root. NP weights hard efforts more than the plain average and estimates what a steady ride of the same strain would have been. Needs at least 30 seconds.</td></tr>
+  <tr><td>IF (intensity factor)</td><td>NP ÷ FTP. 1.00 = a full hour at FTP.</td></tr>
+  <tr><td>TSS (training stress score)</td><td>Hours × IF² × 100 (= seconds × NP × IF ÷ (FTP × 3600) × 100). One hour at FTP = 100.</td></tr>
+  <tr><td>W/kg</td><td>Average power ÷ weight.</td></tr>
+  <tr><td>Best efforts</td><td>For 1 s, 5 s, 10 s, 30 s, 1, 2, 5, 10, 20, 30 and 60 min: the highest average power over any window of that length in the ride.</td></tr>
+  <tr><td>FTP suggestion</td><td>95 % of the best 20 minutes, offered only if higher than the current FTP (see <a href="#ftp">FTP from your rides</a>).</td></tr>
+</table></div>
+
+<h3>Workouts</h3>
+<ul>
+  <li><b>ERG target</b> = the workout's percentage × FTP × the intensity you set with + / − (100 % by default), never above <i>Max ERG</i> (and never above 1500 W).</li>
+  <li><b>Preview estimates</b> assume you ride exactly on target, second by second. Free-ride parts count as 50 % FTP. Average = mean of the targets; IF = 4th root of the mean of the targets to the 4th power (like NP, but without the 30-second smoothing); TSS = hours × IF² × 100.</li>
+  <li><b>Interval compliance</b> (statistics, ride detail): your average power in each ERG interval ÷ its average target.</li>
+</ul>
+
+<h3>Statistics over time</h3>
+<div class="scroll"><table>
+  <tr><th>Number</th><th>How</th></tr>
+  <tr><td>Fitness (CTL)</td><td>Exponentially weighted average of daily TSS with a 42-day time constant: each day, CTL += (that day's TSS − CTL) ÷ 42. Days without a ride count as TSS 0. Starts at 0 on the day of the first recorded ride, so it takes several weeks to mean much.</td></tr>
+  <tr><td>Fatigue (ATL)</td><td>The same with 7 days.</td></tr>
+  <tr><td>Form (TSB)</td><td>Yesterday's CTL − yesterday's ATL. Negative = tired from recent training, positive = rested.</td></tr>
+  <tr><td>Power curve</td><td>For each best-effort duration, the highest value of all rides (all time) and of the rides of the last 90 days.</td></tr>
+  <tr><td>FTP estimate</td><td>95 % of the best 20 minutes of all rides; with W/kg from the most recent weight.</td></tr>
+  <tr><td>Rides / TSS / hours / kJ cards</td><td>Sums over the last 7 or 30 days, counted back from now.</td></tr>
+</table></div>
+<p>Days are calendar days in <b>UTC</b>: a ride that starts shortly after midnight in Germany counts for the previous day in CTL, ATL and TSB.</p>
+
+<h3>Zones</h3>
+<div class="scroll"><table>
+  <tr><th>Power zone (% of FTP)</th><th>Heart-rate zone (% of max HR)</th></tr>
+  <tr><td>Z1 Recovery: below 55 %</td><td>Z1: below 60 %</td></tr>
+  <tr><td>Z2 Endurance: 55–75 %</td><td>Z2: 60–70 %</td></tr>
+  <tr><td>Z3 Tempo: 75–90 %</td><td>Z3: 70–80 %</td></tr>
+  <tr><td>Z4 Threshold: 90–105 %</td><td>Z4: 80–90 %</td></tr>
+  <tr><td>Z5 VO2max: 105–120 %</td><td>Z5: 90 % and above</td></tr>
+  <tr><td>Z6 Anaerobic: 120–150 %</td><td></td></tr>
+  <tr><td>Z7 Neuromuscular: 150 % and above</td><td></td></tr>
+</table></div>
+<p>The lower limit belongs to the zone (exactly 75 % is Z3). Time in zone counts seconds with a known value. The workout profile on the device uses the same power zones as colours.</p>
+
+<h3>Heart-rate drift (Pa:HR)</h3>
+<p>The ride is split into a first and second half by time. For each half, using only seconds with both power and heart rate: average power ÷ average heart rate. Drift = first half ÷ second half − 1. Around 0 % means your heart rate stayed in step with your power; above about 5 % on a steady endurance ride means your heart rate crept up (fatigue, heat, too little to drink). It says little about interval workouts.</p>
+
+<!-- ------------------------------------------------------------------ -->
+<h2 id="trouble">11. Troubleshooting</h2>
 <p>Keep the USB cable connected to your computer and run <code>idf.py -p /dev/cu.usbmodem* monitor</code>: the log explains most problems. At the <code>jr&gt;</code> prompt these commands help:</p>
 <div class="scroll"><table>
   <tr><th>Command</th><th>What it does</th></tr>
