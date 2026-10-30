@@ -50,6 +50,24 @@ void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc)
     metrics_init(&r->m);
 }
 
+void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t utc)
+{
+    ride_start(r, NULL, now_ms, utc);
+    r->route = route && route_length_m(route) > 0 ? route : NULL;
+}
+
+static uint32_t ride_dist_m(const ride_t *r) { return (uint32_t)(r->m.distance_mm / 1000); }
+
+// The road grade before virtual gearing: the route's, or the rider's own (Grade buttons)
+static int16_t road_grade(const ride_t *r)
+{
+    if (r->route && !r->route_done) {
+        int g = route_grade(r->route, ride_dist_m(r));
+        return (int16_t)(g < VSHIFT_GRADE_MIN ? VSHIFT_GRADE_MIN : g > VSHIFT_GRADE_MAX ? VSHIFT_GRADE_MAX : g);
+    }
+    return r->route ? 0 : r->base_grade;  // a finished route continues flat
+}
+
 void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms)
 {
     if (e->source == SRC_HR) {
@@ -322,6 +340,7 @@ void ride_action(ride_t *r, action_t a)
         if (r->state == RIDE_DONE) {
             r->state = RIDE_IDLE;
             r->wo = NULL;
+            r->route = NULL;
         }
         break;
     case ACT_LAP:
@@ -345,6 +364,9 @@ void ride_action(ride_t *r, action_t a)
     }
     case ACT_GRADE_PLUS:
     case ACT_GRADE_MINUS: {
+        if (r->route) {
+            break;  // the route sets the grade
+        }
         int g = r->base_grade + (a == ACT_GRADE_PLUS ? GRADE_STEP : -GRADE_STEP);
         r->base_grade = (int16_t)(g < VSHIFT_GRADE_MIN ? VSHIFT_GRADE_MIN : g > VSHIFT_GRADE_MAX ? VSHIFT_GRADE_MAX : g);
         break;
@@ -388,7 +410,7 @@ void ride_command(const ride_t *r, control_cmd_t *cmd)
         return;
     }
     cmd->kind = CMD_SIM;
-    cmd->grade = vshift_grade(&r->cfg.gears, r->gear, r->base_grade, r->cfg.crr);
+    cmd->grade = vshift_grade(&r->cfg.gears, r->gear, road_grade(r), r->cfg.crr);
     cmd->crr = r->cfg.crr;
     cmd->cw = r->cfg.cw;
 }
@@ -461,6 +483,10 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
         block_close(r, &r->seg_blk, BLOCK_INTERVAL, r->seg_closing);
         r->seg_closing = 0;
     }
+    if (r->route && !r->route_done && ride_dist_m(r) >= route_length_m(r->route)) {
+        r->route_done = true;  // on along a flat road
+        *beeps = 3;
+    }
     int z = metrics_zone(sample->power_w, r->cfg.ftp_w);
     if (z >= 0) {
         r->zone_s[z]++;
@@ -494,7 +520,13 @@ void ride_view(const ride_t *r, ride_view_t *v)
     v->hr_bpm = current_hr(r);
     v->target_w = cmd.kind == CMD_ERG ? cmd.target_w : 0;
     v->grade = cmd.kind == CMD_SIM ? cmd.grade : 0;
-    v->base_grade = r->base_grade;
+    v->base_grade = road_grade(r);
+    if (r->route) {
+        v->route = true;
+        v->route_len_m = route_length_m(r->route);
+        v->route_dist_m = ride_dist_m(r);
+        v->route_done = r->route_done;
+    }
     v->gear = r->gear + 1;
     v->gears = r->cfg.gears.n;
     v->intensity = r->intensity;

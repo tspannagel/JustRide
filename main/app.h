@@ -41,6 +41,12 @@ bool app_start_workout(const char *path);
 bool app_start_workout_mem(const workout_t *w);
 // The FTP ramp test for the active rider (for the preview)
 void app_ramp_test(workout_t *w);
+// Parse a .route from the SD card (no side effects; for previews)
+bool app_read_route(const char *path, route_t *r);
+// Start a route ride from a parsed route (copied). Only while idle.
+bool app_start_route_mem(const route_t *r);
+// The route of the current ride (NULL if none). Only changes while idle.
+const route_t *app_route(void);
 // The workout of the current ride. Only changes while idle, so the UI may read
 // it without a lock during a ride.
 const workout_t *app_workout(void);

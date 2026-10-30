@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WWW = os.path.join(ROOT, 'www', 'stats')
 MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'application/javascript', '.css': 'text/css',
-        '.wasm': 'application/wasm', '.json': 'application/json', '.csv': 'text/csv', '.zwo': 'application/xml'}
+        '.wasm': 'application/wasm', '.json': 'application/json', '.csv': 'text/csv', '.zwo': 'application/xml',
+        '.route': 'text/plain'}
 
 
 def sample(data):
@@ -202,7 +203,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, json.dumps(out).encode(), 'application/json')
         if path == '/api/workouts':
             out = [{'name': f, 'size': os.path.getsize(os.path.join(d, 'workouts', f)), 'mtime': 0}
-                   for f in os.listdir(os.path.join(d, 'workouts')) if f.lower().endswith('.zwo')]
+                   for f in os.listdir(os.path.join(d, 'workouts')) if f.lower().endswith(('.zwo', '.route'))]
             return self.send(200, json.dumps(out).encode(), 'application/json')
         for prefix in ('/rides/', '/workouts/', '/plans/'):
             if path.startswith(prefix):

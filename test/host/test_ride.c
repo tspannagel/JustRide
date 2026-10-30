@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "ride.h"
 #include "test.h"
 
@@ -289,6 +290,56 @@ static void test_lap_and_interval_feedback(void)
     CHECK_EQ(v.last_blk.no, 2);  // still the earlier lap 2 (12 s), not lap 3
 }
 
+// 500 m flat, then 30 % (clamped to +20 % road), 1 km long
+static route_t route;
+static void steep_route(void)
+{
+    route_parser_t p;
+    route_parse_begin(&p, &route);
+    route_parse_line(&p, "JustRide route 1");
+    route_parse_line(&p, "step_m=10");
+    char line[16];
+    for (int d = 0; d <= 1000; d += 10) {
+        snprintf(line, sizeof(line), "%d", d < 500 ? 0 : (d - 500) * 30);
+        route_parse_line(&p, line);
+    }
+    CHECK(route_parse_end(&p));
+}
+
+static void test_route_ride(void)
+{
+    steep_route();
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start_route(&r, &route, now, 0);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.route);
+    CHECK_EQ(v.route_len_m, 1000);
+    CHECK_EQ(v.base_grade, 0);
+    ride_action(&r, ACT_GRADE_PLUS);  // ignored: the route sets it
+    ride_view(&r, &v);
+    CHECK_EQ(v.base_grade, 0);
+
+    // 30 km/h = 8.33 m/s: 72 s to 600 m
+    ride_for(&now, 72, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(v.route_dist_m >= 590 && v.route_dist_m <= 610);
+    CHECK_EQ(v.base_grade, VSHIFT_GRADE_MAX);  // 30 % clamped to 20 %
+    control_cmd_t c;
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_SIM);
+    CHECK(c.grade <= VSHIFT_GRADE_MAX);
+
+    // Past the end: flat, 3 beeps once
+    int beeps = 0;
+    ride_for(&now, 60, 200, &beeps);
+    ride_view(&r, &v);
+    CHECK(v.route_done);
+    CHECK_EQ(v.base_grade, 0);
+    CHECK(beeps >= 3);
+}
+
 // No auto-pause in the ramp of a ramp test: its own rule ends the ramp
 static void test_no_auto_pause_in_ramp(void)
 {
@@ -554,6 +605,7 @@ int main(void)
     test_auto_pause();
     test_no_auto_pause_in_ramp();
     test_lap_and_interval_feedback();
+    test_route_ride();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

@@ -75,8 +75,10 @@ static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
-static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_note, *pv_msg;
+static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_cap[4], *pv_icon[4], *pv_note, *pv_msg, *pv_start;
 EXT_RAM_BSS_ATTR static workout_t s_preview;  // workout shown on the preview screen (PSRAM)
+EXT_RAM_BSS_ATTR static route_t s_route_pv;   // route shown there instead (s_pv_route)
+static bool s_pv_route;
 static const char *s_preview_path;   // points into s_paths; NULL: built in memory (adaptive ride, FTP test)
 static lv_obj_t *s_preview_from;     // screen the preview's back button returns to
 static lv_obj_t *ad_dur, *ad_power, *ad_hr, *ad_avg_label;
@@ -291,6 +293,8 @@ static uint32_t zone_color(uint16_t pm)
 typedef struct {
     const workout_t *w;
     int32_t pos_s;  // workout time to mark, < 0: none
+    const route_t *route;  // instead of w: the route's elevation
+    int32_t pos_m;         // distance to mark, < 0: none
 } profile_t;
 
 static profile_t s_pv_prof, s_ride_prof;
@@ -317,13 +321,54 @@ static void blur(const int16_t *in, int16_t *out, int n, int r)
     }
 }
 
+// Gradient colours for routes, the web app's ramp: < 2, 4, 6, 8, 10 %, steeper
+static uint32_t grade_color(int16_t g)
+{
+    return g < 200 ? 0x3987E5 : g < 400 ? 0x1FB57F : g < 600 ? 0xE8B100 : g < 800 ? 0xEB6834 : g < 1000 ? 0xE34948
+                                                                                                 : 0xA07CF0;
+}
+
+// A route's elevation, one column per pixel coloured by gradient; done part dimmed,
+// marker at pos_m. Solid fills (no gradients on the dark surface: RGB565 bands).
+static void draw_route(lv_obj_t *o, lv_layer_t *layer, const route_t *r, int32_t pos_m)
+{
+    lv_area_t a;
+    lv_obj_get_content_coords(o, &a);
+    int width = lv_area_get_width(&a), height = lv_area_get_height(&a);
+    uint32_t len = route_length_m(r);
+    if (width <= 0 || width > BSP_LCD_W || height <= 0 || len == 0) {
+        return;
+    }
+    int32_t lo = r->ele_cm[0], hi = r->ele_cm[0];
+    for (uint32_t i = 1; i < r->n; i++) {
+        lo = r->ele_cm[i] < lo ? r->ele_cm[i] : lo;
+        hi = r->ele_cm[i] > hi ? r->ele_cm[i] : hi;
+    }
+    int32_t range = hi - lo < 5000 ? 5000 : hi - lo;  // at least 50 m: flat routes stay flat
+    int marker = pos_m < 0 ? -1 : (int)((uint64_t)(pos_m > (int32_t)len ? len : (uint32_t)pos_m) * width / len);
+    for (int x = 0; x < width; x++) {
+        uint32_t d = (uint32_t)(((2ULL * x + 1) * len) / (2ULL * width));
+        int y = a.y2 - (int)((int64_t)(route_ele_cm(r, d) - lo) * (height - 2) / range);
+        bool done = x < marker;
+        fill(layer, a.x1 + x, y, a.x1 + x, a.y2, grade_color(route_grade(r, d)), done ? LV_OPA_20 : LV_OPA_60);
+        fill(layer, a.x1 + x, y, a.x1 + x, y + 1, C_TEXT, done ? LV_OPA_30 : LV_OPA_80);
+    }
+    if (marker >= 0) {
+        fill(layer, a.x1 + marker - 1, a.y1, a.x1 + marker, a.y2, C_TEXT, LV_OPA_COVER);
+    }
+}
+
 // The workout as one continuous curve, as in the web app: one column per pixel,
 // softened at steps, zone colours blended at zone changes, fading towards the
 // floor, with a light line along the top. Free segments are grey. Done part
-// dimmed, marker at pos_s.
+// dimmed, marker at pos_s. Routes: draw_route.
 static void draw_profile(lv_event_t *e)
 {
     const profile_t *p = lv_event_get_user_data(e);
+    if (p->route) {
+        draw_route(lv_event_get_target_obj(e), lv_event_get_layer(e), p->route, p->pos_m);
+        return;
+    }
     const workout_t *w = p->w;
     if (!w || w->total_s == 0) {
         return;
@@ -672,9 +717,51 @@ static void open_ramp_test(lv_event_t *e)
     show_preview();
 }
 
+static void preview_captions(const char *const names[4], const char *const icons[4], const char *start)
+{
+    for (int i = 0; i < 4; i++) {
+        lv_label_set_text(pv_cap[i], names[i]);
+        lv_label_set_text(pv_icon[i], icons[i]);
+    }
+    lv_label_set_text(pv_start, start);
+}
+
+static const char *const PV_NAMES[4] = {"TIME", "AVG", "IF", "TSS"};
+static const char *const PV_ICONS[4] = {I_TIME, I_BOLT, I_PERCENT, I_BARS};
+
+// A .route: elevation profile, distance, climbing, steepest 100 m, highest point
+static void open_route_preview(const char *path)
+{
+    if (!app_read_route(path, &s_route_pv)) {
+        lv_label_set_text(wo_msg, "Could not load this route");
+        return;
+    }
+    static const char *const names[4] = {"DISTANCE", "CLIMBING", "STEEPEST", "HIGHEST"};
+    static const char *const icons[4] = {I_ROAD, I_LINE, I_PERCENT, I_BARS};
+    preview_captions(names, icons, LV_SYMBOL_PLAY " Start route");
+    route_info_t i;
+    route_info(&s_route_pv, &i);
+    lv_label_set_text(pv_title, s_route_pv.name);
+    lv_label_set_text_fmt(pv_val[0], "%lu.%lu km", (unsigned long)(i.length_m / 1000), (unsigned long)(i.length_m % 1000 / 100));
+    lv_label_set_text_fmt(pv_val[1], "%lu m", (unsigned long)i.climb_m);
+    lv_label_set_text_fmt(pv_val[2], "%d.%d %%", i.max_grade / 100, i.max_grade % 100 / 10);
+    lv_label_set_text_fmt(pv_val[3], "%ld m", (long)(i.max_cm / 100));
+    lv_label_set_text(pv_note, "Free ride along the route: the trainer follows its gradient by distance "
+                               "(-10 to +20 %), your virtual gears work as usual. Flat road after the end.");
+    lv_label_set_text(pv_msg, "");
+    s_pv_route = true;
+    s_preview_path = path;
+    s_preview_from = scr_workouts;
+    s_pv_prof = (profile_t){.route = &s_route_pv, .pos_m = -1};
+    lv_obj_invalidate(pv_profile);
+    go(scr_preview);
+}
+
 // Fills the preview screen from s_preview and shows it
 static void show_preview(void)
 {
+    s_pv_route = false;
+    preview_captions(PV_NAMES, PV_ICONS, LV_SYMBOL_PLAY " Start workout");
     settings_t s;
     app_get_settings(&s);
     uint32_t ftp = settings_user(&s)->ftp_w;
@@ -706,11 +793,29 @@ static void show_preview(void)
     go(scr_preview);
 }
 
-static void on_workout(lv_event_t *e) { open_preview(lv_event_get_user_data(e)); }
+static bool is_route(const char *path)
+{
+    size_t len = strlen(path);
+    return len > 6 && strcasecmp(path + len - 6, ".route") == 0;
+}
+
+static void on_workout(lv_event_t *e)
+{
+    const char *path = lv_event_get_user_data(e);
+    if (is_route(path)) {
+        open_route_preview(path);
+    } else {
+        open_preview(path);
+    }
+}
 
 static void on_preview_start(lv_event_t *e)
 {
-    if (s_preview_path ? !app_start_workout(s_preview_path) : !app_start_workout_mem(&s_preview)) {
+    if (s_pv_route) {
+        if (!app_start_route_mem(&s_route_pv)) {
+            lv_label_set_text(pv_msg, "Could not start this route");
+        }
+    } else if (s_preview_path ? !app_start_workout(s_preview_path) : !app_start_workout_mem(&s_preview)) {
         lv_label_set_text(pv_msg, "Could not start this workout");
     }
 }
@@ -727,18 +832,21 @@ static void build_preview(void)
     lv_obj_set_width(pv_title, 0);
     pv_profile = profile(scr_preview, &s_pv_prof, 190);
     lv_obj_t *r = row(scr_preview);
-    static const char *const names[4] = {"TIME", "AVG", "IF", "TSS"};
-    static const char *const icons[4] = {I_TIME, I_BOLT, I_PERCENT, I_BARS};
     for (int i = 0; i < 4; i++) {
-        pv_val[i] = metric_font(r, icons[i], names[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
+        pv_val[i] = metric_font(r, PV_ICONS[i], PV_NAMES[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
+        // Card: icon + caption row, then the value row (metric_font)
+        lv_obj_t *cap_row = lv_obj_get_child(lv_obj_get_parent(lv_obj_get_parent(pv_val[i])), 0);
+        pv_icon[i] = lv_obj_get_child(cap_row, 0);
+        pv_cap[i] = lv_obj_get_child(cap_row, 1);
     }
     pv_note = muted(scr_preview, &lv_font_montserrat_14, "");
     lv_obj_set_width(pv_note, LV_PCT(100));
     lv_label_set_long_mode(pv_note, LV_LABEL_LONG_WRAP);
     pv_msg = label(scr_preview, &lv_font_montserrat_16, "");
     lv_obj_set_style_text_color(pv_msg, rgb(C_DANGER), 0);
-    lv_obj_add_flag(primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL)),
-                    NAV_START);
+    lv_obj_t *start = primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL));
+    lv_obj_add_flag(start, NAV_START);
+    pv_start = lv_obj_get_child(start, 0);
 }
 
 // Training-plan workouts ("Plan 2026-11-02 ...", written by the web app) first, by date; then A-Z
@@ -759,7 +867,8 @@ static void open_workouts(lv_event_t *e)
     while (d && n < MAX_LIST && (de = readdir(d))) {
         size_t len = strlen(de->d_name);
         // Longer names would be cut off in s_paths (and are refused by the upload page too)
-        if (de->d_name[0] == '.' || len < 5 || len > 60 || strcasecmp(de->d_name + len - 4, ".zwo") != 0) {
+        bool zwo = len >= 5 && strcasecmp(de->d_name + len - 4, ".zwo") == 0;
+        if (de->d_name[0] == '.' || len > 60 || !(zwo || is_route(de->d_name))) {
             continue;
         }
         snprintf(s_paths[n++], sizeof(s_paths[0]), WORKOUT_DIR "/%.60s", de->d_name);
@@ -773,14 +882,15 @@ static void open_workouts(lv_event_t *e)
     for (int i = 0; i < n; i++) {
         char name[64];
         snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
-        name[strlen(name) - 4] = 0;  // without ".zwo"
+        bool route = is_route(name);
+        name[strlen(name) - (route ? 6 : 4)] = 0;  // without ".zwo" / ".route"
         for (char *c = name; *c; c++) {
             *c = *c == '_' ? ' ' : *c;
         }
-        list_item(wo_list, LV_SYMBOL_PLAY, name, on_workout, s_paths[i]);
+        list_item(wo_list, route ? LV_SYMBOL_GPS : LV_SYMBOL_PLAY, name, on_workout, s_paths[i]);
     }
     if (n == 0) {
-        lv_label_set_text(wo_msg, "No .zwo files in /workouts on the SD card yet");
+        lv_label_set_text(wo_msg, "No workouts or routes in /workouts on the SD card yet");
     }
     go(scr_workouts);
 }
@@ -1124,8 +1234,14 @@ static void update_ride(const ride_view_t *v)
     bool erg = v->mode == MODE_ERG;
     bool paused = v->state == RIDE_PAUSED;
     bool in_workout = v->has_workout && !v->wo_done;
-    show(r_profile, in_workout);
-    if (in_workout) {
+    show(r_profile, in_workout || v->route);
+    if (v->route) {
+        const route_t *rt = app_route();
+        if (rt && (s_ride_prof.route != rt || s_ride_prof.pos_m != (int32_t)v->route_dist_m)) {
+            s_ride_prof = (profile_t){.route = rt, .pos_m = (int32_t)v->route_dist_m};
+            lv_obj_invalidate(r_profile);
+        }
+    } else if (in_workout) {
         // Workout time from the segment position (Skip jumps ahead of the ride timer)
         const workout_t *w = app_workout();
         int32_t pos = v->seg_idx < w->n ? (int32_t)(workout_seg_start(w, v->seg_idx) + w->seg[v->seg_idx].dur_s -
@@ -1142,6 +1258,12 @@ static void update_ride(const ride_view_t *v)
         char left[16];
         fmt_time(left, sizeof(left), v->seg_left_s);
         lv_label_set_text_fmt(r_info, "Interval %d/%d  %s", v->seg_idx + 1, v->seg_count, left);
+    } else if (v->route && !v->route_done) {
+        uint32_t left = v->route_len_m > v->route_dist_m ? v->route_len_m - v->route_dist_m : 0;
+        lv_label_set_text_fmt(r_info, "Gear %u/%u  -  %lu.%lu km to go", v->gear, v->gears, (unsigned long)(left / 1000),
+                              (unsigned long)(left % 1000 / 100));
+    } else if (v->route) {
+        lv_label_set_text_fmt(r_info, "Gear %u/%u  -  route done", v->gear, v->gears);
     } else {
         lv_label_set_text_fmt(r_info, "Gear %u/%u", v->gear, v->gears);
     }
@@ -1240,8 +1362,8 @@ static void update_ride(const ride_view_t *v)
     lv_obj_set_style_text_color(r_stats, rgb(b->kind != BLOCK_NONE ? C_TEXT : C_MUTED), 0);
 
     lv_label_set_text(r_pause_label, paused ? LV_SYMBOL_PLAY " Resume" : LV_SYMBOL_PAUSE " Pause");
-    show(r_grade_minus, !erg);
-    show(r_grade_plus, !erg);
+    show(r_grade_minus, !erg && !v->route);  // a route sets the grade itself
+    show(r_grade_plus, !erg && !v->route);
     show(r_skip, v->has_workout && !v->wo_done);
 }
 

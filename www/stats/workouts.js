@@ -350,7 +350,7 @@ export async function showWorkouts() {
 
 async function refreshList() {
   try {
-    state.list = (await api.workouts()).sort((a, b) => a.name.localeCompare(b.name));
+    state.list = (await api.workouts()).filter((f) => /\.zwo$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     state.list = [];
   }

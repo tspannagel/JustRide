@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "jr_types.h"
 #include "metrics.h"
+#include "route.h"
 #include "vshift.h"
 #include "workout.h"
 
@@ -83,6 +84,8 @@ typedef struct {
     ride_config_t cfg;
     uint8_t state;           // ride_state_t
     const workout_t *wo;     // NULL in free ride
+    const route_t *route;    // route ride: SIM grade from the route by distance; NULL otherwise
+    bool route_done;         // past its end: flat road
     int32_t wo_offset_s;     // workout time = timer + offset (skips)
     int last_seg;
     bool wo_done;
@@ -153,6 +156,10 @@ typedef struct {
     uint8_t intensity;
     uint8_t lap;
     bool auto_paused;
+    bool route;              // riding a route
+    uint32_t route_dist_m;   // distance on it
+    uint32_t route_len_m;
+    bool route_done;
     int8_t zone;             // of the shown power, -1 unknown
     uint32_t zone_s;         // seconds in that zone this ride
     ride_last_block_t last_blk;  // kind BLOCK_NONE when there's nothing to show
@@ -178,6 +185,8 @@ typedef struct {
 void ride_init(ride_t *r, const ride_config_t *cfg);
 // Start a ride; wo == NULL for free ride. wo must stay valid until the ride ends.
 void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc);
+// Start a route ride (SIM, gears work, grade from the route). route must stay valid until the ride ends.
+void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t utc);
 void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms);
 void ride_action(ride_t *r, action_t a);
 

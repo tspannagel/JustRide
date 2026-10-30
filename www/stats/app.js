@@ -6,6 +6,7 @@ import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, f
 import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
 import { initPlan, showPlan, autoSync, nextSession, readPlan } from './plan.js';
 import { initRiders, showRiders } from './riders.js';
+import { initRoutes, showRoutes } from './routes.js';
 
 const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, rideOpen: null, range: 90 };
 
@@ -51,6 +52,7 @@ const VIEWS = {
   rides: { title: 'Rides', render: rides },
   power: { title: 'Power', render: power },
   workouts: { title: 'Workouts', render: () => showWorkouts() },
+  routes: { title: 'Routes', render: () => showRoutes() },
   plan: { title: 'Plan', render: () => showPlan(S.user, S.rides, riderLabel()) },
   riders: { title: 'Riders', render: () => showRiders(S.users) },
   device: { title: 'Device', render: device },
@@ -385,6 +387,7 @@ async function main() {
   $('#pmc-range').onclick = (e) => { const b = e.target.closest('button'); if (b) { S.range = Number(b.dataset.days); renderPmc(); } };
   initWorkouts(ctx);
   initPlan(ctx);
+  initRoutes();
   initDevice();
   $('#boot').remove();
   document.body.classList.add('ready');

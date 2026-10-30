@@ -24,6 +24,25 @@ void app_get_settings(settings_t *s) { *s = g_settings; }
 void app_post_action(action_t a) {}
 bool app_start_workout(const char *path) { return true; }
 bool app_start_workout_mem(const workout_t *w) { return true; }
+bool app_start_route_mem(const route_t *r) { return true; }
+static route_t g_route;
+static const route_t *g_route_on;  // the ride's route
+const route_t *app_route(void) { return g_route_on; }
+bool app_read_route(const char *path, route_t *r)
+{
+    FILE *f = fopen(path, "r");
+    route_parser_t p;
+    route_parse_begin(&p, r);
+    char line[96];
+    while (f && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = 0;
+        route_parse_line(&p, line);
+    }
+    if (f) {
+        fclose(f);
+    }
+    return route_parse_end(&p);
+}
 void app_ramp_test(workout_t *w)
 {
     const user_t *u = &g_settings.users[g_settings.user];
@@ -238,6 +257,24 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("ride-auto-paused");
     g_view.auto_paused = false;
+
+    // Route ride, 3.1 km into the sample climb
+    open_route_preview(BSP_SD_MOUNT "/workouts/Sample climb.route");
+    save("route-preview");
+    app_read_route(BSP_SD_MOUNT "/workouts/Sample climb.route", &g_route);
+    g_route_on = &g_route;
+    ride_common();
+    g_view.mode = MODE_FREE;
+    g_view.power_w = 262;
+    g_view.gear = 9;
+    g_view.route = true;
+    g_view.route_len_m = route_length_m(&g_route);
+    g_view.route_dist_m = 3120;
+    g_view.base_grade = route_grade(&g_route, 3120);
+    g_view.grade = g_view.base_grade - 40;
+    refresh(NULL);
+    save("ride-route");
+    g_route_on = NULL;
 
     // Adaptive part: HR above its range (orange), the target was lowered
     open_adapt(NULL);

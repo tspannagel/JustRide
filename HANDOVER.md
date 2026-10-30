@@ -74,6 +74,16 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 2. First ride with the KICKR: connection, ERG/SIM response, file output in intervals.icu (M1–M3).
 3. Zwift Ride: `zap dump on`, press each button once in a known order, save the log as fixtures in `test/host/fixtures/`, fix the bit table, add fixture tests (M4).
 
+## After the first test ride (2026-10-30, not yet ridden)
+
+Fixed: cadence/HR flickering "-" (unsigned wrap in the freshness check), ramp-test FTP now applied with "Keep old FTP", a failed BLE scan start is retried (HR strap stayed away until reboot; cause not confirmed from a log), distance on the ride screen.
+Added the same day, host-tested but not built in this session (no ESP-IDF/LVGL in the cloud container) and not ridden:
+- Auto-pause (`AUTOPAUSE_*` in ride.h): < 5 rpm and < 5 km/h for 3 s; resumes at >= 30 rpm for 2 s only if it paused itself; never on stale data or in the ramp.
+- Lap/interval summary for 10 s on the stats line; power zone + time in it in the power caption.
+- Routes: web app GPX -> `/workouts/<name>.route` (10 m, smoothed); device `route` component; SIM grade by distance; profile on preview + ride screen; `tools/workouts/Sample climb.route` (made up).
+- To verify: `idf.py build`, `tools/ui_shots/shots.sh` (new shots: ride-interval-done, ride-auto-paused, route-preview, ride-route), auto-pause thresholds on the KICKR (does its cadence drop to 0 fast enough? does the flywheel speed fall below 5 km/h?), route distance vs. KICKR speed in SIM with virtual gears.
+- Virtual shifting v2 waits until v1 has been tried on the bike; intervals.icu/Strava upload skipped for now (user).
+
 ## Adaptive workouts (built 2026-10-29, not yet ridden)
 
 User's choices: HR range adjusts power; an average watt goal is held (shortfalls made up later); cadence is a cue only; set up from builder blocks, generator presets (HR steady, Steady average) and a device quick start (Workouts → Adaptive ride).
