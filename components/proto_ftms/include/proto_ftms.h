@@ -43,6 +43,10 @@ bool ftms_parse_bike_data(const uint8_t *buf, size_t len, ftms_bike_data_t *out)
 #define FTMS_OP_RESPONSE 0x80
 
 #define FTMS_RESULT_SUCCESS 0x01
+#define FTMS_RESULT_CONTROL_NOT_PERMITTED 0x05
+
+// Fitness Machine Status (0x2ADA) op code: another client took control
+#define FTMS_STATUS_CONTROL_LOST 0xFF
 
 // Every encoder writes at most this many bytes.
 #define FTMS_CP_MAX_LEN 7
