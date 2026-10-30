@@ -16,6 +16,7 @@
     <button data-view="overview" class="active" data-icon="activity">Overview</button>
     <button data-view="curve" data-icon="trending">Power curve</button>
     <button data-view="rides" data-icon="list">Rides</button>
+    <button data-view="workouts" data-icon="target">Workouts</button>
     <button data-view="sql" data-icon="database">SQL</button>
   </nav>
 </header>
@@ -42,6 +43,23 @@
       <h3 data-icon="layers" data-color="load">Intervals</h3><div id="ride-intervals"></div>
     </div>
   </section>
+  <section id="workouts" class="view" hidden>
+    <p>Plan a workout: pick it, choose a day and time, and your calendar app adds it (with a reminder 15 minutes before).</p>
+    <div id="workout-list"></div>
+  </section>
+  <dialog id="cal">
+    <form method="dialog">
+      <h2 id="cal-title"></h2>
+      <p id="cal-info"></p>
+      <label>Day <input type="date" id="cal-date" required></label>
+      <label>Preferred training time <input type="time" id="cal-time" required></label>
+      <p class="hint">The time is remembered for next time.</p>
+      <div class="actions">
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="add" id="cal-add" class="primary" data-icon="calendar">Add to calendar</button>
+      </div>
+    </form>
+  </dialog>
   <section id="sql" class="view" hidden>
     <p>Tables (for the selected rider): <code>summary</code>, <code>bests</code>, and <code>ride</code> (the ride last opened).</p>
     <textarea id="sql-text" rows="5">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
