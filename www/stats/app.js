@@ -34,8 +34,9 @@ async function q(sql) {
 }
 
 // columns: "name TYPE, name TYPE, ..." (names unquoted; quoted here where SQL needs it).
-// url null or a missing file -> empty table.
-async function loadCsv(db, table, url, columns) {
+// url null or a missing file -> empty table. key: columns that identify a row;
+// duplicates (older firmware could append a recovered ride twice) are dropped.
+async function loadCsv(db, table, url, columns, key) {
   const cols = columns.split(',').map((c) => c.trim().split(/\s+/));
   const res = url ? await fetch(url, { cache: 'no-cache' }) : null;
   const text = res?.ok ? await res.text() : '';
@@ -46,7 +47,9 @@ async function loadCsv(db, table, url, columns) {
   }
   await db.registerFileText(`${table}.csv`, text);
   const spec = cols.map(([n, t]) => `'${n}': '${t}'`).join(', ');
-  await conn.query(`CREATE TABLE ${table} AS SELECT * FROM read_csv('${table}.csv', header = true, columns = {${spec}})`);
+  const distinct = key ? `DISTINCT ON (${key}) ` : '';
+  await conn.query(`CREATE TABLE ${table} AS SELECT ${distinct}* FROM read_csv('${table}.csv', header = true, ` +
+    `columns = {${spec}})`);
   return (await q(`SELECT count(*) AS n FROM ${table}`))[0].n;
 }
 
@@ -333,8 +336,8 @@ async function runSql() {
 async function loadUser(db, u) {
   user = u;
   status('Loading rides...');
-  const n = await loadCsv(db, 'summary', `/rides/${u.id}/summary.csv`, SUMMARY_COLS);
-  await loadCsv(db, 'bests', `/rides/${u.id}/bests.csv`, BESTS_COLS);
+  const n = await loadCsv(db, 'summary', `/rides/${u.id}/summary.csv`, SUMMARY_COLS, 'ride_id');
+  await loadCsv(db, 'bests', `/rides/${u.id}/bests.csv`, BESTS_COLS, 'ride_id, duration_s');
   await loadCsv(db, 'ride', null, RIDE_COLS); // empty until a ride is opened
   status(n ? '' : `No rides recorded for ${u.name} yet.`);
 }

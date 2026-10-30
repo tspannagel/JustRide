@@ -256,7 +256,7 @@ static void emit(writer_t *w, const ride_sample_t *s, size_t n, const fit_meta_t
     u8(w, 0);  // manual
     u8(w, EVENT_ACTIVITY);
     u8(w, EVENT_TYPE_STOP);
-    u32(w, fit_time(t_end));  // local time unknown: same as UTC
+    u32(w, fit_time((uint32_t)((int64_t)t_end + meta->utc_offset_s)));  // local_timestamp
 }
 
 static void header(writer_t *w, uint32_t data_size)

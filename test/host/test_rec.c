@@ -99,7 +99,7 @@ static void test_fit(void)
         s[i].hr_bpm = i < 10 ? -1 : 140;
         s[i].lap = i < 600 ? 0 : 1;
     }
-    fit_meta_t meta = {.ftp_w = 250, .sw_version = 10};
+    fit_meta_t meta = {.ftp_w = 250, .sw_version = 10, .utc_offset_s = 3600};
     mem_len = 0;
     CHECK(fit_write_activity(to_mem, NULL, s, n, &meta));
     CHECK(mem_len > 14 + 2);
@@ -108,6 +108,9 @@ static void test_fit(void)
     CHECK_EQ(data_size, mem_len - 14 - 2);
     CHECK_EQ(fit_crc16(0, mem, 12), mem[12] | mem[13] << 8);
     CHECK_EQ(fit_crc16(0, mem, mem_len), 0); // whole file incl. CRC checks to 0
+    // The activity message ends the data: local_timestamp = end + UTC offset
+    const uint8_t *lt = mem + mem_len - 2 - 4;
+    CHECK_EQ(lt[0] | lt[1] << 8 | lt[2] << 16 | (uint32_t)lt[3] << 24, T0 + 1199 + 60 + 3600 - 631065600u);
 
     // Optional: dump for external validation (fitdecode / FitCSVTool)
     const char *path = getenv("FIT_OUT");
@@ -122,11 +125,28 @@ static void test_fit(void)
     free(s);
 }
 
+static void test_has_ride(void)
+{
+    char path[] = "/tmp/jr_test_summaryXXXXXX";
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    FILE *f = fdopen(fd, "w");
+    fputs(CSV_SUMMARY_HEADER "2026-10-26_1200,2026-10-26T11:00:00Z,3600\n2026-10-27_0730,x\n", f);
+    fclose(f);
+    CHECK(csv_has_ride(path, "2026-10-26_1200"));
+    CHECK(csv_has_ride(path, "2026-10-27_0730"));
+    CHECK(!csv_has_ride(path, "2026-10-26_120"));  // prefix of an id
+    CHECK(!csv_has_ride(path, "2026-10-28_0730"));
+    remove(path);
+    CHECK(!csv_has_ride(path, "2026-10-26_1200"));  // missing file
+}
+
 int main(void)
 {
     test_time();
     test_row_roundtrip();
     test_summary_and_bests();
     test_fit();
+    test_has_ride();
     return test_summary("rec");
 }

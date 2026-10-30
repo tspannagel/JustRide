@@ -18,6 +18,7 @@ typedef struct {
     uint16_t ftp_w;
     uint8_t weight_kg;
     uint8_t max_hr;
+    int32_t utc_offset_s;  // local time - UTC at the start: ride id and FIT local time
 } rec_info_t;
 
 void recorder_init(void);

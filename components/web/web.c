@@ -35,6 +35,9 @@ static const char *TAG = "web";
 #define STA_TIMEOUT_US (15 * 1000000)
 #define CHUNK 4096
 #define OTA_WINDOW_US (5 * 60 * 1000000LL)
+// An upload from a phone that left Wi-Fi times out forever; give up so the
+// server (and web_stop() at ride start, which waits for it) never hangs.
+#define MAX_RECV_TIMEOUTS 5
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
@@ -352,11 +355,13 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
     }
     size_t left = req->content_len;
     bool ok = true;
+    int timeouts = 0;
     while (ok && left > 0) {
         int n = httpd_req_recv(req, s_buf, left < sizeof(s_buf) ? left : sizeof(s_buf));
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
+            continue;  // timeouts in a row; any data resets the count
         }
+        timeouts = 0;
         ok = n > 0 && fwrite(s_buf, 1, (size_t)n, f) == (size_t)n;
         left -= ok ? (size_t)n : 0;
     }
@@ -554,11 +559,13 @@ static esp_err_t h_ota(httpd_req_t *req)
     const size_t head = desc_off + sizeof(esp_app_desc_t);
     size_t left = req->content_len, done = 0, have = 0;
     const char *err = NULL;
+    int timeouts = 0;
     while (!err && left > 0) {
         int n = httpd_req_recv(req, buf + have, left < CHUNK - have ? left : CHUNK - have);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
+            continue;  // timeouts in a row; any data resets the count
         }
+        timeouts = 0;
         if (n <= 0) {
             err = "upload interrupted";
             break;
