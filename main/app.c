@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include "ble_mgr.h"
+#include "ble_srv.h"
 #include "bsp.h"
 #include "drv_ftms.h"
 #include "esp_log.h"
@@ -25,6 +26,7 @@ static const char *TAG = "app";
 #define BEEP_MS 150
 #define BEEP_GAP_MS 350
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01
+#define REBROADCAST_MS 1000
 
 static SemaphoreHandle_t s_lock;
 static ride_t s_ride;
@@ -125,7 +127,7 @@ static void handle(const evt_t *e)
 
 static void task(void *arg)
 {
-    uint32_t last_tick = now_ms();
+    uint32_t last_tick = now_ms(), last_bcast = last_tick;
     for (;;) {
         evt_t e;
         bool got = evbus_get(&e, pdMS_TO_TICKS(50));
@@ -154,6 +156,11 @@ static void task(void *arg)
         ride_command(&s_ride, &cmd);
         drv_ftms_set(&cmd);
         ride_view(&s_ride, &s_view);
+        if (now - last_bcast >= REBROADCAST_MS) {
+            // Power and cadence as shown (3 s power while riding; -1 when stale) to a watch
+            last_bcast = now;
+            ble_srv_update(s_view.power_w, s_view.cadence_rpm10, now);
+        }
         s_status.clock_ok = utc_now() > CLOCK_VALID_AFTER;
         bool finish = s_finish_pending;
         s_finish_pending = false;

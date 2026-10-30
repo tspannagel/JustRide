@@ -136,6 +136,7 @@ idf.py -p /dev/cu.usbmodem* flash monitor</code></pre>
   <li>The first build downloads LVGL, the display/touch drivers and mDNS (needs internet once). Build output goes to <code>build/</code> inside the repository (ignored by git).</li>
   <li>If flashing fails with “no serial port”: hold the <b>BOOT</b> button, plug the cable in, release BOOT, and flash again.</li>
   <li><code>monitor</code> shows the log. Leave it with <kbd>Ctrl</kbd>+<kbd>]</kbd>.</li>
+  <li>After a firmware change that edits <code>sdkconfig.defaults</code> (e.g. the Bluetooth roles), delete <code>sdkconfig</code> once (<code>rm sdkconfig</code>) so the new defaults are used; your old <code>sdkconfig</code> otherwise keeps the previous settings.</li>
 </ul>
 
 <h3 id="sd">3.3 Prepare the SD card</h3>
@@ -262,6 +263,15 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
+
+<h3 id="watch">Record on an Apple Watch too</h3>
+<p>The head unit also shows up as a Bluetooth power and cadence sensor called <b>JustRide</b>. It passes on the trainer's power and cadence (the same numbers as on the ride screen), so an Apple Watch records the ride in the Fitness app with your watch's heart rate and calories. A bike computer (Garmin, Wahoo) can connect the same way. Nothing can control the trainer through it: it only sends numbers.</p>
+<ol>
+  <li>Once: turn on the head unit. On the Apple Watch (watchOS 10 or later) open <b>Settings → Bluetooth</b>, wait for <b>JustRide</b> under <i>Health devices</i> and tap it.</li>
+  <li>Each ride: start <b>Indoor Cycle</b> in the Workout app on the watch, then start the ride on the head unit. The watch shows the power and cadence from the head unit.</li>
+  <li>The watch records the ride in Apple Health / Fitness; the head unit still saves its own FIT and CSV files as usual.</li>
+</ol>
+<p>Up to two receivers can connect at once. The watch's own heart rate stays on the watch; for heart rate on the head unit, use a chest strap.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="workouts">6. Workouts</h2>
