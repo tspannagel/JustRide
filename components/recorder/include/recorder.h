@@ -25,7 +25,8 @@ void recorder_init(void);
 bool recorder_start(uint32_t start_utc, const rec_info_t *info);
 void recorder_add(const ride_sample_t *s);
 // Writes FIT, summary and bests. Returns false if nothing was saved.
-// bests: the ride's best efforts (metrics_bests), all -1 if nothing was saved.
+// bests: the ride's best efforts (metrics_bests), also when the SD card failed;
+// all -1 if the ride was too short.
 bool recorder_finish(int16_t bests[METRICS_N_BESTS]);
 // At boot: finish a ride that was interrupted by a crash or power loss.
 void recorder_recover(void);

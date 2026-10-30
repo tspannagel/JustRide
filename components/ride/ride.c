@@ -219,17 +219,16 @@ static void ramp_end(ride_t *r)
 }
 
 // Once per recorded second: count the ramp and end it when the rider can't hold it.
-// Stale trainer data neither counts as failing nor resets the count.
+// Stale trainer data counts as failing: the ramp keeps climbing while the trainer is
+// gone, and a rider must not come back to a step they never rode up to.
 static void ramp_update(ride_t *r, const ride_sample_t *s, uint8_t *beeps)
 {
     if (ramp_idx(r) < 0) {
         return;
     }
     r->ramp_s++;
-    if (s->power_w < 0 || s->cadence_rpm10 < 0) {
-        return;
-    }
-    bool low = s->cadence_rpm10 < RAMP_FAIL_CAD_RPM * 10 || s->power_w * 100 < s->target_w * RAMP_FAIL_POWER_PCT;
+    bool low = s->power_w < 0 || s->cadence_rpm10 < 0 || s->cadence_rpm10 < RAMP_FAIL_CAD_RPM * 10 ||
+               s->power_w * 100 < s->target_w * RAMP_FAIL_POWER_PCT;
     r->ramp_low_s = low ? (uint8_t)(r->ramp_low_s + 1) : 0;
     if (r->ramp_low_s >= RAMP_FAIL_S) {
         ramp_end(r);

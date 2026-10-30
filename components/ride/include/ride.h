@@ -35,7 +35,7 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 // rider can't hold it. Skip ends it too; intensity stays at 100 %.
 #define RAMP_FAIL_CAD_RPM 60     // cadence below this
 #define RAMP_FAIL_POWER_PCT 80   // or power below this % of the target
-#define RAMP_FAIL_S 10           // for this many seconds in a row
+#define RAMP_FAIL_S 10           // for this many seconds in a row (no trainer data counts too)
 #define RAMP_MIN_S 120           // a result needs at least this much of the ramp (metrics_ramp_ftp)
 
 typedef struct {

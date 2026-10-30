@@ -237,7 +237,8 @@ bool recorder_finish(int16_t bests[METRICS_N_BESTS])
         }
     }
     bool saved = write_outputs();
-    if (saved) {
+    if (s_n >= RECORDER_MIN_S) {
+        // Even if the SD card failed: an FTP test's result is still worth offering
         memcpy(bests, s_meta.bests, sizeof(s_meta.bests));
     }
     return saved;

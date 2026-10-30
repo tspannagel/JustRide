@@ -358,19 +358,35 @@ static void test_ramp_test_power_stale_and_skip(void)
     ride_hr(&now, 5, 90, 900, -1);
     ride_hr(&now, 1, 120, 900, -1);
     ride_hr(&now, 4, 90, 900, -1);
-    // Stale trainer data (after 3 s without any) neither ends it nor resets the count
-    for (int i = 0; i < 4 * 10; i++) {
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 1);  // 4 low seconds so far
+    ride_hr(&now, RAMP_FAIL_S - 5, 90, 900, -1);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 1);
+    ride_hr(&now, 1, 90, 900, -1);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 0);
+    CHECK_EQ(v.seg_idx, rt.ramp_end);
+
+    // The trainer drops out (no data for 3 s, then stale): the ramp ends rather than
+    // climbing on without the rider, who would come back to a step never ridden up to
+    ride_init(&r, &cfg);
+    ride_start(&r, &rt, now, 0);
+    ride_hr(&now, RAMP_WARMUP_S + 30, 200, 900, -1);
+    for (int i = 0; i < 4 * (3 + RAMP_FAIL_S - 1); i++) {
         now += 250;
         ride_sample_t s;
         uint8_t beeps;
         ride_tick(&r, now, 0, &s, &beeps);
     }
     ride_view(&r, &v);
-    CHECK_EQ(v.ramp_step, 1);  // 7 low seconds so far
-    ride_hr(&now, RAMP_FAIL_S - 8, 90, 900, -1);
-    ride_view(&r, &v);
-    CHECK_EQ(v.ramp_step, 1);
-    ride_hr(&now, 1, 90, 900, -1);
+    CHECK(v.ramp_step > 0);  // last 3 s still fresh at 200 W: 9 stale seconds so far
+    for (int i = 0; i < 4 * 2; i++) {
+        now += 250;
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, now, 0, &s, &beeps);
+    }
     ride_view(&r, &v);
     CHECK_EQ(v.ramp_step, 0);
     CHECK_EQ(v.seg_idx, rt.ramp_end);
