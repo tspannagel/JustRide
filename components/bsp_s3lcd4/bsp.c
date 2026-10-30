@@ -357,6 +357,33 @@ static esp_err_t lcd_init(void)
     return ESP_OK;
 }
 
+// The RGB panel's interrupt (it refills the bounce buffers from PSRAM every few
+// lines) lands on the core that creates the panel. Create it on core 1: core 0
+// runs the Bluetooth controller and Wi-Fi, whose interrupts delayed the refill
+// and showed as flickering lines once a watch connected.
+typedef struct {
+    TaskHandle_t caller;
+    esp_err_t err;
+} lcd_job_t;
+
+static void lcd_init_task(void *arg)
+{
+    lcd_job_t *job = arg;
+    job->err = lcd_init();
+    xTaskNotifyGive(job->caller);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t lcd_init_core1(void)
+{
+    lcd_job_t job = {.caller = xTaskGetCurrentTaskHandle(), .err = ESP_FAIL};
+    if (xTaskCreatePinnedToCore(lcd_init_task, "lcd_init", 4096, &job, 5, NULL, 1) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    return job.err;
+}
+
 esp_lcd_panel_handle_t bsp_panel(void) { return s_panel; }
 uint16_t *bsp_framebuffer(void) { return s_fb; }
 
@@ -406,7 +433,7 @@ esp_err_t bsp_init(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 
     // 4 + 5. ST7701 init, RGB panel
-    ESP_RETURN_ON_ERROR(lcd_init(), TAG, "LCD");
+    ESP_RETURN_ON_ERROR(lcd_init_core1(), TAG, "LCD");
 
     // Touch after the panel, like Waveshare's BSP: the GT911 needs time after reset.
     uint8_t found[16];

@@ -16,6 +16,15 @@ static const char *TAG = "ble_srv";
 #define APPEARANCE_CYCLING_POWER 0x0484
 #define MAX_PEERS 2  // e.g. a watch and a bike computer
 #define NO_CONN 0xFFFF
+// Radio time: values change once a second, so ask receivers for a slow link
+// (90-120 ms; Apple's accessory rules: min >= 15 ms, max >= min + 15 ms,
+// timeout 2-6 s) and advertise every 200-300 ms instead of NimBLE's 30-60 ms.
+// Busy radio events delayed the display refresh (flickering lines).
+#define CONN_ITVL_MIN 72   // 1.25 ms units: 90 ms
+#define CONN_ITVL_MAX 96   // 120 ms
+#define CONN_TIMEOUT 400   // 10 ms units: 4 s
+#define ADV_ITVL_MIN 320   // 0.625 ms units: 200 ms
+#define ADV_ITVL_MAX 480   // 300 ms
 
 typedef struct {
     uint16_t conn;
@@ -169,8 +178,14 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             peer_t *p = peer(NO_CONN);
             if (p) {
                 *p = (peer_t){.conn = ev->connect.conn_handle};
-                ESP_LOGI(TAG, "receiver connected");
+                struct ble_gap_conn_desc d;
+                if (ble_gap_conn_find(ev->connect.conn_handle, &d) == 0) {
+                    ESP_LOGI(TAG, "receiver connected, interval %u.%02u ms", d.conn_itvl * 125 / 100, d.conn_itvl * 125 % 100);
+                }
                 post_receivers();
+                struct ble_gap_upd_params up = {.itvl_min = CONN_ITVL_MIN, .itvl_max = CONN_ITVL_MAX,
+                                                .latency = 0, .supervision_timeout = CONN_TIMEOUT};
+                ble_gap_update_params(ev->connect.conn_handle, &up);  // the receiver may refuse
             } else {
                 ble_gap_terminate(ev->connect.conn_handle, BLE_ERR_CONN_LIMIT);
             }
@@ -193,6 +208,14 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             p->cps = ev->subscribe.cur_notify;
         } else if (p && ev->subscribe.attr_handle == s_csc_meas) {
             p->csc = ev->subscribe.cur_notify;
+        }
+        break;
+    }
+    case BLE_GAP_EVENT_CONN_UPDATE: {
+        struct ble_gap_conn_desc d;
+        if (peer(ev->conn_update.conn_handle) && ble_gap_conn_find(ev->conn_update.conn_handle, &d) == 0) {
+            ESP_LOGI(TAG, "receiver link: interval %u.%02u ms, latency %u", d.conn_itvl * 125 / 100,
+                     d.conn_itvl * 125 % 100, d.conn_latency);
         }
         break;
     }
@@ -223,7 +246,8 @@ static void advertise(void)
         .appearance_is_present = 1,
     };
     int rc = ble_gap_adv_set_fields(&f);
-    struct ble_gap_adv_params p = {.conn_mode = BLE_GAP_CONN_MODE_UND, .disc_mode = BLE_GAP_DISC_MODE_GEN};
+    struct ble_gap_adv_params p = {.conn_mode = BLE_GAP_CONN_MODE_UND, .disc_mode = BLE_GAP_DISC_MODE_GEN,
+                                   .itvl_min = ADV_ITVL_MIN, .itvl_max = ADV_ITVL_MAX};
     if (rc == 0) {
         rc = ble_gap_adv_start(s_own_addr_type, NULL, BLE_HS_FOREVER, &p, gap_event, NULL);
     }
