@@ -1210,8 +1210,9 @@ static void update_ride(const ride_view_t *v)
     } else {
         lv_label_set_text(r_speed, "-");
     }
-    lv_label_set_text_fmt(r_stats, "Avg %d W     NP %d W     %lu kJ     Lap %u", v->sum.avg_w, v->sum.np_w,
-                          (unsigned long)v->sum.kj, v->lap + 1);
+    lv_label_set_text_fmt(r_stats, "%lu.%lu km    Avg %d W    NP %d W    %lu kJ    Lap %u",
+                          (unsigned long)(v->sum.distance_m / 1000), (unsigned long)(v->sum.distance_m % 1000 / 100),
+                          v->sum.avg_w, v->sum.np_w, (unsigned long)v->sum.kj, v->lap + 1);
 
     lv_label_set_text(r_pause_label, paused ? LV_SYMBOL_PLAY " Resume" : LV_SYMBOL_PAUSE " Pause");
     show(r_grade_minus, !erg);

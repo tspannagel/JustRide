@@ -144,7 +144,7 @@ static void ride_common(void)
     g_view.hr_bpm = 148;
     g_view.gears = 24;
     g_view.intensity = 100;
-    g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325};
+    g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325, .distance_m = 14260};
 }
 
 int main(int argc, char **argv)
