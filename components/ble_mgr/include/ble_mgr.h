@@ -30,7 +30,15 @@ typedef struct {
     void (*on_disconnect)(uint16_t conn);
 } ble_drv_t;
 
-void ble_mgr_start(const ble_drv_t *const *drivers, int n);
+// Optional GATT server next to the central role (ble_srv). init runs after
+// nimble_port_init (register services), sync after every host sync (advertise).
+typedef struct {
+    void (*init)(void);
+    void (*sync)(uint8_t own_addr_type);
+} ble_server_t;
+
+// server may be NULL
+void ble_mgr_start(const ble_drv_t *const *drivers, int n, const ble_server_t *server);
 
 // Helpers for matches()
 bool ble_adv_has_uuid16(const struct ble_hs_adv_fields *adv, uint16_t uuid);

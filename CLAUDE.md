@@ -54,7 +54,7 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 ## Firmware stack
 
 - **ESP-IDF ≥ 5.3**, C (C11). Arduino is not used (confirmed by the user).
-- NimBLE host as BLE central, up to 4 simultaneous links (`MAX_LINKS` in `ble_mgr.c`)
+- NimBLE host as BLE central (sensors, up to 4 links, `MAX_LINKS` in `ble_mgr.c`) and peripheral (re-broadcast as "JustRide": Cycling Power 0x1818 + CSC 0x1816, up to 2 receivers, read-only)
 - LVGL 9 via `esp_lvgl_port`, direct mode on full frame buffers
 - mbedTLS (ECDH P-256, HKDF-SHA256, AES-CCM) for encrypted Zwift controllers
 - nanopb for Zwift protobuf messages (when ZAP is implemented)
@@ -69,6 +69,8 @@ components/
   bsp_s3lcd4/             board support: I2C, TCA9554, ST7701 init, RGB panel, SD, RTC, touch, buzzer
   evbus/                  jr_types.h (stable event/sample types, pure) + one FreeRTOS queue
   ble_mgr/                NimBLE central: scan, connect, GATT discovery, CCCD subscribe, back-off, role per device (NVS)
+  ble_srv/                NimBLE peripheral: power + cadence re-broadcast for a watch/bike computer (notify only, no control)
+  proto_cps/              pure: CPS/CSC measurement encoding, cadence -> crank revolutions model
   drv_ftms/               FTMS trainer driver: metrics out, control point with one write in flight
   drv_hr/                 heart-rate strap (0x180D)
   drv_zap/                Zwift Ride (plain ZAP): handshake, button edges -> input events, raw hex dump
@@ -198,6 +200,7 @@ Hardware must not be damaged by this code, and the rider must never be stuck wit
 - Buzzer only via `bsp_beep()` (timer-bounded, ≤ 1 s). No PWM on unknown expander pins.
 - Flash wear: no periodic NVS/flash writes. NVS only on pairing/forget; Wi-Fi storage RAM-only; logs never go to flash. SD writes batched (10 s).
 - Trainer: idle/pause/stop/finish → lowest resistance (flat SIM road if resistance mode is refused). ERG ≤ `max_erg_w` and ≤ 1500 W hard cap; SIM grade −10…+20 %; one control-point write in flight, ≤ 4/s, SIM ≤ 2/s. Spin-down is not exposed.
+- The re-broadcast peripheral has no writable characteristic and no control point: nothing reaches the trainer through it. No bonding keys in flash (`CONFIG_BT_NIMBLE_NVS_PERSIST=n`).
 - Stopping a ride needs a long press. Wi-Fi is off while riding. OTA needs on-device approval, checks the project name, and relies on bootloader rollback (`esp_ota_mark_app_valid_cancel_rollback()` only after full start-up).
 - Stale sensor data (> 3 s trainer, > 5 s HR) is recorded as unknown, never repeated.
 - Controller input: stop, skip and start need a held button; a disconnect never generates releases (a held button can't become a long press).
