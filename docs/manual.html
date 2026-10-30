@@ -173,6 +173,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 
 <h3 id="clock">3.6 Set the clock</h3>
 <p>Ride files are named after the start time. The board has a battery-backed clock, but it has to be set once: turn on <b>Wi-Fi</b> with your home network configured (see <a href="#wifi">Wi-Fi</a>). The device fetches the time from the internet and stores it. Until then the home screen shows <i>Clock not set</i>. Rides still record, but with wrong dates.</p>
+<p>Then pick your <b>time zone</b> on the same screen (<span class="btn">Wi-Fi</span>, card <i>Time zone</i>, arrows): ride files are named after your local start time, and Garmin Connect, intervals.icu and others show the ride at the right local time. Daylight saving time is switched automatically. It starts as UTC. If your zone isn't in the list, set it in <code>settings.json</code> (<code>tz</code>, see <a href="#settings">Settings reference</a>).</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="riders">4. Riders</h2>
@@ -304,7 +305,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
 <!-- ------------------------------------------------------------------ -->
 <h2 id="wifi">7. Wi-Fi, statistics and ride files</h2>
 <div class="shots">
-  <figure class="device"><img src="img/wifi.png" alt="Wi-Fi screen: addresses http://trainer.local/ and an IP, Turn off and Allow firmware update buttons"><figcaption>Wi-Fi on, connected to the home network.</figcaption></figure>
+  <figure class="device"><img src="img/wifi.png" alt="Wi-Fi and time screen: addresses http://trainer.local/ and an IP, Turn off and Allow firmware update buttons, time zone Berlin, Paris, Rome with the local time and arrow buttons"><figcaption>Wi-Fi on, connected to the home network; time zone below.</figcaption></figure>
 </div>
 <p>Wi-Fi is only for when you're <b>not</b> riding. On the home screen tap <span class="btn">Wi-Fi → Turn on</span>. The screen shows how to reach the device:</p>
 <ul>
@@ -317,6 +318,10 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
   <figure class="wide"><img src="img/stats-overview.png" alt="Statistics overview: rider picker, totals cards, fitness fatigue and form chart"><figcaption><b>Overview:</b> rides and hours, fitness (CTL), fatigue (ATL) and form (TSB) over time.</figcaption></figure>
   <figure class="wide"><img src="img/stats-curve.png" alt="Power curve chart all time versus last 90 days with FTP estimate and W/kg"><figcaption><b>Power curve:</b> best power for 1 s … 60 min, all-time vs. last 90 days, and an FTP estimate (95 % of best 20 min) with W/kg.</figcaption></figure>
   <figure class="wide"><img src="img/stats-ride.png" alt="Ride detail: summary cards including W/kg and HR drift, power and heart-rate chart, power zones and heart-rate zones tables"><figcaption><b>Rides:</b> click a ride for the power/HR chart, W/kg, time in power and heart-rate zones, HR drift and how well you hit each interval.</figcaption></figure>
+</div>
+<p><b>Workouts → Add to calendar:</b> plan a workout in your calendar. Pick a workout, choose the day and your preferred training time (remembered for next time) and tap <span class="btn">Add to calendar</span>. On an iPhone or iPad the calendar asks right away whether to add the event; on a computer a <code>.ics</code> file is downloaded, and opening it adds the event (Apple Calendar, Outlook, Google Calendar via <i>Import</i>). The event has the workout's duration, TSS and IF, the average power at the rider's FTP, where to find it on the device, and a reminder 15 minutes before. Adding the same workout at the same time again updates the event instead of duplicating it. Start the workout on the device as usual; the calendar entry doesn't start anything.</p>
+<div class="shots">
+  <figure class="wide"><img src="img/stats-calendar.png" alt="Workouts view with two workouts and the Add to calendar dialog: day 11/03/2026, preferred training time 07:30"><figcaption><b>Workouts:</b> add a workout to your calendar.</figcaption></figure>
 </div>
 <p><b>SQL:</b> query <code>summary</code>, <code>bests</code> and <code>ride</code> (the last opened ride) of the selected rider yourself.</p>
 <p>The screenshots show generated sample rides. Wi-Fi turns off automatically when you start a ride.</p>
@@ -347,7 +352,8 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
   "cw": 0.51,
   "wifi_ssid": "MyHomeWifi",
   "wifi_password": "secret",
-  "ap_password": "k7m2xq9fha"
+  "ap_password": "k7m2xq9fha",
+  "tz": "CET-1CEST,M3.5.0,M10.5.0/3"
 }</code></pre>
 <div class="scroll"><table>
   <tr><th>Key</th><th>Default</th><th>Range</th><th>Meaning</th></tr>
@@ -362,6 +368,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the statistic
   <tr><td><code>cw</code></td><td>0.51</td><td>0.1–2.0</td><td>Wind resistance coefficient (kg/m) in free ride</td></tr>
   <tr><td><code>wifi_ssid</code>, <code>wifi_password</code></td><td>empty</td><td></td><td>Your home Wi-Fi</td></tr>
   <tr><td><code>ap_password</code></td><td>random</td><td>8–63 chars</td><td>Password of the device's own hotspot</td></tr>
+  <tr><td><code>tz</code></td><td><code>UTC0</code></td><td>POSIX TZ rule</td><td>Time zone for ride file names and the local time in FIT files. Easiest to pick on the device (<span class="btn">Wi-Fi</span> screen). Other zones: the rule for your city is the last line of <code>/usr/share/zoneinfo/&lt;Region/City&gt;</code> on a Mac or Linux computer, e.g. <code>EST5EDT,M3.2.0,M11.1.0</code> for New York.</td></tr>
 </table></div>
 <p>Invalid or out-of-range values are ignored and the default is used; an invalid rider entry is skipped. If the file is not valid JSON (a missing quote or comma), the device uses defaults for everything, logs <code>settings.json is not valid JSON</code> and leaves your file unchanged so you can fix it.</p>
 <p>A <code>settings.json</code> from before riders existed (with <code>ftp_w</code> and <code>max_erg_w</code> at the top level) is taken over automatically: those values become the first rider's.</p>

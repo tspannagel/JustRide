@@ -31,7 +31,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Workouts | `.zwo` files on microSD, ERG with FTP scaling |
 | Virtual shifting | Strategy A (SIM grade scaling) first, strategy B (physics → ERG) later |
 | Recording | FIT + per-second CSV + summary/bests CSV, all local |
-| Statistics | DuckDB-WASM app served by the device from SD, vendored assets, OPFS cache |
+| Statistics | DuckDB-WASM app served by the device from SD, vendored assets (no OPFS, see above) |
 | Wi-Fi | Only off the bike (files, stats, OTA); off while riding |
 | Out of scope | 3D world, multiplayer, ANT+ |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |

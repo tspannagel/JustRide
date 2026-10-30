@@ -39,3 +39,7 @@ jr_test(ride ${C}/ride/ride.c ${C}/workout/workout.c ${C}/metrics/metrics.c ${C}
 jr_test(rec ${C}/recorder/csv.c ${C}/recorder/fit.c ${C}/metrics/metrics.c)
 include_directories(${C}/proto_zap/include ${C}/input_map/include)
 jr_test(zap ${C}/proto_zap/proto_zap.c ${C}/input_map/input_map.c)
+include_directories(${C}/tz/include)
+jr_test(tz ${C}/tz/tz.c)
+include_directories(${C}/ics/include)
+jr_test(ics ${C}/ics/ics.c)

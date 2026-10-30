@@ -16,6 +16,7 @@
 #include "freertos/task.h"
 #include "input_map.h"
 #include "recorder.h"
+#include "tz.h"
 #include "web.h"
 
 static const char *TAG = "app";
@@ -63,10 +64,13 @@ static void start_ride(const workout_t *wo)
     s_ride.cfg = ride_cfg();  // ride_start re-validates it and keeps live sensor values
     ride_start(&s_ride, wo, now_ms(), utc_now());
     const user_t *u = settings_user(&s_settings);
-    rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr};
+    rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr,
+                       .utc_offset_s = tz_offset(s_settings.tz, utc_now())};
     snprintf(info.user_id, sizeof(info.user_id), "%s", u->id);
     snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : "");
-    recorder_start(utc_now(), &info);
+    if (!recorder_start(utc_now(), &info)) {
+        ESP_LOGE(TAG, "recorder not started: this ride is not saved");
+    }
     s_status.ftp_suggest_w = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
@@ -293,6 +297,18 @@ void app_accept_ftp(void)
         apply_settings();
     }
     unlock();
+}
+
+bool app_set_tz(const char *posix)
+{
+    lock();
+    bool ok = s_ride.state == RIDE_IDLE && tz_valid(posix);
+    if (ok && strcmp(posix, s_settings.tz) != 0) {
+        snprintf(s_settings.tz, sizeof(s_settings.tz), "%s", posix);
+        settings_save(&s_settings);
+    }
+    unlock();
+    return ok;
 }
 
 // Called with the lock held, after s_settings.user changed

@@ -9,12 +9,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include "app.h"
 #include "ble_mgr.h"
 #include "bsp.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
+#include "tz.h"
 #include "web.h"
 
 static const char *TAG = "ui";
@@ -55,7 +57,7 @@ static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_note, *pv_msg;
 static workout_t s_preview;          // workout shown on the preview screen
 static const char *s_preview_path;   // points into s_paths
 static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
-static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label;
+static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label, *wifi_tz, *wifi_time;
 static lv_obj_t *r_profile;
 static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
@@ -699,6 +701,33 @@ static void update_wifi(void)
                                                         : LV_SYMBOL_DOWNLOAD " Allow firmware update");
 }
 
+// Time zone: only used for ride file names and the FIT file's local time
+static void update_tz(void)
+{
+    settings_t s;
+    app_get_settings(&s);
+    int i = tz_preset_index(s.tz);
+    lv_label_set_text(wifi_tz, i >= 0 ? tz_presets[i].name : s.tz);
+    time_t now = time(NULL);
+    if (now > 1735689600) {  // clock set
+        int64_t local = (int64_t)now + tz_offset(s.tz, (uint32_t)now);
+        lv_label_set_text_fmt(wifi_time, "Local time %02d:%02d", (int)(local / 3600 % 24), (int)(local / 60 % 60));
+    } else {
+        lv_label_set_text(wifi_time, "Clock not set yet");
+    }
+}
+
+static void on_tz(lv_event_t *e)
+{
+    int step = (int)(intptr_t)lv_event_get_user_data(e);
+    settings_t s;
+    app_get_settings(&s);
+    int i = tz_preset_index(s.tz);
+    i = i < 0 ? 0 : (i + step + tz_n_presets) % tz_n_presets;
+    app_set_tz(tz_presets[i].posix);
+    update_tz();
+}
+
 static void on_allow_ota(lv_event_t *e)
 {
     web_allow_ota();
@@ -718,12 +747,13 @@ static void on_wifi_toggle(lv_event_t *e)
 static void open_wifi(lv_event_t *e)
 {
     update_wifi();
+    update_tz();
     go(scr_wifi);
 }
 
 static void build_wifi(void)
 {
-    scr_wifi = screen("Wi-Fi", true);
+    scr_wifi = screen("Wi-Fi and time", true);
     lv_obj_t *c = card(scr_wifi, LV_FLEX_FLOW_COLUMN);
     caption(c, "STATUS", C_MUTED);
     wifi_status = label(c, &lv_font_montserrat_20, "");
@@ -732,6 +762,19 @@ static void build_wifi(void)
     wifi_ota_btn = button(scr_wifi, "", LV_PCT(100), 64, on_allow_ota, NULL);
     wifi_ota_label = lv_obj_get_child(wifi_ota_btn, 0);
     muted(scr_wifi, &lv_font_montserrat_16, "Wi-Fi turns off automatically when a ride starts.");
+
+    lv_obj_t *t = card(scr_wifi, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(t, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_ver(t, 6, 0);
+    lv_obj_t *col = grow(box(t, LV_FLEX_FLOW_COLUMN));
+    lv_obj_set_style_pad_row(col, 0, 0);
+    caption(col, "TIME ZONE", C_MUTED);
+    wifi_tz = label(col, &lv_font_montserrat_20, "");
+    lv_label_set_long_mode(wifi_tz, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(wifi_tz, LV_PCT(100));
+    wifi_time = muted(col, &lv_font_montserrat_14, "");
+    button(t, LV_SYMBOL_LEFT, 76, 52, on_tz, (void *)(intptr_t)-1);
+    button(t, LV_SYMBOL_RIGHT, 76, 52, on_tz, (void *)(intptr_t)1);
 }
 
 // ---- Ride ---------------------------------------------------------------------
