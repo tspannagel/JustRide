@@ -51,6 +51,22 @@ void csv_ride_id(char *buf, uint32_t t)
     snprintf(buf, 16, "%04d-%02d-%02d_%02d%02d", y, mo, d, h, mi);
 }
 
+bool csv_has_ride(const char *path, const char *ride_id)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return false;
+    }
+    size_t n = strlen(ride_id);
+    char line[256];
+    bool found = false;
+    while (!found && fgets(line, sizeof(line), f)) {
+        found = strncmp(line, ride_id, n) == 0 && line[n] == ',';
+    }
+    fclose(f);
+    return found;
+}
+
 // Fixed-point value with `dec` decimals and a trailing comma; empty if unknown
 static int fmt_fixed(char *buf, size_t size, long v, int dec, bool unknown)
 {

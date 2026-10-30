@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "tz.h"
 #include "vshift.h"
 
 #define SETTINGS_MAX_USERS 8
@@ -27,6 +28,7 @@ typedef struct {
     char wifi_ssid[33];   // up to 32 bytes
     char wifi_pass[64];   // WPA2 passphrase: up to 63 characters
     char ap_pass[64];     // generated on first boot
+    char tz[TZ_MAX_LEN];  // POSIX TZ rule for local time (ride names), "UTC0" by default
     gear_table_t gears;
 } settings_t;
 

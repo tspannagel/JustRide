@@ -25,7 +25,11 @@ size_t csv_format_summary(char *buf, size_t size, const char *ride_id, uint32_t 
 // All best-effort rows for one ride (skips durations longer than the ride).
 size_t csv_format_bests(char *buf, size_t size, const char *ride_id, const int16_t bests[METRICS_N_BESTS]);
 
+// True if a summary/bests file already has a row for this ride (crash recovery
+// can write a ride's outputs more than once).
+bool csv_has_ride(const char *path, const char *ride_id);
+
 // "2026-10-26T12:00:00Z"; buf >= 21 bytes
 void csv_iso_utc(char *buf, uint32_t t);
-// "2026-10-26_1200" (ride id / file stem); buf >= 16 bytes
+// "2026-10-26_1200" (ride id / file stem, from local time); buf >= 16 bytes
 void csv_ride_id(char *buf, uint32_t t);
