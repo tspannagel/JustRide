@@ -39,7 +39,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 ## Open questions (ask the user)
 
 1. Has the board arrived, and which version is printed on it (V3 or V4)? V4 has its own demo repo: github.com/waveshareteam/ESP32-S3-Touch-LCD-4.
-2. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
+2. ~~Record alone, or also re-broadcast?~~ Answered 2026-10-30: re-broadcast as a Cycling Power + CSC sensor (`ble_srv`), so an Apple Watch records the ride. Unverified on a real watch.
 3. Is it OK that the statistics app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
 
 ## Must verify on real hardware (don't assume)
@@ -56,6 +56,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - LVGL direct mode with `avoid_tearing` on the panel's two frame buffers looks stable; Wi-Fi on → RGB drift?
 - FTMS Target Resistance (0x04) accepted by the KICKR Core; otherwise the flat-SIM fallback kicks in (log says "rejected").
 - SDSPI mount with `gpio_cs = GPIO_NUM_NC` in the IDF version used.
+- Re-broadcast (`ble_srv`): Apple Watch (watchOS 10+) finds "JustRide" under Health devices, pairs without bonding, and shows power + cadence in Indoor Cycle; scanning for sensors keeps working while advertising. Delete the Mac's old `sdkconfig` first (peripheral role was off).
 
 ## Milestones
 
