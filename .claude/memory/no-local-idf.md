@@ -10,4 +10,4 @@ Since 2026-10-27 the dev Mac has ESP-IDF v5.3.2 in `~/esp/esp-idf`. Build locall
 Off-device checks: host tests (`test/host`, ASan/UBSan); FIT validation with fitdecode in a scratch venv; the stats app in headless Chrome (puppeteer-core + local Chrome).
 
 **Why:** The first build happened only in CI; the user then installed IDF locally. ESP-IDF warnings are errors here (-Werror=format-truncation bit twice: bound `%s` with `%.Ns`).
-**How to apply:** Always run a local `idf.py build` before committing firmware changes; no board is attached yet, so never `flash`.
+**How to apply:** Always run a local `idf.py build` before committing firmware changes; flash with `idf.py -p /dev/cu.usbmodem2101 flash` when the user asks (board on USB since 2026-10-28).
