@@ -153,7 +153,7 @@ int main(int argc, char **argv)
     add_user("u1", "Sam", 250, 75, 185);
     add_user("u3", "Anna", 190, 62, 178);
     snprintf(g_settings.tz, sizeof(g_settings.tz), "%s", "CET-1CEST,M3.5.0,M10.5.0/3");
-    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .clock_ok = true, .sd_ok = true};
+    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
 
     go(scr_home);
     refresh(NULL);
@@ -162,7 +162,7 @@ int main(int argc, char **argv)
     g_status = (app_status_t){.sd_ok = true};  // first start: nothing paired, clock not set
     refresh(NULL);
     save("home-first-start");
-    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .clock_ok = true, .sd_ok = true};
+    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
 
     open_users(NULL);
     save("riders");

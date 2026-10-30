@@ -11,6 +11,7 @@ typedef struct {
     bool trainer;
     bool hr;
     bool controller;
+    uint8_t receivers;  // watches / bike computers on the re-broadcast
     bool clock_ok;
     bool sd_ok;
     bool saving;  // last ride is being written to the SD card

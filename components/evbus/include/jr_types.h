@@ -9,6 +9,7 @@ typedef enum {
     SRC_TRAINER,
     SRC_HR,
     SRC_CONTROLLER,  // Zwift Ride
+    SRC_RECEIVER,    // a watch or bike computer on the re-broadcast (ble_srv)
 } source_t;
 
 typedef struct {
@@ -59,7 +60,7 @@ typedef enum { DEV_CONNECTED, DEV_LOST, DEV_BATTERY, DEV_ROLE } device_kind_t;
 typedef struct {
     uint8_t kind;   // device_kind_t
     uint8_t role;   // source_t
-    uint8_t value;  // battery %, etc.
+    uint8_t value;  // battery %; SRC_RECEIVER: receivers now connected
 } device_evt_t;
 
 // Rider actions from the touch UI (and later from controllers via input_map)

@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include "esp_log.h"
+#include "evbus.h"
 #include "freertos/FreeRTOS.h"
 #include "host/ble_hs.h"
 #include "nimble/nimble_port.h"
@@ -139,6 +140,17 @@ void ble_srv_update(int16_t power_w, int16_t cadence_rpm10, uint32_t now_ms)
 
 // ---- GAP (peripheral side; the central side is ble_mgr's) -----------------------
 
+// Tell the control task how many receivers are connected (home screen indicator)
+static void post_receivers(void)
+{
+    uint8_t n = 0;
+    for (int i = 0; i < MAX_PEERS; i++) {
+        n += s_peers[i].conn != NO_CONN;
+    }
+    evt_t e = {.type = EVT_DEVICE, .device = {.kind = n ? DEV_CONNECTED : DEV_LOST, .role = SRC_RECEIVER, .value = n}};
+    evbus_post(&e);
+}
+
 static peer_t *peer(uint16_t conn)
 {
     for (int i = 0; i < MAX_PEERS; i++) {
@@ -158,6 +170,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             if (p) {
                 *p = (peer_t){.conn = ev->connect.conn_handle};
                 ESP_LOGI(TAG, "receiver connected");
+                post_receivers();
             } else {
                 ble_gap_terminate(ev->connect.conn_handle, BLE_ERR_CONN_LIMIT);
             }
@@ -169,6 +182,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         if (p) {
             *p = (peer_t){.conn = NO_CONN};
             ESP_LOGI(TAG, "receiver disconnected (reason 0x%x)", ev->disconnect.reason);
+            post_receivers();
         }
         advertise();
         break;

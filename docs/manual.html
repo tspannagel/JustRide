@@ -189,10 +189,10 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 
 <h3 id="first">3.6 First start</h3>
 <div class="shots">
-  <figure class="device"><img src="img/home-first-start.png" alt="Home screen on first start: trainer searching, heart rate and Zwift Ride not connected, warning that the clock is not set"><figcaption>First start: nothing paired yet, clock not set.</figcaption></figure>
+  <figure class="device"><img src="img/home-first-start.png" alt="Home screen on first start: trainer searching, heart rate, Zwift Ride and watch not connected, warning that the clock is not set"><figcaption>First start: nothing paired yet, clock not set.</figcaption></figure>
   <figure class="device"><img src="img/home.png" alt="Home screen: rider name at the top right, all three devices connected with green dots, Free ride, Workouts, Settings and Wi-Fi tiles"><figcaption>Everything connected (green dots).</figcaption></figure>
 </div>
-<p>Power the board. The home screen shows the active <b>rider</b> (top right), the connection status of trainer, heart-rate strap and Zwift Ride, and the tiles <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>. Warnings (no SD card, clock not set) appear in orange under the status.</p>
+<p>Power the board. The home screen shows the active <b>rider</b> (top right), the connection status of trainer, heart-rate strap, Zwift Ride and watch (a watch or bike computer receiving power and cadence, see <a href="#watch">Record on an Apple Watch too</a>; <i>2 connected</i> when both are), and the tiles <span class="btn">Free ride</span>, <span class="btn">Workouts</span>, <span class="btn">Settings</span>, <span class="btn">Wi-Fi</span>. Warnings (no SD card, clock not set) appear in orange under the status.</p>
 <p>On first boot the device writes <code>/config/settings.json</code> with one rider called “Rider” and a random password for its own Wi-Fi hotspot. Rename the rider and set your values on the device (<a href="#riders">Riders</a>). Your home Wi-Fi is set in <code>settings.json</code> on your computer: unplug the board, move the card, edit, move it back:</p>
 <pre><code>"wifi_ssid": "MyHomeWifi",
 "wifi_password": "secret",</code></pre>
@@ -349,7 +349,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <ol>
   <li>Turn on the head unit (the home screen is enough).</li>
   <li>On the <b>Apple Watch</b> (watchOS 10 or later), not on the iPhone: open <b>Settings → Bluetooth</b> and scroll down to <i>Health devices</i>.</li>
-  <li>Wait for <b>JustRide</b> to appear and tap it. No code is needed.</li>
+  <li>Wait for <b>JustRide</b> to appear and tap it. No code is needed. The head unit's home screen now shows <i>Watch: Connected</i>.</li>
 </ol>
 <p class="note">The iPhone's <b>Settings → Bluetooth</b> never lists JustRide: iOS doesn't show fitness sensors there (the KICKR doesn't appear either). That's normal. On an iPhone, sensors are added inside an app (Zwift, Wahoo SYSTM, Rouvy: add a power source and pick JustRide). <i>nRF Connect</i> shows it in its scanner if you just want to check it's there.</p>
 

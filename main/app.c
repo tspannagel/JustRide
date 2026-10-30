@@ -111,6 +111,8 @@ static void handle(const evt_t *e)
             s_status.hr = e->device.kind == DEV_CONNECTED;
         } else if (e->device.role == SRC_CONTROLLER) {
             s_status.controller = e->device.kind == DEV_CONNECTED;
+        } else if (e->device.role == SRC_RECEIVER) {
+            s_status.receivers = e->device.value;
         }
         break;
     case EVT_ACTION:

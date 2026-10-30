@@ -70,7 +70,7 @@ static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger, st_focus;
 static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_adapt, *scr_preview, *scr_settings, *scr_wifi, *scr_ride,
     *scr_summary;
 
-static lv_obj_t *home_user, *home_dot[3], *home_state[3], *home_warn;
+static lv_obj_t *home_user, *home_dot[4], *home_state[4], *home_warn;
 static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
@@ -463,10 +463,10 @@ static void build_home(void)
     lv_obj_set_style_pad_hor(u, 16, 0);
     home_user = lv_obj_get_child(u, 0);
 
-    static const char *const names[3] = {"Trainer", "Heart rate", "Zwift Ride"};
+    static const char *const names[4] = {"Trainer", "Heart rate", "Zwift Ride", "Watch"};
     lv_obj_t *c = card(scr_home, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(c, 6, 0);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *r = row(c);
         home_dot[i] = lv_obj_create(r);
         lv_obj_remove_style_all(home_dot[i]);
@@ -491,10 +491,13 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
     settings_t s;
     app_get_settings(&s);
     lv_label_set_text_fmt(home_user, "%s  " LV_SYMBOL_DOWN, settings_user(&s)->name);
-    const bool on[3] = {st->trainer, st->hr, st->controller};
-    for (int i = 0; i < 3; i++) {
+    const bool on[4] = {st->trainer, st->hr, st->controller, st->receivers > 0};
+    for (int i = 0; i < 4; i++) {
         lv_obj_set_style_bg_color(home_dot[i], rgb(on[i] ? C_OK : C_MUTED), 0);
         lv_label_set_text(home_state[i], on[i] ? "Connected" : i == 0 ? "Searching..." : "Not connected");
+    }
+    if (st->receivers > 1) {
+        lv_label_set_text_fmt(home_state[3], "%u connected", st->receivers);  // watch + bike computer
     }
     lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
