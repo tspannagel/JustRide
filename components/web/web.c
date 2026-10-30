@@ -24,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "ics.h"
 #include "mdns.h"
 #include "workout.h"
 
@@ -374,6 +375,158 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
     return ok ? httpd_resp_sendstr(req, "saved") : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "failed");
 }
 
+// ---- Workouts and "Add to calendar" ----------------------------------------------
+
+#define WORKOUT_DIR BSP_SD_MOUNT "/workouts"
+#define MAX_WORKOUTS 100
+#define ALARM_MIN 15
+
+// "Sweet_Spot_2x20.zwo" -> "Sweet Spot 2x20", as the device's workout list shows it
+static void workout_title(char *out, size_t size, const char *file)
+{
+    snprintf(out, size, "%.*s", (int)(strlen(file) - 4), file);
+    for (char *c = out; *c; c++) {
+        *c = *c == '_' ? ' ' : *c;
+    }
+}
+
+static bool workout_file_ok(const char *name)
+{
+    size_t len = strlen(name);
+    return safe_name(name) && !strchr(name, '/') && name[0] != '.' && len >= 5 && len <= 60 &&
+           strcasecmp(name + len - 4, ".zwo") == 0;
+}
+
+// xml: ZWO_MAX_BYTES of scratch space
+static bool read_workout(const char *file, char *xml, workout_t *w)
+{
+    char path[128];
+    snprintf(path, sizeof(path), WORKOUT_DIR "/%.60s", file);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return false;
+    }
+    size_t n = fread(xml, 1, ZWO_MAX_BYTES, f);
+    fclose(f);
+    return zwo_parse(xml, n, w);
+}
+
+// [{"file":"sweet_spot.zwo","title":"sweet spot","name":"Sweet Spot 3x10","duration_s":3600,"tss":61.7,"if":0.79}]
+// title: as the device's workout list shows it; name: from the file ("" if none)
+static esp_err_t h_api_workouts(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    char *xml = malloc(ZWO_MAX_BYTES);
+    workout_t *w = malloc(sizeof(*w));
+    cJSON *arr = cJSON_CreateArray();
+    DIR *d = opendir(WORKOUT_DIR);
+    struct dirent *e;
+    int n = 0;
+    while (xml && w && d && n < MAX_WORKOUTS && (e = readdir(d))) {
+        if (!workout_file_ok(e->d_name) || !read_workout(e->d_name, xml, w)) {
+            continue;
+        }
+        workout_est_t est;
+        workout_estimate(w, &est);
+        char title[64];
+        workout_title(title, sizeof(title), e->d_name);
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "file", e->d_name);
+        cJSON_AddStringToObject(o, "title", title);
+        cJSON_AddStringToObject(o, "name", w->name);
+        cJSON_AddNumberToObject(o, "duration_s", est.total_s);
+        cJSON_AddNumberToObject(o, "tss", est.tss10 / 10.0);
+        cJSON_AddNumberToObject(o, "if", est.if_pm / 1000.0);
+        cJSON_AddItemToArray(arr, o);
+        n++;
+    }
+    if (d) {
+        closedir(d);
+    }
+    free(xml);
+    free(w);
+    char *text = cJSON_PrintUnformatted(arr);
+    cJSON_Delete(arr);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    esp_err_t err = text ? httpd_resp_sendstr(req, text) : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "");
+    free(text);
+    return err;
+}
+
+// GET /api/workout.ics?file=<name>.zwo&start=<unix time>[&user=<id>]: one calendar
+// event. Served as text/calendar so the phone or computer offers to add it.
+static esp_err_t h_workout_ics(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    char query[300] = "", file[200] = "", start_s[16] = "", user_id[8] = "";  // file: %-encoded, up to 60 chars
+    httpd_req_get_url_query_str(req, query, sizeof(query));
+    httpd_query_key_value(query, "file", file, sizeof(file));
+    httpd_query_key_value(query, "start", start_s, sizeof(start_s));
+    httpd_query_key_value(query, "user", user_id, sizeof(user_id));
+    char *end;
+    unsigned long start = strtoul(start_s, &end, 10);
+    if (!url_decode(file) || !workout_file_ok(file) || !start_s[0] || *end || start < 1735689600 ||
+        start > 4000000000UL) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "need file=<name>.zwo and start=<unix time>");
+    }
+    char *xml = malloc(ZWO_MAX_BYTES);
+    workout_t *w = malloc(sizeof(*w));
+    settings_t *s = malloc(sizeof(*s));
+    char *ics = malloc(4096);
+    esp_err_t err;
+    if (!xml || !w || !s || !ics) {
+        err = httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+    } else if (!read_workout(file, xml, w)) {
+        err = httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "workout not found or not readable");
+    } else {
+        workout_est_t est;
+        workout_estimate(w, &est);
+        settings_read_users(s);
+        const user_t *u = NULL;
+        for (int i = 0; i < s->n_users; i++) {
+            if (strcmp(s->users[i].id, user_id) == 0 || (!user_id[0] && i == s->user)) {
+                u = &s->users[i];
+            }
+        }
+        char title[64], summary[96], who[96] = "", desc[400], uid[96];
+        workout_title(title, sizeof(title), file);
+        snprintf(summary, sizeof(summary), "Ride: %s", w->name[0] ? w->name : title);
+        if (u) {
+            snprintf(who, sizeof(who), "%.15s: about %lu W average at FTP %u W\n", u->name,
+                     (unsigned long)(u->ftp_w * est.avg_pm + 500) / 1000, u->ftp_w);
+        }
+        snprintf(desc, sizeof(desc), "%lu min, TSS %u, IF %u.%02u\n%sOn the JustRide head unit: Workouts > %s",
+                 (unsigned long)(est.total_s + 30) / 60, (est.tss10 + 5) / 10, est.if_pm / 1000,
+                 est.if_pm % 1000 / 10, who, title);
+        snprintf(uid, sizeof(uid), "%lu-%.60s@justride", start, file);
+        time_t now = time(NULL);
+        ics_event_t ev = {.uid = uid, .stamp_utc = now > 1735689600 ? (uint32_t)now : (uint32_t)start,
+                          .start_utc = (uint32_t)start, .duration_s = est.total_s, .summary = summary,
+                          .description = desc, .alarm_min = ALARM_MIN};
+        size_t len = ics_write(ics, 4096, &ev);
+        if (len == 0) {
+            err = httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "event too large");
+        } else {
+            char disp[96];
+            snprintf(disp, sizeof(disp), "inline; filename=\"%.60s.ics\"", title);
+            httpd_resp_set_type(req, "text/calendar; charset=utf-8");
+            httpd_resp_set_hdr(req, "Content-Disposition", disp);
+            httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+            err = httpd_resp_send(req, ics, (ssize_t)len);
+        }
+    }
+    free(xml);
+    free(w);
+    free(s);
+    free(ics);
+    return err;
+}
+
 static void restart_task(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -465,6 +618,8 @@ static void http_start(void)
         {.uri = "/stats/*", .method = HTTP_GET, .handler = h_stats},
         {.uri = "/api/rides", .method = HTTP_GET, .handler = h_api_rides},
         {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
+        {.uri = "/api/workouts", .method = HTTP_GET, .handler = h_api_workouts},
+        {.uri = "/api/workout.ics", .method = HTTP_GET, .handler = h_workout_ics},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
         {.uri = "/workouts/*", .method = HTTP_POST, .handler = h_workout_upload},
         {.uri = "/ota", .method = HTTP_POST, .handler = h_ota},

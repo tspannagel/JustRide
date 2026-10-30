@@ -275,6 +275,49 @@ async function rideDetail(db, s) {
     ['cad', 'Cadence'], ['hr', 'HR', (v) => v || '-']]);
 }
 
+// ---- Workouts: add to calendar -----------------------------------------------------
+// The device builds the .ics (GET /api/workout.ics): served as text/calendar,
+// phones and computers open it straight in the calendar app.
+
+const TIME_KEY = 'justride.trainingTime';
+
+function savedTime() {
+  try { return localStorage.getItem(TIME_KEY) || '18:00'; } catch { return '18:00'; }
+}
+
+async function workoutList() {
+  const res = await fetch('/api/workouts', { cache: 'no-cache' });
+  const list = res.ok ? await res.json() : [];
+  list.forEach((w) => (w.label = w.name || w.title));
+  list.sort((a, b) => a.label.localeCompare(b.label));
+  if (!list.length) { $('workout-list').innerHTML = '<p>No workouts on the SD card (folder <code>/workouts</code>).</p>'; return; }
+  table($('workout-list'), list, [
+    ['label', 'Workout', (v) => `${icon('target', C.load)} ${esc(v)}`, true], ['duration_s', 'Time', fmt.dur],
+    ['tss', 'TSS', (v) => fmt.num(v)], ['if', 'IF', (v) => fmt.num(v, 2)],
+    ['file', '', () => `<button>${icon('calendar')} Add to calendar</button>`, true],
+  ], addToCalendar);
+}
+
+function addToCalendar(w) {
+  const d = new Date();
+  if (d.getHours() * 60 + d.getMinutes() >= 20 * 60) d.setDate(d.getDate() + 1);  // late: suggest tomorrow
+  $('cal-title').textContent = w.label;
+  $('cal-info').textContent = `${fmt.dur(w.duration_s)} · TSS ${fmt.num(w.tss)} · IF ${fmt.num(w.if, 2)} · ` +
+    `on the device: Workouts → ${w.title}`;
+  $('cal-date').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  $('cal-time').value = savedTime();
+  $('cal').onclose = () => {
+    if ($('cal').returnValue !== 'add') return;
+    const time = $('cal-time').value;
+    try { localStorage.setItem(TIME_KEY, time); } catch { /* private mode: just don't remember */ }
+    const start = Math.round(new Date(`${$('cal-date').value}T${time}`).getTime() / 1000);  // browser's local time
+    // encodeURIComponent, not URLSearchParams: the device decodes %20, not "+"
+    location.href = `/api/workout.ics?file=${encodeURIComponent(w.file)}&start=${start}&user=${encodeURIComponent(user.id)}`;
+  };
+  $('cal').returnValue = '';
+  $('cal').showModal();
+}
+
 // ---- SQL console ----------------------------------------------------------------
 
 async function runSql() {
@@ -312,7 +355,7 @@ async function main() {
   await loadUser(db, users[pick.value]);
 
   let current = 'overview';
-  const views = { overview, curve, rides: () => rideList(db), sql: async () => {} };
+  const views = { overview, curve, rides: () => rideList(db), workouts: workoutList, sql: async () => {} };
   const show = async (name) => {
     current = name;
     document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));

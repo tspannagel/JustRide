@@ -10,7 +10,7 @@ header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; pad
 h1 { font-size: 20px; margin: 0; }
 nav { display: flex; flex-wrap: wrap; gap: 4px; }
 button { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
-button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.active, button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 #status { color: var(--muted); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 8px; margin: 12px 0; }
@@ -33,3 +33,12 @@ select { font: inherit; color: var(--fg); background: var(--card); border: 1px s
 button .i { margin-right: 2px; }
 .rider { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 #ftp { font-size: 16px; }
+dialog { color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px;
+  width: min(420px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / 40%); }
+dialog h2 { margin: 0 0 4px; font-size: 18px; }
+dialog label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; color: var(--muted); }
+dialog input { font: inherit; font-size: 16px; color: var(--fg); background: var(--card); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; }
+dialog .hint { color: var(--muted); font-size: 13px; margin: 0; }
+dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
