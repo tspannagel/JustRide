@@ -98,7 +98,7 @@ export function toZwo(w) {
     <name>${xmlEsc(w.name)}</name>
     <description>${xmlEsc(w.description || '')}</description>
     <sportType>bike</sportType>
-    <workout>
+    <workout${w.rampTest ? ' JrRampTest="1"' : ''}>
 ${w.blocks.map((b) => `        ${el(b)}`).join('\n')}
     </workout>
 </workout_file>
@@ -131,6 +131,7 @@ export function fromZwo(xml, fallbackName = 'Workout') {
     }
   }
   return {
+    rampTest: Number(doc.querySelector('workout_file > workout')?.getAttribute('JrRampTest')) >= 0.5,
     name: doc.querySelector('workout_file > name')?.textContent.trim() || fallbackName,
     description: doc.querySelector('workout_file > description')?.textContent.trim() || '',
     blocks,
@@ -219,7 +220,7 @@ export const GEN_TYPES = {
   threshold: { label: 'Threshold', zone: 3, about: 'At FTP, to push it up.' },
   vo2: { label: 'VO2max', zone: 4, about: 'Hard 2–5 minute efforts for top-end aerobic power.' },
   anaerobic: { label: 'Sprints', zone: 5, about: 'Short all-out efforts with long recovery.' },
-  ramptest: { label: 'FTP ramp test', zone: 6, about: '1-minute steps until you can\'t hold the power. FTP ≈ 75 % of your best minute.' },
+  ramptest: { label: 'FTP ramp test', zone: 6, about: 'From 1.5 W/kg, +0.25 W/kg every minute until you can\'t hold it; the device ends the test then. FTP = 75 % of your best minute.' },
   hrsteady: { label: 'HR steady', zone: 1, about: 'Endurance steered by heart rate: the power follows to keep you in your HR range.' },
   holdavg: { label: 'Steady average', zone: 2, about: 'Holds an average power; an HR ceiling and a cadence range keep it honest.' },
 };
@@ -253,7 +254,8 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
   const total = minutes * 60;
   const blocks = [];
   let name;
-  const wu = type === 'recovery' || type === 'ramptest' ? 300 : 600, cd = type === 'ramptest' ? 300 : type === 'recovery' ? 0 : 300;
+  if (type === 'ramptest') return rampTest(ctx);
+  const wu = type === 'recovery' ? 300 : 600, cd = type === 'recovery' ? 0 : 300;
   const main = Math.max(300, total - wu - cd);
   blocks.push({ type: 'warmup', dur: wu, lo: 0.45, hi: type === 'recovery' ? 0.5 : 0.72 });
 
@@ -292,17 +294,30 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
     case 'holdavg':
       blocks.push({ type: 'adaptive', dur: main, p: P(0.75 + k), avg: true, hrLo: Math.round(maxHr * 0.72), hrHi: Math.round(maxHr * (0.85 + k)), cadLo: 85, cadHi: 95 });
       name = `Steady average ${minutes}min`; break;
-    case 'ramptest': {
-      const steps = 25;  // 50 % up to 194 %: nobody finishes, stop when you can't hold it
-      for (let i = 0; i < steps; i++) blocks.push({ type: 'steady', dur: 60, p: Math.round((0.5 + i * 0.06) * 1000) / 1000 });
-      name = 'FTP ramp test'; break;
-    }
     default: throw new Error(`unknown type ${type}`);
   }
   if (cd) blocks.push({ type: 'cooldown', dur: cd, hi: 0.6, lo: 0.4 });
   const notes = a.notes.filter((n) => type === 'vo2' || !n.startsWith('VO2max'));
   const about = GEN_TYPES[type].about + (notes.length ? ` Adapted: ${notes.join('; ')}.` : '');
   return { name, description: about, blocks, generated: { type, minutes, difficulty: d } };
+}
+
+// Same steps as the device (workout_ramp_test in workout.c), from body weight so a first test
+// needs no FTP. The device rebuilds them for the rider and Max ERG at the start (JrRampTest).
+export function rampSteps(kg) {
+  return { start: Math.round(kg * 0.3) * 5, step: Math.max(10, Math.floor((kg + 10) / 20) * 5) };
+}
+
+function rampTest(ctx) {
+  const kg = ctx?.weight || 75, ftp = ctx?.ftp || 200;
+  const { start, step } = rampSteps(kg);
+  const top = Math.max(7 * kg, 2 * ftp);
+  const f = (w) => Math.round((w / ftp) * 1000) / 1000;
+  const blocks = [{ type: 'warmup', dur: 300, lo: f(Math.floor(start / 2)), hi: f(start) }];
+  for (let w = start; w <= top; w += step) blocks.push({ type: 'steady', dur: 60, p: f(w) });
+  blocks.push({ type: 'cooldown', dur: 300, hi: f(start), lo: f(Math.floor(start / 2)) });
+  return { name: 'FTP ramp test', description: GEN_TYPES.ramptest.about, blocks, rampTest: true,
+    generated: { type: 'ramptest', minutes: 30, difficulty: 3 } };
 }
 
 // ---- Editor view ------------------------------------------------------------------------

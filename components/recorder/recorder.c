@@ -28,7 +28,7 @@ static struct {
     char id[16];
     uint32_t start_utc;
     rec_info_t info;
-    uint16_t ftp_estimate;
+    int16_t bests[METRICS_N_BESTS];
 } s_meta;
 
 void recorder_init(void)
@@ -194,12 +194,10 @@ static bool write_outputs(void)
                            app->version, info->weight_kg, info->max_hr)) {
         ok = append(p, CSV_SUMMARY_HEADER, row) && ok;
     }
-    int16_t bests[METRICS_N_BESTS];
-    metrics_bests(s_buf, s_n, bests);
-    s_meta.ftp_estimate = metrics_ftp_estimate(bests);
+    metrics_bests(s_buf, s_n, s_meta.bests);
     char brows[METRICS_N_BESTS * 40];
     user_path(p, sizeof(p), "bests.csv");
-    if (!csv_has_ride(p, s_meta.id) && csv_format_bests(brows, sizeof(brows), s_meta.id, bests)) {
+    if (!csv_has_ride(p, s_meta.id) && csv_format_bests(brows, sizeof(brows), s_meta.id, s_meta.bests)) {
         ok = append(p, CSV_BESTS_HEADER, brows) && ok;
     }
     if (ok) {
@@ -209,9 +207,11 @@ static bool write_outputs(void)
     return ok;
 }
 
-bool recorder_finish(uint16_t *ftp_estimate)
+bool recorder_finish(int16_t bests[METRICS_N_BESTS])
 {
-    *ftp_estimate = 0;
+    for (int b = 0; b < METRICS_N_BESTS; b++) {
+        bests[b] = -1;
+    }
     flush();
     if (s_csv) {
         fclose(s_csv);
@@ -237,7 +237,9 @@ bool recorder_finish(uint16_t *ftp_estimate)
         }
     }
     bool saved = write_outputs();
-    *ftp_estimate = saved ? s_meta.ftp_estimate : 0;
+    if (saved) {
+        memcpy(bests, s_meta.bests, sizeof(s_meta.bests));
+    }
     return saved;
 }
 

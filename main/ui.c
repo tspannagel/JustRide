@@ -70,14 +70,15 @@ static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger, st_focus;
 static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_adapt, *scr_preview, *scr_settings, *scr_wifi, *scr_ride,
     *scr_summary;
 
-static lv_obj_t *home_user, *home_dot[4], *home_state[4], *home_warn;
+static lv_obj_t *home_user, *home_dot[4], *home_state[4], *home_warn, *home_test;
 static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
 static lv_obj_t *wo_list, *wo_msg;
 static lv_obj_t *pv_title, *pv_profile, *pv_val[4], *pv_note, *pv_msg;
 EXT_RAM_BSS_ATTR static workout_t s_preview;  // workout shown on the preview screen (PSRAM)
-static const char *s_preview_path;   // points into s_paths; NULL: built in memory (adaptive ride)
+static const char *s_preview_path;   // points into s_paths; NULL: built in memory (adaptive ride, FTP test)
+static lv_obj_t *s_preview_from;     // screen the preview's back button returns to
 static lv_obj_t *ad_dur, *ad_power, *ad_hr, *ad_avg_label;
 static struct {
     int min, watts, hr_lo;  // hr_lo 0: no HR range
@@ -441,6 +442,7 @@ static void open_users(lv_event_t *e);
 static void open_workouts(lv_event_t *e);
 static void open_settings(lv_event_t *e);
 static void open_wifi(lv_event_t *e);
+static void open_ramp_test(lv_event_t *e);
 
 static lv_obj_t *tile(lv_obj_t *parent, const char *icon, const char *text, lv_event_cb_t cb, void *data)
 {
@@ -478,6 +480,8 @@ static void build_home(void)
     }
     home_warn = label(c, &lv_font_montserrat_16, "");
     lv_obj_set_style_text_color(home_warn, rgb(C_WARN), 0);
+    // New riders: FTP is only a guess until the first test
+    home_test = button(scr_home, LV_SYMBOL_CHARGE "  FTP not tested yet: take the ramp test", LV_PCT(100), 52, open_ramp_test, NULL);
 
     lv_obj_t *r1 = grow(row(scr_home)), *r2 = grow(row(scr_home));  // tiles fill the rest of the screen
     lv_obj_add_flag(primary(tile(r1, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE)), NAV_START);
@@ -503,6 +507,7 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
                           st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: open the web app");
     show(home_warn, !st->sd_ok || !st->clock_ok);
+    show(home_test, !settings_user(&s)->ftp_known);
 }
 
 // ---- Riders -------------------------------------------------------------------
@@ -655,6 +660,15 @@ static void open_preview(const char *path)
         return;
     }
     s_preview_path = path;
+    s_preview_from = scr_workouts;
+    show_preview();
+}
+
+static void open_ramp_test(lv_event_t *e)
+{
+    app_ramp_test(&s_preview);
+    s_preview_path = NULL;
+    s_preview_from = lv_screen_active();
     show_preview();
 }
 
@@ -675,6 +689,17 @@ static void show_preview(void)
     lv_label_set_text_fmt(pv_val[3], "%u", (est.tss10 + 5) / 10);
     lv_label_set_text_fmt(pv_note, "%s, FTP %lu W  -  %u intervals  -  peak %lu W", settings_user(&s)->name,
                           (unsigned long)ftp, s_preview.n, (unsigned long)((ftp * est.max_pm + 500) / 1000));
+    if (s_preview.ramp_test) {
+        // Nobody rides it to the end: no average, IF or TSS
+        uint16_t start, step;
+        workout_ramp_steps(settings_user(&s)->weight_kg, &start, &step);
+        for (int i = 1; i < 4; i++) {
+            lv_label_set_text(pv_val[i], "-");
+        }
+        lv_label_set_text_fmt(pv_note, "From %u W, +%u W every minute until you can't hold it. "
+                                       "FTP = 75 %% of your best minute. Based on %u kg.",
+                              start, step, settings_user(&s)->weight_kg);
+    }
     lv_label_set_text(pv_msg, "");
     s_pv_prof = (profile_t){.w = &s_preview, .pos_s = -1};
     lv_obj_invalidate(pv_profile);
@@ -690,7 +715,7 @@ static void on_preview_start(lv_event_t *e)
     }
 }
 
-static void on_preview_back(lv_event_t *e) { go(s_preview_path ? scr_workouts : scr_adapt); }
+static void on_preview_back(lv_event_t *e) { go(s_preview_from); }
 
 static void build_preview(void)
 {
@@ -708,6 +733,8 @@ static void build_preview(void)
         pv_val[i] = metric_font(r, icons[i], names[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
     }
     pv_note = muted(scr_preview, &lv_font_montserrat_14, "");
+    lv_obj_set_width(pv_note, LV_PCT(100));
+    lv_label_set_long_mode(pv_note, LV_LABEL_LONG_WRAP);
     pv_msg = label(scr_preview, &lv_font_montserrat_16, "");
     lv_obj_set_style_text_color(pv_msg, rgb(C_DANGER), 0);
     lv_obj_add_flag(primary(button(scr_preview, LV_SYMBOL_PLAY " Start workout", LV_PCT(100), 64, on_preview_start, NULL)),
@@ -741,6 +768,7 @@ static void open_workouts(lv_event_t *e)
         closedir(d);
     }
     qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
+    list_item(wo_list, LV_SYMBOL_CHARGE, "FTP ramp test", open_ramp_test, NULL);
     list_item(wo_list, LV_SYMBOL_SHUFFLE, "Adaptive ride: set goals", open_adapt, NULL);
     for (int i = 0; i < n; i++) {
         char name[64];
@@ -915,6 +943,7 @@ static void on_adapt_next(lv_event_t *e)
     w->n = 3;
     w->total_s = 600 + w->seg[1].dur_s + 300;
     s_preview_path = NULL;
+    s_preview_from = scr_adapt;
     show_preview();
 }
 
@@ -1107,7 +1136,9 @@ static void update_ride(const ride_view_t *v)
             lv_obj_invalidate(r_profile);
         }
     }
-    if (in_workout) {
+    if (in_workout && v->ramp_step) {
+        lv_label_set_text_fmt(r_info, "FTP test  -  step %u", v->ramp_step);
+    } else if (in_workout) {
         char left[16];
         fmt_time(left, sizeof(left), v->seg_left_s);
         lv_label_set_text_fmt(r_info, "Interval %d/%d  %s", v->seg_idx + 1, v->seg_count, left);
@@ -1146,6 +1177,8 @@ static void update_ride(const ride_view_t *v)
             snprintf(goals + n, sizeof(goals) - n, "  -  HR %u-%u", v->hr_lo, v->hr_hi);
         }
         lv_label_set_text_fmt(r_target, "Target %d W%s", v->target_w, goals);
+    } else if (erg && v->ramp_step) {
+        lv_label_set_text_fmt(r_target, "Target %d W  -  hold it as long as you can", v->target_w);
     } else if (erg) {
         if (v->cadence_target) {
             lv_label_set_text_fmt(r_target, "Target %d W  -  %u %%  -  %u rpm", v->target_w, v->intensity,
@@ -1238,12 +1271,22 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
 
     lv_label_set_text(sum_saved, st->saving ? "Saving..." : st->saved ? LV_SYMBOL_OK " Saved" : LV_SYMBOL_WARNING " Not saved");
     lv_obj_set_style_text_color(sum_saved, rgb(st->saving ? C_MUTED : st->saved ? C_OK : C_DANGER), 0);
-    lv_label_set_text(sum_note, st->saving || st->saved ? "" : "Shorter than 1 min, or SD card problem.");
-    show(sum_note, !st->saving && !st->saved);
+    if (!st->saving && !st->saved) {
+        lv_label_set_text(sum_note, "Shorter than 1 min, or SD card problem.");
+    } else if (st->ftp_test && st->ftp_test_w) {
+        lv_label_set_text_fmt(sum_note, "FTP test: best minute %d W, so your FTP is %u W.", st->ftp_test_60s_w,
+                              st->ftp_test_w);
+    } else if (st->ftp_test) {
+        lv_label_set_text(sum_note, st->saving ? "" : "FTP test: under 2 min of the ramp, no result.");
+    }
+    show(sum_note, !st->saving && (!st->saved || st->ftp_test));
 
-    // 95 % of this ride's best 20 min beat the FTP: offer it, never apply it silently
+    // 95 % of this ride's best 20 min beat the FTP, or a test's result: offer it, never apply it silently
+    settings_t s;
+    app_get_settings(&s);
     show(sum_ftp_btn, st->ftp_suggest_w > 0);
-    lv_label_set_text_fmt(sum_ftp_label, LV_SYMBOL_UP " Set FTP to %u W", st->ftp_suggest_w);
+    lv_label_set_text_fmt(sum_ftp_label, "%s Set FTP to %u W",
+                          st->ftp_suggest_w > settings_user(&s)->ftp_w ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, st->ftp_suggest_w);
 }
 
 // ---- Screens + refresh --------------------------------------------------------

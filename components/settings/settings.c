@@ -182,6 +182,9 @@ static void load_users(settings_t *s, const cJSON *root)
         }
         user_defaults(&u, num, name);
         u.ftp_w = (uint16_t)get_int(it, "ftp_w", u.ftp_w, 50, 600);
+        // Riders from before the flag: an FTP other than the default was entered by hand
+        const cJSON *known = cJSON_GetObjectItem(it, "ftp_known");
+        u.ftp_known = cJSON_IsBool(known) ? cJSON_IsTrue(known) : u.ftp_w != 200;
         u.max_erg_w = (uint16_t)get_int(it, "max_erg_w", u.max_erg_w, 100, 1500);
         u.weight_kg = (uint8_t)get_int(it, "weight_kg", u.weight_kg, 30, 200);
         u.max_hr = (uint8_t)get_int(it, "max_hr", u.max_hr, 100, 230);
@@ -238,6 +241,7 @@ void settings_load(settings_t *s)
             // First start, or a settings.json from before multi-user: keep its FTP and ERG limit
             user_defaults(&s->users[0], s->next_id++, "Rider");
             s->users[0].ftp_w = (uint16_t)get_int(root, "ftp_w", 200, 50, 600);
+            s->users[0].ftp_known = s->users[0].ftp_w != 200;
             s->users[0].max_erg_w = (uint16_t)get_int(root, "max_erg_w", 600, 100, 1500);
             s->n_users = 1;
         }
@@ -285,6 +289,7 @@ bool settings_save(const settings_t *s)
         cJSON_AddStringToObject(o, "id", u->id);
         cJSON_AddStringToObject(o, "name", u->name);
         cJSON_AddNumberToObject(o, "ftp_w", u->ftp_w);
+        cJSON_AddBoolToObject(o, "ftp_known", u->ftp_known);
         cJSON_AddNumberToObject(o, "max_erg_w", u->max_erg_w);
         cJSON_AddNumberToObject(o, "weight_kg", u->weight_kg);
         cJSON_AddNumberToObject(o, "max_hr", u->max_hr);

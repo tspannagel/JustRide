@@ -1,6 +1,7 @@
 #include "workout.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 uint32_t workout_seg_start(const workout_t *w, int idx)
@@ -115,4 +116,45 @@ void workout_estimate(const workout_t *w, workout_est_t *e)
     e->if_pm = (uint16_t)(ifac * 1000 + 0.5);
     double tss = t / 3600.0 * ifac * ifac * 100;
     e->tss10 = (uint16_t)(tss * 10 < 65535 ? tss * 10 + 0.5 : 65535);
+}
+
+void workout_ramp_steps(uint8_t weight_kg, uint16_t *start_w, uint16_t *step_w)
+{
+    *start_w = (uint16_t)((weight_kg * 3 + 5) / 10 * 5);  // 1.5 W/kg to the nearest 5 W
+    *step_w = (uint16_t)((weight_kg + 10) / 20 * 5);      // 0.25 W/kg
+    if (*step_w < 10) {
+        *step_w = 10;
+    }
+}
+
+// Per mille of ftp that gives exactly w watts back (pm * ftp / 1000, rounded down)
+static uint16_t pm_of(uint32_t w, uint16_t ftp) { return (uint16_t)((w * 1000 + ftp - 1) / ftp); }
+
+void workout_ramp_test(workout_t *w, uint16_t ftp_w, uint8_t weight_kg, uint16_t max_w)
+{
+    char name[WORKOUT_NAME_LEN];
+    snprintf(name, sizeof(name), "%s", w->name[0] ? w->name : "FTP ramp test");
+    memset(w, 0, sizeof(*w));
+    memcpy(w->name, name, sizeof(name));
+    if (ftp_w == 0) {
+        return;
+    }
+    uint16_t start, step;
+    workout_ramp_steps(weight_kg, &start, &step);
+    uint32_t top = (uint32_t)weight_kg * 7 > 2u * ftp_w ? (uint32_t)weight_kg * 7 : 2u * ftp_w;
+    if (top > max_w) {
+        top = max_w;
+    }
+    w->seg[w->n++] = (segment_t){.dur_s = RAMP_WARMUP_S, .p_start = pm_of(start / 2, ftp_w), .p_end = pm_of(start, ftp_w), .kind = SEG_ERG};
+    w->ramp_first = (uint8_t)w->n;
+    for (uint32_t p = start; (p <= top || w->n == w->ramp_first) && w->n < WORKOUT_MAX_SEGMENTS - 1; p += step) {
+        uint16_t pm = pm_of(p, ftp_w);
+        w->seg[w->n++] = (segment_t){.dur_s = RAMP_STEP_S, .p_start = pm, .p_end = pm, .kind = SEG_ERG};
+    }
+    w->ramp_end = (uint8_t)w->n;
+    w->seg[w->n++] = (segment_t){.dur_s = RAMP_COOLDOWN_S, .p_start = pm_of(start, ftp_w), .p_end = pm_of(start / 2, ftp_w), .kind = SEG_ERG};
+    for (int i = 0; i < w->n; i++) {
+        w->total_s += w->seg[i].dur_s;
+    }
+    w->ramp_test = true;
 }

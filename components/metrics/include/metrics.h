@@ -52,3 +52,5 @@ void metrics_bests(const ride_sample_t *s, size_t n, int16_t out[METRICS_N_BESTS
 
 // FTP estimate: 95 % of the best 20 min power; 0 if the ride is shorter than 20 min.
 uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS]);
+// FTP from a ramp test: 75 % of the best minute; 0 if the ride is shorter than 1 min.
+uint16_t metrics_ramp_ftp(const int16_t bests[METRICS_N_BESTS]);

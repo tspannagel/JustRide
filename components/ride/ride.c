@@ -197,6 +197,42 @@ static void adapt_update(ride_t *r, uint8_t *beeps)
     }
 }
 
+// Segment index while in the ramp of a ramp test, -1 otherwise
+static int ramp_idx(const ride_t *r)
+{
+    workout_pos_t pos;
+    if (!r->wo || !r->wo->ramp_test || !in_erg(r, &pos)) {
+        return -1;
+    }
+    return pos.idx >= r->wo->ramp_first && pos.idx < r->wo->ramp_end ? pos.idx : -1;
+}
+
+// On to the cool-down
+static void ramp_end(ride_t *r)
+{
+    r->wo_offset_s += (int32_t)workout_seg_start(r->wo, r->wo->ramp_end) - (int32_t)wo_time(r);
+    r->last_seg = r->wo->ramp_end;  // no segment beeps on top of the end beeps
+}
+
+// Once per recorded second: count the ramp and end it when the rider can't hold it.
+// Stale trainer data neither counts as failing nor resets the count.
+static void ramp_update(ride_t *r, const ride_sample_t *s, uint8_t *beeps)
+{
+    if (ramp_idx(r) < 0) {
+        return;
+    }
+    r->ramp_s++;
+    if (s->power_w < 0 || s->cadence_rpm10 < 0) {
+        return;
+    }
+    bool low = s->cadence_rpm10 < RAMP_FAIL_CAD_RPM * 10 || s->power_w * 100 < s->target_w * RAMP_FAIL_POWER_PCT;
+    r->ramp_low_s = low ? (uint8_t)(r->ramp_low_s + 1) : 0;
+    if (r->ramp_low_s >= RAMP_FAIL_S) {
+        ramp_end(r);
+        *beeps = 3;
+    }
+}
+
 static bool gear_mode(const ride_t *r)
 {
     workout_pos_t pos;
@@ -232,6 +268,9 @@ void ride_action(ride_t *r, action_t a)
     case ACT_PLUS:
     case ACT_MINUS: {
         int d = a == ACT_PLUS ? 1 : -1;
+        if (r->wo && r->wo->ramp_test && !gear_mode(r)) {
+            break;  // a test at 90 % would give a wrong FTP
+        }
         if (gear_mode(r)) {
             r->gear = (uint8_t)clamp_u16(r->gear + d, 0, r->cfg.gears.n - 1);
         } else {
@@ -246,7 +285,9 @@ void ride_action(ride_t *r, action_t a)
         break;
     }
     case ACT_SKIP:
-        if (r->wo && !r->wo_done && r->state == RIDE_RUNNING) {
+        if (r->state == RIDE_RUNNING && ramp_idx(r) >= 0) {
+            ramp_end(r);  // the rider ends the test
+        } else if (r->wo && !r->wo_done && r->state == RIDE_RUNNING) {
             workout_pos_t pos;
             workout_at(r->wo, wo_time(r), &pos);
             r->wo_offset_s += (int32_t)pos.seg_left_s;
@@ -340,6 +381,7 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     }
     adapt_update(r, beeps);
     fill_sample(r, sample, utc);
+    ramp_update(r, sample, beeps);
     r->n_samples++;
     metrics_add(&r->m, sample);
     r->p3[r->n_samples % 3] = sample->power_w;
@@ -410,6 +452,10 @@ void ride_view(const ride_t *r, ride_view_t *v)
             v->avg_goal_w = g->hold_avg ? watts(r, pos.target_pm) : 0;
             v->seg_avg_w = r->adapt_seg == pos.idx && r->adapt_s ? (int16_t)(r->adapt_j / (int32_t)r->adapt_s) : -1;
         }
+        v->ramp_test = r->wo->ramp_test;
+        int ri = ramp_idx(r);
+        v->ramp_step = (uint8_t)(ri < 0 ? 0 : ri - r->wo->ramp_first + 1);
+        v->ramp_s = r->ramp_s;
     }
     metrics_summary(&r->m, r->cfg.ftp_w, &v->sum);
 }

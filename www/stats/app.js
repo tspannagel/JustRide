@@ -29,7 +29,8 @@ function unique(rows, key) {
 function ctx() {
   const ftp = S.user.ftp_w || S.rides.find((r) => r.ftp_w)?.ftp_w || null;
   const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
-  return { userId: S.user.id, rides: S.rides, ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
+  return { userId: S.user.id, rides: S.rides, ftp, ftpKnown: S.user.ftp_known !== false, tsb, best: bestsSince(90),
+    weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
 }
 
 // Best watts per duration for rides in the last `days` (null: all time)
@@ -103,7 +104,13 @@ async function today() {
   let plan = null;
   try { plan = await api.plan(S.user.id); } catch { /* no plan */ }
   const next = nextSession(plan, S.rides, todayKey());
-  $('#next-card').innerHTML = next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
+  // Until the first test the FTP is a guess, and every target depends on it
+  const untested = S.user.ftp_known === false && next?.type !== 'ramptest';
+  $('#next-card').innerHTML = untested ? `<span class="eyebrow">${icon('zap')} FTP not tested yet</span>
+      <b>Start with a ramp test · about 20 min</b>
+      <span class="muted small">On the device: Workouts → FTP ramp test. Workouts and plans scale with your FTP; until then it's a guess (${S.user.ftp_w} W).</span>
+      <a class="btn ghost" href="#riders">Enter a known FTP instead</a>`
+    : next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
       <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>
       <span class="muted small">${fmt.date(new Date(next.date + 'T12:00:00'))} · on the device under Workouts</span>
       <a class="btn ghost" href="#plan">Open plan</a>`

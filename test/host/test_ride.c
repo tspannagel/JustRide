@@ -281,6 +281,85 @@ static void test_adaptive_cadence_cue(void)
     CHECK_EQ(v.cad_cue, 0);
 }
 
+// FTP ramp test, 80 kg, FTP 200, Max ERG 400: warm-up, 120 W + 20 W/min up to 400 W, cool-down
+static workout_t rt;
+
+static void test_ramp_test_ends_when_rider_cannot_hold_it(void)
+{
+    workout_ramp_test(&rt, 200, 80, 400);
+    uint32_t now = 1000;
+    ride_init(&r, &cfg);
+    ride_start(&r, &rt, now, 0);
+    ride_hr(&now, RAMP_WARMUP_S + 5 * RAMP_STEP_S, 400, 900, -1);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.ramp_test);
+    CHECK_EQ(v.ramp_step, 6);
+    CHECK_EQ(v.ramp_s, 5 * RAMP_STEP_S + 1);  // a sample holds the target at its end
+    CHECK_EQ(erg_target(), 220);
+    ride_action(&r, ACT_PLUS);  // no intensity change during a test
+    CHECK_EQ(erg_target(), 220);
+
+    // Cadence below 60 rpm: the ramp ends after 10 s, with 3 beeps, into the cool-down
+    CHECK_EQ(ride_hr(&now, RAMP_FAIL_S - 1, 220, 500, -1), 0);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 6);
+    CHECK_EQ(ride_hr(&now, 1, 220, 500, -1), 3);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 0);
+    CHECK_EQ(v.seg_idx, rt.ramp_end);
+    CHECK_EQ(v.ramp_s, 5 * RAMP_STEP_S + RAMP_FAIL_S + 1);
+    int t = erg_target();
+    CHECK(t <= 120 && t >= 60);
+    CHECK_EQ(ride_hr(&now, 5, 50, 500, -1), 0);  // the cool-down is not watched
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_s, 5 * RAMP_STEP_S + RAMP_FAIL_S + 1);
+}
+
+static void test_ramp_test_power_stale_and_skip(void)
+{
+    workout_ramp_test(&rt, 200, 80, 400);
+    uint32_t now = 1000;
+    ride_init(&r, &cfg);
+    ride_start(&r, &rt, now, 0);
+    ride_hr(&now, 100, 50, 300, -1);  // the warm-up is not watched
+    ride_action(&r, ACT_SKIP);        // skips the warm-up only
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 1);
+    CHECK_EQ(erg_target(), 120);
+
+    // Power below 80 % of the target ends it too; a short dip doesn't
+    ride_hr(&now, 5, 90, 900, -1);
+    ride_hr(&now, 1, 120, 900, -1);
+    ride_hr(&now, 4, 90, 900, -1);
+    // Stale trainer data (after 3 s without any) neither ends it nor resets the count
+    for (int i = 0; i < 4 * 10; i++) {
+        now += 250;
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, now, 0, &s, &beeps);
+    }
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 1);  // 7 low seconds so far
+    ride_hr(&now, RAMP_FAIL_S - 8, 90, 900, -1);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 1);
+    ride_hr(&now, 1, 90, 900, -1);
+    ride_view(&r, &v);
+    CHECK_EQ(v.ramp_step, 0);
+    CHECK_EQ(v.seg_idx, rt.ramp_end);
+
+    // Skip during the ramp ends the test
+    ride_init(&r, &cfg);
+    ride_start(&r, &rt, now, 0);
+    ride_hr(&now, RAMP_WARMUP_S + 30, 200, 900, -1);
+    ride_action(&r, ACT_SKIP);
+    ride_view(&r, &v);
+    CHECK_EQ(v.seg_idx, rt.ramp_end);
+    CHECK_EQ(v.ramp_s, 31);
+}
+
 int main(void)
 {
     test_idle_and_pause_are_low_resistance();
@@ -291,5 +370,7 @@ int main(void)
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_cadence_cue();
+    test_ramp_test_ends_when_rider_cannot_hold_it();
+    test_ramp_test_power_stale_and_skip();
     return test_summary("ride");
 }

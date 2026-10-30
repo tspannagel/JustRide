@@ -24,6 +24,12 @@ void app_get_settings(settings_t *s) { *s = g_settings; }
 void app_post_action(action_t a) {}
 bool app_start_workout(const char *path) { return true; }
 bool app_start_workout_mem(const workout_t *w) { return true; }
+void app_ramp_test(workout_t *w)
+{
+    const user_t *u = &g_settings.users[g_settings.user];
+    w->name[0] = 0;
+    workout_ramp_test(w, u->ftp_w, u->weight_kg, u->max_erg_w);
+}
 
 bool app_read_workout(const char *path, workout_t *w)
 {
@@ -62,6 +68,7 @@ static void add_user(const char *id, const char *name, uint16_t ftp, uint8_t kg,
     snprintf(u->id, sizeof(u->id), "%s", id);
     snprintf(u->name, sizeof(u->name), "%s", name);
     u->ftp_w = ftp;
+    u->ftp_known = true;
     u->max_erg_w = 600;
     u->weight_kg = kg;
     u->max_hr = hr;
@@ -160,8 +167,10 @@ int main(int argc, char **argv)
     save("home");
 
     g_status = (app_status_t){.sd_ok = true};  // first start: nothing paired, clock not set
+    g_settings.users[0].ftp_known = false;    // and no FTP test yet
     refresh(NULL);
     save("home-first-start");
+    g_settings.users[0].ftp_known = true;
     g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
 
     open_users(NULL);
@@ -179,6 +188,9 @@ int main(int argc, char **argv)
 
     open_preview(BSP_SD_MOUNT "/workouts/sweet_spot_3x10.zwo");
     save("workout-preview");
+
+    open_ramp_test(NULL);
+    save("ftp-test-preview");
 
     open_settings(NULL);
     save("settings");
@@ -232,6 +244,22 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("ride-adaptive");
 
+    // FTP ramp test, step 9
+    app_ramp_test(&g_wo);
+    ride_common();
+    g_view.mode = MODE_ERG;
+    g_view.power_w = 278;
+    g_view.target_w = 275;
+    g_view.cadence_rpm10 = 880;
+    g_view.has_workout = true;
+    g_view.seg_idx = g_wo.ramp_first + 8;
+    g_view.seg_count = g_wo.n;
+    g_view.seg_left_s = 34;
+    g_view.ramp_test = true;
+    g_view.ramp_step = 9;
+    refresh(NULL);
+    save("ride-ftp-test");
+
     memset(&g_view, 0, sizeof(g_view));
     g_view.state = RIDE_DONE;
     g_view.sum = (metrics_summary_t){.duration_s = 3725, .avg_w = 214, .np_w = 236, .max_w = 612, .tss10 = 905, .if_1000 = 944,
@@ -240,5 +268,15 @@ int main(int argc, char **argv)
     g_status.ftp_suggest_w = 262;
     refresh(NULL);
     save("summary");
+
+    g_view.sum = (metrics_summary_t){.duration_s = 1342, .avg_w = 178, .np_w = 214, .max_w = 341, .tss10 = 189, .if_1000 = 856,
+                                     .kj = 239, .avg_hr = 158, .distance_m = 10870};
+    g_status.ftp_test = true;
+    g_status.ftp_test_60s_w = 316;
+    g_status.ftp_test_w = 237;
+    g_status.ftp_suggest_w = 237;
+    refresh(NULL);
+    save("summary-ftp-test");
+
     return 0;
 }

@@ -77,6 +77,9 @@ static void start_ride(const workout_t *wo)
         ESP_LOGE(TAG, "recorder not started: this ride is not saved");
     }
     s_status.ftp_suggest_w = 0;
+    s_status.ftp_test = wo && wo->ramp_test;
+    s_status.ftp_test_60s_w = -1;
+    s_status.ftp_test_w = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
 
@@ -183,14 +186,29 @@ static void task(void *arg)
         // command went out and without the lock, so the UI keeps running.
         // Only this task touches the recorder and handles ride actions.
         if (finish) {
-            uint16_t ftp_est;
-            bool saved = recorder_finish(&ftp_est);
+            int16_t bests[METRICS_N_BESTS];
+            bool saved = recorder_finish(bests);
             lock();
             s_status.saving = false;
             s_status.saved = saved;
             // Only suggested, never applied: one bad power reading must not raise every ERG target
-            uint16_t ftp = settings_user(&s_settings)->ftp_w;
-            s_status.ftp_suggest_w = ftp_est > ftp && ftp_est <= RIDE_FTP_MAX ? ftp_est : 0;
+            uint16_t ftp = settings_user(&s_settings)->ftp_w, est = metrics_ftp_estimate(bests);
+            s_status.ftp_suggest_w = est > ftp && est <= RIDE_FTP_MAX ? est : 0;
+            if (s_status.ftp_test && s_ride.ramp_s >= RAMP_MIN_S) {
+                // A test may also lower it (a first test against the 200 W default)
+                est = metrics_ramp_ftp(bests);
+                for (int b = 0; b < METRICS_N_BESTS && est; b++) {
+                    if (metrics_best_s[b] == 60) {
+                        s_status.ftp_test_60s_w = bests[b];
+                        s_status.ftp_test_w = est;
+                    }
+                }
+                s_status.ftp_suggest_w = est != ftp && est >= RIDE_FTP_MIN && est <= RIDE_FTP_MAX ? est : 0;
+                if (est == ftp && !settings_user(&s_settings)->ftp_known) {
+                    settings_user(&s_settings)->ftp_known = true;  // the test confirmed it
+                    settings_save(&s_settings);
+                }
+            }
             unlock();
         }
     }
@@ -232,6 +250,12 @@ void app_web_start(void)
     unlock();
 }
 
+static void ramp_test(workout_t *w)
+{
+    const user_t *u = settings_user(&s_settings);
+    workout_ramp_test(w, u->ftp_w, u->weight_kg, u->max_erg_w < RIDE_ERG_CAP_W ? u->max_erg_w : RIDE_ERG_CAP_W);
+}
+
 bool app_read_workout(const char *path, workout_t *w)
 {
     FILE *f = fopen(path, "rb");
@@ -247,15 +271,31 @@ bool app_read_workout(const char *path, workout_t *w)
         const char *base = strrchr(path, '/');
         snprintf(w->name, sizeof(w->name), "%s", base ? base + 1 : path);
     }
+    if (ok && w->ramp_test) {
+        lock();
+        ramp_test(w);  // the device's own steps for this rider, as the ride will have them
+        unlock();
+    }
     return ok;
+}
+
+void app_ramp_test(workout_t *w)
+{
+    w->name[0] = 0;
+    lock();
+    ramp_test(w);
+    unlock();
 }
 
 bool app_start_workout_mem(const workout_t *w)
 {
     lock();
-    bool ok = w->n > 0 && s_ride.state == RIDE_IDLE;
+    bool ok = (w->n > 0 || w->ramp_test) && s_ride.state == RIDE_IDLE;
     if (ok) {
         s_wo = *w;
+        if (s_wo.ramp_test) {
+            ramp_test(&s_wo);  // targets for the current FTP, weight and Max ERG
+        }
     }
     unlock();
     if (ok) {
@@ -300,8 +340,11 @@ bool app_edit_user(const user_t *u)
     ok = ok && s_ride.state == RIDE_IDLE && idx >= 0;
     if (ok) {
         user_t *cur = &s_settings.users[idx];
-        if (idx == s_settings.user && u->ftp_w != cur->ftp_w) {
-            s_status.ftp_suggest_w = 0;
+        if (u->ftp_w != cur->ftp_w) {
+            cur->ftp_known = true;  // entered by hand
+            if (idx == s_settings.user) {
+                s_status.ftp_suggest_w = 0;
+            }
         }
         memcpy(cur->name, u->name, sizeof(cur->name));
         cur->ftp_w = u->ftp_w;
@@ -319,6 +362,7 @@ void app_accept_ftp(void)
     lock();
     if (s_ride.state != RIDE_RUNNING && s_ride.state != RIDE_PAUSED && s_status.ftp_suggest_w) {
         settings_user(&s_settings)->ftp_w = s_status.ftp_suggest_w;
+        settings_user(&s_settings)->ftp_known = true;
         s_status.ftp_suggest_w = 0;
         apply_settings();
     }
