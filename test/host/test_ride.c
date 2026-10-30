@@ -181,6 +181,86 @@ static void test_data_between_ticks_is_fresh(void)
     CHECK(v.power_w > 0);
 }
 
+// n ticks of 250 ms with the given cadence and speed
+static void ticks(uint32_t *now, int n, int cad10, int speed)
+{
+    for (int i = 0; i < n; i++) {
+        *now += 250;
+        metrics_evt_t e = {.power_w = cad10 ? 150 : 0, .cadence_rpm10 = (int16_t)cad10, .speed_kmh100 = speed,
+                           .hr_bpm = -1, .source = SRC_TRAINER};
+        ride_on_metrics(&r, &e, *now);
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, *now, 0, &s, &beeps);
+    }
+}
+
+static void test_auto_pause(void)
+{
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, NULL, now, 0);
+    ticks(&now, 20, 900, 3000);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+
+    // Coasting: no cadence, but the flywheel still turns
+    ticks(&now, 20, 0, 2000);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    // Stopped: pauses after 3 s, timer stands still, lowest resistance
+    ticks(&now, 11, 0, 300);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    ticks(&now, 2, 0, 300);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.auto_paused);
+    uint32_t t = r.timer_ms;
+    control_cmd_t c;
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_RESISTANCE);
+    ticks(&now, 40, 0, 0);
+    CHECK_EQ(r.timer_ms, t);
+
+    // A few slow turns don't resume; 2 s of pedalling does
+    ticks(&now, 4, 200, 500);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ticks(&now, 9, 800, 1500);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    ride_view(&r, &v);
+    CHECK(!v.auto_paused);
+
+    // Trainer gone: no auto-pause on stale data
+    for (int i = 0; i < 40; i++) {
+        now += 250;
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, now, 0, &s, &beeps);
+    }
+    CHECK_EQ(r.state, RIDE_RUNNING);
+
+    // A tapped pause doesn't resume by pedalling
+    ticks(&now, 4, 900, 3000);
+    ride_action(&r, ACT_PAUSE_TOGGLE);
+    ticks(&now, 40, 900, 3000);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ride_action(&r, ACT_PAUSE_TOGGLE);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+}
+
+// No auto-pause in the ramp of a ramp test: its own rule ends the ramp
+static void test_no_auto_pause_in_ramp(void)
+{
+    static workout_t rt;
+    workout_ramp_test(&rt, 200, 75, 400);
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, &rt, now, 0);
+    r.wo_offset_s = (int32_t)workout_seg_start(&rt, rt.ramp_first);
+    ticks(&now, 8, 900, 3000);
+    ticks(&now, 30, 0, 0);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+}
+
 // n seconds at 4 ticks/s with trainer data and a heart rate (hr < 0: strap silent)
 static int ride_hr(uint32_t *now, int seconds, int power, int cad10, int hr)
 {
@@ -429,6 +509,8 @@ int main(void)
     test_settings_are_clamped();
     test_skip_and_stale_data();
     test_data_between_ticks_is_fresh();
+    test_auto_pause();
+    test_no_auto_pause_in_ramp();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

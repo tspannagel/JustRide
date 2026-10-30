@@ -38,6 +38,16 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define RAMP_FAIL_S 10           // for this many seconds in a row (no trainer data counts too)
 #define RAMP_MIN_S 120           // a result needs at least this much of the ramp (metrics_ramp_ftp)
 
+// Auto-pause: no pedalling (and the flywheel nearly stopped, so coasting downhill
+// doesn't count) pauses the ride; pedalling again resumes it. A pause the rider
+// tapped needs a tap to resume (they may be off the bike). Never during the ramp
+// of a ramp test (it has its own end rule) and never on stale trainer data.
+#define AUTOPAUSE_CAD_RPM10 50      // below 5 rpm
+#define AUTOPAUSE_SPEED_KMH100 500  // and below 5 km/h (if the trainer reports speed)
+#define AUTOPAUSE_MS 3000
+#define AUTORESUME_CAD_RPM10 300    // 30 rpm
+#define AUTORESUME_MS 2000
+
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
@@ -88,6 +98,11 @@ typedef struct {
     uint16_t ramp_s;         // seconds ridden in the ramp
     uint8_t ramp_low_s;      // seconds in a row below cadence or power
 
+    // auto-pause
+    bool auto_paused;        // paused by auto-pause (resumes by pedalling)
+    uint32_t still_since_ms; // not pedalling since, 0 = pedalling
+    uint32_t pedal_since_ms; // auto-paused and pedalling since, 0 = not
+
     metrics_t m;
 } ride_t;
 
@@ -108,6 +123,7 @@ typedef struct {
     uint8_t gears;
     uint8_t intensity;
     uint8_t lap;
+    bool auto_paused;
     bool has_workout;
     int seg_idx;
     int seg_count;

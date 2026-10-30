@@ -245,6 +245,35 @@ static bool gear_mode(const ride_t *r)
     return !in_erg(r, &pos);
 }
 
+// Every tick, running or paused (see AUTOPAUSE_*)
+static void auto_pause(ride_t *r)
+{
+    bool fresh = trainer_fresh(r);
+    int cad = r->trainer.cadence_rpm10, spd = r->trainer.speed_kmh100;
+    if (r->state == RIDE_RUNNING) {
+        bool still = fresh && cad >= 0 && cad < AUTOPAUSE_CAD_RPM10 && (spd < 0 || spd < AUTOPAUSE_SPEED_KMH100);
+        if (!still || ramp_idx(r) >= 0) {
+            r->still_since_ms = 0;
+        } else if (!r->still_since_ms) {
+            r->still_since_ms = r->now_ms ? r->now_ms : 1;
+        } else if (r->now_ms - r->still_since_ms >= AUTOPAUSE_MS) {
+            r->state = RIDE_PAUSED;
+            r->auto_paused = true;
+            r->still_since_ms = r->pedal_since_ms = 0;
+        }
+    } else if (r->state == RIDE_PAUSED && r->auto_paused) {
+        if (!fresh || cad < AUTORESUME_CAD_RPM10) {
+            r->pedal_since_ms = 0;
+        } else if (!r->pedal_since_ms) {
+            r->pedal_since_ms = r->now_ms ? r->now_ms : 1;
+        } else if (r->now_ms - r->pedal_since_ms >= AUTORESUME_MS) {
+            r->state = RIDE_RUNNING;
+            r->auto_paused = false;
+            r->pedal_since_ms = 0;
+        }
+    }
+}
+
 void ride_action(ride_t *r, action_t a)
 {
     switch (a) {
@@ -254,6 +283,8 @@ void ride_action(ride_t *r, action_t a)
         } else if (r->state == RIDE_PAUSED) {
             r->state = RIDE_RUNNING;
         }
+        r->auto_paused = false;  // a tapped pause needs a tap to resume
+        r->still_since_ms = 0;
         break;
     case ACT_STOP:
         if (r->state == RIDE_RUNNING || r->state == RIDE_PAUSED) {
@@ -364,6 +395,7 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     uint32_t dt = now_ms - r->last_tick_ms;
     r->last_tick_ms = now_ms;
     r->now_ms = now_ms;
+    auto_pause(r);
     if (r->state != RIDE_RUNNING) {
         return false;
     }
@@ -422,6 +454,7 @@ void ride_view(const ride_t *r, ride_view_t *v)
     v->gears = r->cfg.gears.n;
     v->intensity = r->intensity;
     v->lap = r->lap;
+    v->auto_paused = r->state == RIDE_PAUSED && r->auto_paused;
 
     // 3 s power while riding, instant power otherwise
     v->power_w = fresh ? r->trainer.power_w : -1;

@@ -1147,7 +1147,7 @@ static void update_ride(const ride_view_t *v)
     }
 
     // Paused: orange frame and caption, so it's obvious from the saddle
-    lv_label_set_text(r_power_cap, paused ? "PAUSED" : "POWER");
+    lv_label_set_text(r_power_cap, v->auto_paused ? "PAUSED  -  PEDAL TO RESUME" : paused ? "PAUSED" : "POWER");
     lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_parent(r_power_cap), 0), rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_border_width(r_power_card, paused ? 3 : 1, 0);
