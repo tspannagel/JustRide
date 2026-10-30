@@ -48,6 +48,16 @@ figure { margin: 0; }
 figure img { display: block; border-radius: 10px; border: 1px solid var(--line); }
 .device img { width: 240px; height: 240px; image-rendering: auto; }
 .wide img { width: 100%; max-width: 760px; height: auto; }
+.diagram svg { width: 100%; min-width: 560px; max-width: 760px; height: auto; display: block; }
+.diagram .d-box rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.diagram .d-box .d-main { stroke: var(--accent); stroke-width: 2; }
+.diagram .d-opt { stroke-dasharray: 6 5; }
+.diagram .d-line path { fill: none; stroke: var(--muted); stroke-width: 1.8; }
+.diagram .d-head { fill: var(--muted); }
+.diagram text { fill: var(--fg); font: 600 15px system-ui, -apple-system, sans-serif; text-anchor: middle; }
+.diagram .d-small { fill: var(--muted); font-weight: 400; font-size: 13px; }
+.diagram .d-label text { fill: var(--muted); font-weight: 400; font-size: 12px; }
+h4 { font-size: 16px; margin: 24px 0 8px; }
 figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 240px; }
 .wide figcaption { max-width: none; }
 .btn { font-weight: 600; white-space: nowrap; }
@@ -300,13 +310,69 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 
 <h3 id="watch">Record on an Apple Watch too</h3>
-<p>The head unit also shows up as a Bluetooth power and cadence sensor called <b>JustRide</b>. It passes on the trainer's power and cadence (the same numbers as on the ride screen), so an Apple Watch records the ride in the Fitness app with your watch's heart rate and calories. A bike computer (Garmin, Wahoo) can connect the same way. Nothing can control the trainer through it: it only sends numbers.</p>
+<p>The head unit also shows up as a Bluetooth power and cadence sensor called <b>JustRide</b>. It passes on the trainer's power and cadence (the same numbers as on the ride screen), so an Apple Watch records the ride in the Fitness app together with the heart rate it measures itself. A bike computer (Garmin, Wahoo) can connect the same way. It only sends numbers: nothing can control the trainer through it.</p>
+<figure class="wide diagram">
+<div class="scroll"><svg viewBox="0 0 760 300" role="img" aria-labelledby="watch-diag-t">
+  <title id="watch-diag-t">The KICKR Core, the Zwift Ride and an optional heart-rate strap connect to the head unit. The head unit sends power and cadence to the Apple Watch, which saves the workout with its own heart rate in Apple Health.</title>
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="d-head"/></marker></defs>
+  <g class="d-box"><rect x="10" y="22" width="150" height="56" rx="10"/><rect x="10" y="122" width="150" height="56" rx="10"/><rect x="10" y="222" width="150" height="56" rx="10" class="d-opt"/>
+    <rect x="320" y="22" width="160" height="256" rx="12" class="d-main"/><rect x="580" y="62" width="170" height="76" rx="10"/><rect x="580" y="222" width="170" height="56" rx="10"/></g>
+  <g class="d-text">
+    <text x="85" y="46">KICKR Core</text><text x="85" y="65" class="d-small">trainer</text>
+    <text x="85" y="146">Zwift Ride</text><text x="85" y="165" class="d-small">buttons</text>
+    <text x="85" y="246">Chest strap</text><text x="85" y="265" class="d-small">optional</text>
+    <text x="400" y="128">JustRide</text><text x="400" y="146">head unit</text>
+    <text x="400" y="172" class="d-small">start the ride or</text><text x="400" y="189" class="d-small">workout here</text>
+    <text x="400" y="214" class="d-small">FIT + CSV on SD</text>
+    <text x="665" y="88">Apple Watch</text><text x="665" y="108" class="d-small">Workout app:</text><text x="665" y="125" class="d-small">Indoor Cycle</text>
+    <text x="665" y="246">Apple Health</text><text x="665" y="265" class="d-small">Fitness app</text>
+  </g>
+  <g class="d-line">
+    <path d="M160 50 L320 50" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <path d="M160 150 L320 150" marker-end="url(#arr)"/>
+    <path d="M160 250 L320 250" marker-end="url(#arr)" class="d-opt"/>
+    <path d="M480 100 L580 100" marker-end="url(#arr)"/>
+    <path d="M665 138 L665 222" marker-end="url(#arr)"/>
+  </g>
+  <g class="d-label">
+    <text x="240" y="42">power, cadence</text><text x="240" y="68">resistance</text>
+    <text x="240" y="142">button presses</text>
+    <text x="240" y="242">heart rate</text>
+    <text x="530" y="92">power +</text><text x="530" y="118">cadence</text>
+    <text x="655" y="176" style="text-anchor:end">workout with</text><text x="655" y="192" style="text-anchor:end">watch heart rate</text>
+  </g>
+</svg></div>
+<figcaption>Who talks to whom. The ride is started on the head unit; the watch only listens and records.</figcaption>
+</figure>
+
+<h4>Once: pair the watch</h4>
 <ol>
-  <li>Once: turn on the head unit. On the Apple Watch (watchOS 10 or later) open <b>Settings → Bluetooth</b>, wait for <b>JustRide</b> under <i>Health devices</i> and tap it.</li>
-  <li>Each ride: start <b>Indoor Cycle</b> in the Workout app on the watch, then start the ride on the head unit. The watch shows the power and cadence from the head unit.</li>
-  <li>The watch records the ride in Apple Health / Fitness; the head unit still saves its own FIT and CSV files as usual.</li>
+  <li>Turn on the head unit (the home screen is enough).</li>
+  <li>On the <b>Apple Watch</b> (watchOS 10 or later), not on the iPhone: open <b>Settings → Bluetooth</b> and scroll down to <i>Health devices</i>.</li>
+  <li>Wait for <b>JustRide</b> to appear and tap it. No code is needed.</li>
 </ol>
-<p>Up to two receivers can connect at once. The watch's own heart rate stays on the watch; for heart rate on the head unit, use a chest strap.</p>
+<p class="note">The iPhone's <b>Settings → Bluetooth</b> never lists JustRide: iOS doesn't show fitness sensors there (the KICKR doesn't appear either). That's normal. On an iPhone, sensors are added inside an app (Zwift, Wahoo SYSTM, Rouvy: add a power source and pick JustRide). <i>nRF Connect</i> shows it in its scanner if you just want to check it's there.</p>
+
+<h4>Each ride: where to start what</h4>
+<div class="scroll"><table>
+  <tr><th>Step</th><th>Where</th><th>What</th></tr>
+  <tr><td>1</td><td>Head unit</td><td>Turn it on and check the right rider is chosen on the home screen. The trainer, the Zwift Ride and a strap connect by themselves.</td></tr>
+  <tr><td>2</td><td>Apple Watch</td><td>Open the <b>Workout</b> app and start <b>Indoor Cycle</b> (not Outdoor Cycle). The watch connects to JustRide by itself; power and cadence show 0 or – until you pedal.</td></tr>
+  <tr><td>3</td><td>Head unit</td><td>Start the training here: <span class="btn">Free ride</span>, or <span class="btn">Workouts</span> → pick one (today's plan session is listed first) → <span class="btn">Start workout</span>, or an adaptive ride. The head unit sets the trainer's resistance, counts the intervals and beeps; the watch just shows and records the numbers.</td></tr>
+  <tr><td>4</td><td>Head unit</td><td>At the end, stop the ride with a <b>long press</b> (or let the workout finish) and tap <span class="btn">Done</span> on the summary.</td></tr>
+  <tr><td>5</td><td>Apple Watch</td><td>End the workout on the watch. It goes to Apple Health / Fitness; the head unit has already saved its own FIT and CSV files.</td></tr>
+</table></div>
+<p>Start the watch before the head unit and stop it after, so the watch has the whole ride. The workout itself (targets, ERG, intervals) always runs on the head unit: the watch has no idea it's a structured workout and just shows <i>Indoor Cycle</i>.</p>
+
+<h4>Heart rate: watch or strap?</h4>
+<p>The watch measures your heart rate, but it doesn't send it to the head unit: watchOS can't act as a Bluetooth heart-rate sensor. So the head unit's ride screen, its FIT/CSV files, the HR zones in the web app and adaptive parts with a heart-rate goal get no heart rate from the watch.</p>
+<div class="scroll"><table>
+  <tr><th>Setup</th><th>Apple Health gets</th><th>Head unit gets</th></tr>
+  <tr><td><b>Watch only</b> (as above)</td><td>power, cadence, heart rate</td><td>power, cadence, <i>no heart rate</i></td></tr>
+  <tr><td><b>Watch + chest strap</b> (Polar H10, Garmin HRM, Wahoo TICKR …): the strap connects to the head unit (<a href="#pair">3.7</a>), the watch stays as above</td><td>power, cadence, heart rate (from the watch)</td><td>power, cadence, heart rate (from the strap)</td></tr>
+  <tr><td><b>Watch as heart-rate sensor</b> with a third-party app (e.g. HeartCast, Echo) that sends heart rate like a strap</td><td>usually only what that app saves: the watch runs one workout at a time, so Indoor Cycle with power can't run alongside</td><td>power, cadence, heart rate (not tested yet)</td></tr>
+</table></div>
+<p>For the full picture in both places, use a chest strap. Up to two receivers (watch, bike computer) can connect to JustRide at once.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="workouts">6. Workouts</h2>
@@ -559,6 +625,8 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   <tr><td>Wrong heart-rate strap connects</td><td>Switch to the right rider, take the other strap off (or out of range), then <span class="btn">Settings → Forget paired devices</span>.</td></tr>
   <tr><td>Zwift Ride doesn't connect</td><td>Close the Zwift app (on phone, tablet and PC), press a button to wake it, check the log for <code>zap</code>.</td></tr>
   <tr><td>Zwift Ride button does the wrong thing / nothing</td><td>Run <code>zap dump on</code>, press each button once slowly (note the order), and send the log. The button table is then corrected from your recording.</td></tr>
+  <tr><td>Apple Watch doesn't find <b>JustRide</b></td><td>Look on the watch under <b>Settings → Bluetooth → Health devices</b>, not on the iPhone (<a href="#watch">Record on an Apple Watch</a>). Keep the watch within a few metres; at most two receivers can be connected, so disconnect a bike computer or second watch first.</td></tr>
+  <tr><td>Watch connected but power shows 0 or –</td><td>Power and cadence only flow while the trainer sends data: pedal. Check the head unit's ride screen shows power; if it does and the watch doesn't, send the log (<code>ble_srv</code> lines).</td></tr>
   <tr><td>Trainer connects but resistance doesn't change</td><td>Check the log for <code>request control refused</code> or <code>rejected</code>; another app may still have control.</td></tr>
   <tr><td>Board switches itself off</td><td>Use the computer's USB port or a plain 5 V supply and send the log. If it keeps happening, restore Waveshare's <a href="https://github.com/waveshareteam/ESP32-S3-Touch-LCD-4/tree/main/firmware">factory firmware</a> to check whether the board itself is fine.</td></tr>
   <tr><td><i>Clock not set</i></td><td>Set your home network in <code>settings.json</code> and open the web app once (the clock comes from the router or from the browser). <code>wifi time</code> on the USB console shows the clock state.</td></tr>
