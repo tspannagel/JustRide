@@ -47,6 +47,7 @@ const workout_t *app_workout(void) { return &g_wo; }
 void app_web_start(void) {}
 bool app_edit_user(const user_t *u) { return true; }
 void app_accept_ftp(void) {}
+void app_keep_old_ftp(void) {}
 bool app_select_user(const char *id) { return true; }
 bool app_add_user(const char *name) { return true; }
 bool app_delete_user(const char *id) { return true; }
@@ -274,7 +275,8 @@ int main(int argc, char **argv)
     g_status.ftp_test = true;
     g_status.ftp_test_60s_w = 316;
     g_status.ftp_test_w = 237;
-    g_status.ftp_suggest_w = 237;
+    g_status.ftp_suggest_w = 0;
+    g_status.ftp_prev_w = 200;
     refresh(NULL);
     save("summary-ftp-test");
 

@@ -161,6 +161,26 @@ static void test_skip_and_stale_data(void)
     CHECK_EQ(s.cadence_rpm10, -1);
 }
 
+// Data arriving between two ticks is newer than the ride's clock: it must show, not
+// read as stale until the next tick (cadence and HR flickered "-" on the bike)
+static void test_data_between_ticks_is_fresh(void)
+{
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, NULL, now, 0);
+    ride_for(&now, 5, 150, NULL);
+    metrics_evt_t e = trainer(160, 850);
+    ride_on_metrics(&r, &e, now + 100);
+    metrics_evt_t h = {.power_w = -1, .cadence_rpm10 = -1, .speed_kmh100 = -1, .hr_bpm = 120, .source = SRC_HR};
+    ride_on_metrics(&r, &h, now + 100);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK_EQ(v.cadence_rpm10, 850);
+    CHECK_EQ(v.speed_kmh100, 3000);
+    CHECK_EQ(v.hr_bpm, 120);
+    CHECK(v.power_w > 0);
+}
+
 // n seconds at 4 ticks/s with trainer data and a heart rate (hr < 0: strap silent)
 static int ride_hr(uint32_t *now, int seconds, int power, int cad10, int hr)
 {
@@ -408,6 +428,7 @@ int main(void)
     test_workout_erg_targets_and_caps();
     test_settings_are_clamped();
     test_skip_and_stale_data();
+    test_data_between_ticks_is_fresh();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

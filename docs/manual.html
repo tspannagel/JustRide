@@ -258,7 +258,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <li>5 minutes warm-up.</li>
   <li>Then the target rises every minute. It starts at 1.5 W per kg of your weight and adds 0.25 W/kg each minute (75 kg: 115 W, then +20 W). Set your weight before the test; your current FTP doesn't matter.</li>
   <li>Ride until you really can't hold the target. When your cadence stays under 60 rpm, or your power under 80 % of the target, for 10 seconds, the device beeps three times and switches to an easy 5-minute cool-down. The same happens if the trainer stops sending data for that long (connection lost), so you never come back to a step you didn't ride up to. You can also end the test yourself with <span class="btn">Skip</span>.</li>
-  <li>Stop the ride as usual (hold <span class="btn">Hold to stop</span>). Your FTP is <b>75 % of your best minute</b>. The summary shows it and offers <span class="btn">Set FTP to … W</span>; after a test this can also be lower than your current FTP.</li>
+  <li>Stop the ride as usual (hold <span class="btn">Hold to stop</span>). Your FTP is <b>75 % of your best minute</b>. It is set right away (it can also be lower than before) and the summary shows it. If you don't trust the result, tap <span class="btn">Keep old FTP … W</span>.</li>
 </ol>
 <p>The <span class="btn">−</span>/<span class="btn">+</span> intensity buttons do nothing during the test, so the result stays comparable. The steps never go above your Max ERG; if you reach it, raise Max ERG and test again. A test with less than 2 minutes of the ramp gives no result. Repeat the test every 6–8 weeks, or let the <b>Raise my FTP</b> plan schedule it (<a href="#webapp-plan">Training plans</a>).</p>
 <p>If you already know your FTP from another app, simply enter it under <span class="btn">Settings</span>: the device then counts it as known.</p>
@@ -320,9 +320,9 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3 id="after">After the ride</h3>
 <div class="shots">
   <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; Set FTP to 262 W and Done buttons"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
-  <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, so your FTP is 237 W; Set FTP to 237 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
+  <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, your FTP is now 237 W; Keep old FTP 200 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
 </div>
-<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, or it was an FTP test, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
+<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears; after an FTP test the new FTP is already set and <span class="btn">Keep old FTP … W</span> undoes it (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 

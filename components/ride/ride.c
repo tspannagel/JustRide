@@ -75,14 +75,17 @@ void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms)
     r->trainer_ms = now_ms;
 }
 
-static bool trainer_fresh(const ride_t *r)
+// Signed: data that arrived after the last tick is newer than r->now_ms, not 49 days old
+static bool fresh_since(const ride_t *r, uint32_t t_ms, uint32_t max_ms)
 {
-    return r->trainer_ms != 0 && r->now_ms - r->trainer_ms <= RIDE_TRAINER_STALE_MS;
+    return t_ms != 0 && (int32_t)(r->now_ms - t_ms) <= (int32_t)max_ms;
 }
+
+static bool trainer_fresh(const ride_t *r) { return fresh_since(r, r->trainer_ms, RIDE_TRAINER_STALE_MS); }
 
 static int16_t current_hr(const ride_t *r)
 {
-    if (r->hr_ms != 0 && r->now_ms - r->hr_ms <= RIDE_HR_STALE_MS) {
+    if (fresh_since(r, r->hr_ms, RIDE_HR_STALE_MS)) {
         return r->hr;
     }
     return trainer_fresh(r) && r->trainer.hr_bpm > 0 ? r->trainer.hr_bpm : -1;

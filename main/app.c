@@ -66,6 +66,8 @@ static ride_config_t ride_cfg(void)
     };
 }
 
+static void apply_settings(void);
+
 // Called with the lock held, after web_stop() (Wi-Fi off while riding: RGB drift, no OTA mid-ride)
 static void start_ride(const workout_t *wo)
 {
@@ -86,6 +88,7 @@ static void start_ride(const workout_t *wo)
     s_status.ftp_test = wo && wo->ramp_test;
     s_status.ftp_test_60s_w = -1;
     s_status.ftp_test_w = 0;
+    s_status.ftp_prev_w = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
 
@@ -219,7 +222,8 @@ static void task(void *arg)
             uint16_t ftp = settings_user(&s_settings)->ftp_w, est = metrics_ftp_estimate(bests);
             s_status.ftp_suggest_w = est > ftp && est <= RIDE_FTP_MAX ? est : 0;
             if (s_status.ftp_test && s_ride.ramp_s >= RAMP_MIN_S) {
-                // A test may also lower it (a first test against the 200 W default)
+                // The rider asked for a test: apply it right away (also lower, e.g. against
+                // the 200 W default); the summary offers to keep the old value
                 est = metrics_ramp_ftp(bests);
                 for (int b = 0; b < METRICS_N_BESTS && est; b++) {
                     if (metrics_best_s[b] == 60) {
@@ -227,10 +231,15 @@ static void task(void *arg)
                         s_status.ftp_test_w = est;
                     }
                 }
-                s_status.ftp_suggest_w = est != ftp && est >= RIDE_FTP_MIN && est <= RIDE_FTP_MAX ? est : 0;
-                if (est == ftp && !settings_user(&s_settings)->ftp_known) {
-                    settings_user(&s_settings)->ftp_known = true;  // the test confirmed it
-                    settings_save(&s_settings);
+                s_status.ftp_suggest_w = 0;
+                user_t *u = settings_user(&s_settings);
+                if (est >= RIDE_FTP_MIN && est <= RIDE_FTP_MAX && (est != ftp || !u->ftp_known)) {
+                    s_status.ftp_prev_w = est != ftp ? ftp : 0;
+                    s_status.ftp_prev_known = u->ftp_known;
+                    u->ftp_w = est;
+                    u->ftp_known = true;
+                    apply_settings();
+                    ESP_LOGI(TAG, "FTP test: FTP %u W (was %u W)", est, ftp);
                 }
             }
             unlock();
@@ -366,6 +375,7 @@ bool app_edit_user(const user_t *u)
             cur->ftp_known = true;  // entered by hand
             if (idx == s_settings.user) {
                 s_status.ftp_suggest_w = 0;
+                s_status.ftp_prev_w = 0;
             }
         }
         memcpy(cur->name, u->name, sizeof(cur->name));
@@ -391,6 +401,18 @@ void app_accept_ftp(void)
     unlock();
 }
 
+void app_keep_old_ftp(void)
+{
+    lock();
+    if (s_ride.state != RIDE_RUNNING && s_ride.state != RIDE_PAUSED && s_status.ftp_prev_w) {
+        settings_user(&s_settings)->ftp_w = s_status.ftp_prev_w;
+        settings_user(&s_settings)->ftp_known = s_status.ftp_prev_known;
+        s_status.ftp_prev_w = 0;
+        apply_settings();
+    }
+    unlock();
+}
+
 bool app_set_tz(const char *posix)
 {
     lock();
@@ -407,6 +429,7 @@ bool app_set_tz(const char *posix)
 static void user_changed(void)
 {
     s_status.ftp_suggest_w = 0;
+    s_status.ftp_prev_w = 0;  // "Keep" would write the old FTP onto another rider
     apply_settings();
     ble_mgr_set_user(settings_user(&s_settings)->id);  // reconnects to this user's HR strap
 }

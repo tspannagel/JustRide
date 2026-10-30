@@ -1221,7 +1221,17 @@ static void update_ride(const ride_view_t *v)
 
 // ---- Summary ------------------------------------------------------------------
 
-static void on_accept_ftp(lv_event_t *e) { app_accept_ftp(); }
+static void on_ftp_btn(lv_event_t *e)
+{
+    ride_view_t v;
+    app_status_t st;
+    app_get_view(&v, &st);
+    if (st.ftp_prev_w) {
+        app_keep_old_ftp();
+    } else {
+        app_accept_ftp();
+    }
+}
 
 static void build_summary(void)
 {
@@ -1243,7 +1253,7 @@ static void build_summary(void)
     sum_note = muted(scr_summary, &lv_font_montserrat_16, "");
 
     lv_obj_t *b = row(scr_summary);
-    sum_ftp_btn = grow(button(b, "", 0, 64, on_accept_ftp, NULL));
+    sum_ftp_btn = grow(button(b, "", 0, 64, on_ftp_btn, NULL));
     lv_obj_set_flex_grow(sum_ftp_btn, 3);
     sum_ftp_label = lv_obj_get_child(sum_ftp_btn, 0);
     lv_obj_set_flex_grow(primary(button(b, LV_SYMBOL_OK " Done", 0, 64, on_action, (void *)ACT_DISMISS)), 2);
@@ -1274,19 +1284,25 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
     if (!st->saving && !st->saved) {
         lv_label_set_text(sum_note, "Shorter than 1 min, or SD card problem.");
     } else if (st->ftp_test && st->ftp_test_w) {
-        lv_label_set_text_fmt(sum_note, "FTP test: best minute %d W, so your FTP is %u W.", st->ftp_test_60s_w,
+        lv_label_set_text_fmt(sum_note, "FTP test: best minute %d W, your FTP is now %u W.", st->ftp_test_60s_w,
                               st->ftp_test_w);
     } else if (st->ftp_test) {
         lv_label_set_text(sum_note, st->saving ? "" : "FTP test: under 2 min of the ramp, no result.");
     }
     show(sum_note, !st->saving && (!st->saved || st->ftp_test));
 
-    // 95 % of this ride's best 20 min beat the FTP, or a test's result: offer it, never apply it silently
+    // 95 % of this ride's best 20 min beat the FTP: offer it, never apply it silently.
+    // A test's result is already applied: offer the old value back.
     settings_t s;
     app_get_settings(&s);
-    show(sum_ftp_btn, st->ftp_suggest_w > 0);
-    lv_label_set_text_fmt(sum_ftp_label, "%s Set FTP to %u W",
-                          st->ftp_suggest_w > settings_user(&s)->ftp_w ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, st->ftp_suggest_w);
+    show(sum_ftp_btn, st->ftp_suggest_w > 0 || st->ftp_prev_w > 0);
+    if (st->ftp_prev_w) {
+        lv_label_set_text_fmt(sum_ftp_label, LV_SYMBOL_LOOP " Keep old FTP %u W", st->ftp_prev_w);
+    } else {
+        lv_label_set_text_fmt(sum_ftp_label, "%s Set FTP to %u W",
+                              st->ftp_suggest_w > settings_user(&s)->ftp_w ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
+                              st->ftp_suggest_w);
+    }
 }
 
 // ---- Screens + refresh --------------------------------------------------------
