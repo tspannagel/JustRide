@@ -349,15 +349,22 @@ static void test_spindown_not_sent(void)
 
 static void test_clock_wrap(void)
 {
-    // esp_timer ms in uint32_t wraps after ~49.7 days. Note: retry_ms starts at
-    // 0, so from ~24.8 days of uptime until the wrap nothing is sent until the
-    // first control-lost/refused event sets it (kept as in the original driver).
+    // esp_timer ms in uint32_t wraps after ~49.7 days. A trainer that connects
+    // after ~24.8 days of uptime must still get Request Control right away
+    // (an unset retry time used to read as "in the future" until the wrap).
     ftms_ctl_t c;
     uint8_t buf[FTMS_CP_MAX_LEN];
+    for (uint32_t t0 = 0x80000000u; t0 >= 0x80000000u; t0 += 0x10000000u) {
+        ftms_ctl_init(&c);
+        ftms_ctl_on_connected(&c);
+        CHECK_EQ(step(&c, &RES0, t0, buf), FTMS_OP_REQUEST_CONTROL);
+    }
     ftms_ctl_init(&c);
     ftms_ctl_on_connected(&c);
     uint32_t t = UINT32_MAX - 3000;
-    CHECK_EQ(step(&c, &RES0, t, buf), -1);  // the latent case described above
+    CHECK_EQ(step(&c, &RES0, t, buf), FTMS_OP_REQUEST_CONTROL);
+    ftms_ctl_on_response(&c, FTMS_OP_REQUEST_CONTROL, 0x05, t + 10);  // refused: retry in 2 s
+    CHECK_EQ(step(&c, &RES0, t + 1000, buf), -1);
     ftms_ctl_on_control_lost(&c, t);
     t += FTMS_CTL_RETRY_MS;
     CHECK_EQ(step(&c, &RES0, t, buf), FTMS_OP_REQUEST_CONTROL);

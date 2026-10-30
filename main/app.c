@@ -41,6 +41,12 @@ static bool s_finish_pending;
 static uint8_t s_beeps_left;
 static uint32_t s_next_beep_ms;
 static uint8_t s_last_state = RIDE_IDLE;
+// Wi-Fi is switched on by this task only, and switched without the lock: web_stop() waits for
+// running web requests, and those may be waiting for the lock (deadlock).
+static bool s_web_request;               // app_web_start() was called
+static bool s_start_pending;             // a ride starts once Wi-Fi is off
+static const workout_t *s_start_wo;      // NULL: free ride
+static settings_t s_web_cfg;             // copy for web_start(), task only
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static uint32_t utc_now(void) { return (uint32_t)time(NULL); }
@@ -60,12 +66,12 @@ static ride_config_t ride_cfg(void)
     };
 }
 
+// Called with the lock held, after web_stop() (Wi-Fi off while riding: RGB drift, no OTA mid-ride)
 static void start_ride(const workout_t *wo)
 {
     if (s_ride.state != RIDE_IDLE) {
         return;
     }
-    web_stop();  // Wi-Fi off while riding (RGB drift, and no OTA mid-ride)
     s_ride.cfg = ride_cfg();  // ride_start re-validates it and keeps live sensor values
     ride_start(&s_ride, wo, now_ms(), utc_now());
     const user_t *u = settings_user(&s_settings);
@@ -85,10 +91,11 @@ static void start_ride(const workout_t *wo)
 
 static void do_action(uint8_t a)
 {
-    if (a == ACT_START_FREE) {
-        start_ride(NULL);
-    } else if (a == ACT_START_WORKOUT) {
-        start_ride(&s_wo);
+    if (a == ACT_START_FREE || a == ACT_START_WORKOUT) {
+        if (s_ride.state == RIDE_IDLE) {
+            s_start_pending = true;  // the task loop turns Wi-Fi off, then starts the ride
+            s_start_wo = a == ACT_START_WORKOUT ? &s_wo : NULL;
+        }
     } else {
         uint8_t before = s_ride.state;
         ride_action(&s_ride, a);
@@ -147,8 +154,11 @@ static void task(void *arg)
         if (got) {
             handle(&e);
         }
-        if (s_ride.state == RIDE_IDLE && s_last_state != RIDE_IDLE) {
-            web_start(&s_settings);  // back on after the ride (start_ride turned it off)
+        // Wi-Fi back on after a ride, or when asked; never while a ride is about to start
+        bool web_on = s_ride.state == RIDE_IDLE && !s_start_pending && (s_last_state != RIDE_IDLE || s_web_request);
+        s_web_request = false;
+        if (web_on) {
+            s_web_cfg = s_settings;
         }
         s_last_state = s_ride.state;
         uint32_t now = now_ms();
@@ -180,7 +190,21 @@ static void task(void *arg)
         s_status.clock_ok = utc_now() > CLOCK_VALID_AFTER;
         bool finish = s_finish_pending;
         s_finish_pending = false;
+        bool start = s_start_pending;
         unlock();
+
+        if (web_on) {
+            web_start(&s_web_cfg);
+        }
+        if (start) {
+            web_stop();  // waits for running web requests, which may need the lock
+            lock();
+            if (s_start_pending) {
+                s_start_pending = false;
+                start_ride(s_start_wo);
+            }
+            unlock();
+        }
 
         // Writing the FIT file can take seconds. Do it after the lowest-resistance
         // command went out and without the lock, so the UI keeps running.
@@ -244,9 +268,7 @@ void app_post_action(action_t a)
 void app_web_start(void)
 {
     lock();
-    if (s_ride.state == RIDE_IDLE) {
-        web_start(&s_settings);
-    }
+    s_web_request = true;  // the control task starts it if no ride is running or starting
     unlock();
 }
 

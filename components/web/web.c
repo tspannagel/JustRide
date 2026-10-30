@@ -426,7 +426,8 @@ static esp_err_t h_api_users_post(httpd_req_t *req)
 }
 
 // The browser's clock, for a device that can't reach a time server (body: UTC
-// seconds). Ignored once NTP has set the clock; small differences are ignored too.
+// seconds). Only while the clock isn't set yet: any device on the network may send
+// this, and a set clock (NTP or RTC) is better than whatever it says.
 static esp_err_t h_api_time(httpd_req_t *req)
 {
     if (!allowed(req)) {
@@ -440,7 +441,7 @@ static esp_err_t h_api_time(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad time");
     }
     time_t now = time(NULL);
-    if (!s_ntp_synced && (now < CLOCK_VALID_AFTER || llabs(t - (long long)now) > 120)) {
+    if (!s_ntp_synced && now < CLOCK_VALID_AFTER) {
         struct timeval tv = {.tv_sec = (time_t)t};
         settimeofday(&tv, NULL);
         bsp_rtc_set((time_t)t);

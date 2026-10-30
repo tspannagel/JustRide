@@ -27,6 +27,7 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define ADAPT_BIG_STEP_W 10      // HR more than 5 bpm above the range
 #define ADAPT_HR_LOST_S 60       // no HR this long: drift back to the planned power
 #define ADAPT_AVG_HORIZON_S 60   // hold-average: spread a shortfall over at least this
+#define ADAPT_RAISE_S 10         // hold-average: the target rises at most ADAPT_STEP_W this often
 #define ADAPT_CAD_CUE_S 5        // cadence out of range this long: cue
 #define ADAPT_CAD_BEEP_GAP_S 60  // at most one cadence beep per minute
 
@@ -76,7 +77,7 @@ typedef struct {
     int16_t adapt_w;         // current target, W
     int16_t adapt_cap_w;     // hold-average: ceiling lowered while HR is too high
     uint32_t adapt_s;        // seconds ridden in the segment
-    int32_t adapt_j;         // energy in the segment, J (unknown power counts as on target)
+    int32_t adapt_j;         // energy in the segment, J (unknown power and not pedalling count as on target)
     uint16_t adapt_hr_lost_s;
     uint8_t adapt_tick;
     uint8_t cad_out_s;

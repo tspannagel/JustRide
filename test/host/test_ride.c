@@ -263,6 +263,31 @@ static void test_adaptive_hold_average(void)
     CHECK(erg_target() >= 91);
 }
 
+static void test_adaptive_hold_average_stop_and_rise(void)
+{
+    uint32_t now = 1000;
+    adaptive_workout((goal_t){.hold_avg = true, .max_pm = 1200});  // up to 240 W
+    awo.seg[0].dur_s = 600;
+    awo.total_s = 600;
+    ride_init(&r, &cfg);
+    ride_start(&r, &awo, now, 0);
+    ride_hr(&now, 480, 130, 900, -1);
+    CHECK_EQ(erg_target(), 130);
+
+    // Stopped for 30 s (drinking) two minutes before the end: no shortfall, no jump
+    ride_hr(&now, 30, 0, 0, -1);
+    CHECK_EQ(erg_target(), 130);
+    ride_hr(&now, 10, 130, 900, -1);
+    CHECK_EQ(erg_target(), 130);
+
+    // A real shortfall near the end: the target rises 5 W per 10 s, not at once
+    ride_hr(&now, 30, 100, 900, -1);
+    int t = erg_target();
+    CHECK(t > 130 && t <= 145);
+    ride_hr(&now, 10, 100, 900, -1);
+    CHECK(erg_target() - t <= 5);
+}
+
 static void test_adaptive_cadence_cue(void)
 {
     uint32_t now = 1000;
@@ -369,6 +394,7 @@ int main(void)
     test_skip_and_stale_data();
     test_adaptive_hr();
     test_adaptive_hold_average();
+    test_adaptive_hold_average_stop_and_rise();
     test_adaptive_cadence_cue();
     test_ramp_test_ends_when_rider_cannot_hold_it();
     test_ramp_test_power_stale_and_skip();
