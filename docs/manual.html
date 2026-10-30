@@ -167,7 +167,7 @@ diskutil eraseDisk FAT32 JUSTRIDE MBRFormat /dev/disk8</code></pre>
 <p>Then copy the files (the card is now mounted as <code>/Volumes/JUSTRIDE</code>):</p>
 <pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
 tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app and sample workouts</span></code></pre>
-<p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.7</a>.</p>
+<p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.8</a>.</p>
 <p>The card then contains:</p>
 <pre><code>/www/stats/     web app
 /workouts/      .zwo workout files (two samples)
@@ -258,7 +258,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <li>5 minutes warm-up.</li>
   <li>Then the target rises every minute. It starts at 1.5 W per kg of your weight and adds 0.25 W/kg each minute (75 kg: 115 W, then +20 W). Set your weight before the test; your current FTP doesn't matter.</li>
   <li>Ride until you really can't hold the target. When your cadence stays under 60 rpm, or your power under 80 % of the target, for 10 seconds, the device beeps three times and switches to an easy 5-minute cool-down. The same happens if the trainer stops sending data for that long (connection lost), so you never come back to a step you didn't ride up to. You can also end the test yourself with <span class="btn">Skip</span>.</li>
-  <li>Stop the ride as usual (hold <span class="btn">Hold to stop</span>). Your FTP is <b>75 % of your best minute</b>. The summary shows it and offers <span class="btn">Set FTP to … W</span>; after a test this can also be lower than your current FTP.</li>
+  <li>Stop the ride as usual (hold <span class="btn">Hold to stop</span>). Your FTP is <b>75 % of your best minute</b>. It is set right away (it can also be lower than before) and the summary shows it. If you don't trust the result, tap <span class="btn">Keep old FTP … W</span>.</li>
 </ol>
 <p>The <span class="btn">−</span>/<span class="btn">+</span> intensity buttons do nothing during the test, so the result stays comparable. The steps never go above your Max ERG; if you reach it, raise Max ERG and test again. A test with less than 2 minutes of the ramp gives no result. Repeat the test every 6–8 weeks, or let the <b>Raise my FTP</b> plan schedule it (<a href="#webapp-plan">Training plans</a>).</p>
 <p>If you already know your FTP from another app, simply enter it under <span class="btn">Settings</span>: the device then counts it as known.</p>
@@ -275,7 +275,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <figure class="device"><img src="img/ride-free.png" alt="Free ride screen: time, gear 14 of 24, 231 W, road gradient, cadence, heart rate, speed, buttons"><figcaption>Free ride: virtual gear 14 of 24 on a 3.5 % road.</figcaption></figure>
 </div>
 <p>Tap <span class="btn">Free ride</span>. The trainer simulates a road; you change <b>virtual gears</b> with <span class="btn">−</span> and <span class="btn">+</span> and the road's gradient with <span class="btn">⌄ Grade</span> / <span class="btn">⌃ Grade</span> (0.5 % steps). <i>Road</i> is the gradient you chose, <i>sent</i> is what the trainer gets after the virtual gear is applied.</p>
-<p>The large number is your power (3-second average). Below it: cadence, heart rate and speed, then average power, NP, energy and lap.</p>
+<p>The large number is your power (3-second average). Below it: cadence, heart rate and speed, then distance, average power, NP, energy and lap.</p>
 <p>Leave the bike's real chain in one gear, by default <b>34 × 17</b> (front × rear). Virtual gears make the trainer harder or easier as if you shifted. If your real gear is different, set <code>real_ratio</code> in <code>gears.json</code> (see <a href="#settings">Settings reference</a>).</p>
 
 <h3>Ride screen controls</h3>
@@ -284,6 +284,8 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with an orange frame around the power card, caption PAUSED, and a Resume button"><figcaption>Paused: orange frame; the trainer is at its lowest resistance.</figcaption></figure>
 </div>
 <p>In an ERG segment the power number turns <b>green</b> while you are within 5 % (at least 5 W) of the target.</p>
+<p><b>Zones and laps:</b> next to <i>POWER</i> you see your power zone (Z1–Z7 by % of FTP, the same zones as in the web app) and how long you've been in that zone this ride. When a lap or a workout interval ends, the line under the cards shows it for 10 seconds: <i>Interval 3 done: 0:10:00 251 W avg 156 bpm</i>. Laps and intervals shorter than 5 seconds (a quick skip) aren't shown.</p>
+<p><b>Auto-pause:</b> stop pedalling and let the flywheel slow down below 5 km/h, and after 3 seconds the ride pauses by itself (<i>PAUSED - PEDAL TO RESUME</i>, lowest resistance, timer stops). Pedal at 30 rpm or more for 2 seconds and it carries on. Coasting downhill with the flywheel still turning doesn't pause. A pause you tapped yourself only ends with <span class="btn">Resume</span>, so the trainer never picks up just because a pedal turns while you're off the bike. There's no auto-pause in the ramp of an FTP test.</p>
 <div class="scroll"><table>
   <tr><th>Control</th><th>Free ride / free segment</th><th>ERG workout segment</th></tr>
   <tr><td class="btn">− / +</td><td>virtual gear down / up</td><td>intensity −5 % / +5 % (50–150 %)</td></tr>
@@ -320,9 +322,9 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3 id="after">After the ride</h3>
 <div class="shots">
   <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; Set FTP to 262 W and Done buttons"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
-  <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, so your FTP is 237 W; Set FTP to 237 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
+  <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, your FTP is now 237 W; Keep old FTP 200 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
 </div>
-<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, or it was an FTP test, <span class="btn">Set FTP to … W</span> appears (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
+<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears; after an FTP test the new FTP is already set and <span class="btn">Keep old FTP … W</span> undoes it (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 
@@ -420,6 +422,20 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 </ul>
 <p>The target always stays between the part's lower and upper bound (by default 30 % below and 15 % above its power, never under 30 % FTP) and under your Max ERG. The target line shows the current target, the average so far against the goal, and the HR range; heart rate and cadence are green inside their range and orange outside.</p>
 
+<h3 id="routes">Routes: ride a real climb</h3>
+<div class="shots">
+  <figure class="device"><img src="img/route-preview.png" alt="Route preview: elevation profile coloured by gradient, distance, climbing, steepest 100 m, highest point, Start route button"><figcaption>A route before you start.</figcaption></figure>
+  <figure class="device"><img src="img/ride-route.png" alt="Ride screen on a route: elevation strip with your position, gear and kilometres to go, road and sent gradient"><figcaption>Riding it: your position on the profile.</figcaption></figure>
+</div>
+<p>A route is a free ride where the trainer follows the gradient of a real road by distance. Import a <b>GPX file</b> in the web app under <span class="btn">Routes</span> (<a href="#webapp-routes">7.5</a>); it appears under <span class="btn">Workouts</span> with a map pin. An SD card prepared with <code>tools/sd_deploy.sh</code> also has a made-up <i>Sample climb</i> to try it.</p>
+<ul>
+  <li>Your <b>virtual gears</b> work as in free ride; the grade buttons are hidden because the route sets the road. The ride screen shows the profile with your position, the gear and the kilometres to go; the line under the power shows the road gradient and what was sent to the trainer.</li>
+  <li>The gradient is taken over 100 m and limited to <b>−10 … +20 %</b>, like everywhere else. A single bad GPS point can't turn into a wall.</li>
+  <li>Distance comes from the trainer's speed, so on a steep climb you cover it as slowly as on the real road.</li>
+  <li>At the end the device beeps three times and you carry on along a flat road until you stop the ride. The ride is saved under the route's name.</li>
+  <li><b>Race your best:</b> from the second time on, you race your fastest earlier ride on the route. The gradient line shows how far ahead (green) or behind (orange) you are, in seconds: how much longer or shorter your best ride needed to get as far as you are now. At the end the summary says how it went. The best ride is picked from your rides that covered the whole route (the fastest few by average speed are checked second by second when you start, which can take a few seconds). Rides are compared by riding time, so pauses don't count.</li>
+</ul>
+
 <h3 id="design">Design your own</h3>
 <p><b>Option 1: export from another app.</b> Many workout tools can save or export Zwift <code>.zwo</code> files, for example the workout editor in the Zwift app (it saves to <code>Documents/Zwift/Workouts/</code>), workout libraries such as whatsonzwift.com, or the workout builder in intervals.icu (look for a Zwift / <code>.zwo</code> export). Copy the file to the card or upload it over Wi-Fi.</p>
 <p><b>Option 2: write it yourself.</b> A <code>.zwo</code> file is plain text; any text editor works. Durations are in seconds, power is a fraction of FTP:</p>
@@ -455,7 +471,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <li><b>Home network</b> (if <code>wifi_ssid</code> is set): open <code>http://trainer.local/</code> (or the IP address shown) in a browser on the same network.</li>
   <li><b>Own hotspot</b> (if no home network is set, or it isn't reachable within 15 seconds): connect your phone/laptop to the Wi-Fi <b>JustRide</b> with the password shown on the screen, then open <code>http://192.168.4.1/</code>.</li>
 </ul>
-<p>The address opens the <b>web app</b>. It comes from the SD card and runs entirely in your browser, with no internet connection. It works on a laptop and on a phone. Pick the rider at the bottom left (on a phone: top right); it starts with the rider who is active on the device. If the page says the web app is missing, copy it to the card (<a href="#sd">3.4</a>) or upload it (<a href="#webapp-update">7.7</a>).</p>
+<p>The address opens the <b>web app</b>. It comes from the SD card and runs entirely in your browser, with no internet connection. It works on a laptop and on a phone. Pick the rider at the bottom left (on a phone: top right); it starts with the rider who is active on the device. If the page says the web app is missing, copy it to the card (<a href="#sd">3.4</a>) or upload it (<a href="#webapp-update">7.8</a>).</p>
 
 <h3 id="webapp-today">7.1 Today</h3>
 <p>Your <b>form</b> (fitness minus fatigue), fitness (42-day training load, CTL) and fatigue (7-day load, ATL), the last 7 days, the next session of your plan and your latest rides. Negative form while you build is normal; below −30 you need rest.</p>
@@ -485,7 +501,10 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p class="note">The device runs at most 200 steps per workout (an interval repeat counts as two); the editor warns before that. ERG targets are still capped by the rider's max ERG power on the device.</p>
 <p><b>Add to calendar:</b> once a workout is saved on the device, <span class="btn">Add to calendar</span> (next to <span class="btn">Download</span>) puts it in your calendar. Choose the day and your preferred training time (remembered for next time). On an iPhone or iPad the calendar asks right away whether to add the event; on a computer a <code>.ics</code> file is downloaded, and opening it adds the event (Apple Calendar, Outlook, Google Calendar via <i>Import</i>). The event has the workout's duration, TSS and IF, the average power at the rider's FTP, where to find it on the device, and a reminder 15 minutes before. Adding the same workout at the same time again updates the event instead of duplicating it. The calendar entry doesn't start anything: start the workout on the device as usual.</p>
 
-<h3 id="webapp-plan">7.5 Training plans</h3>
+<h3 id="webapp-routes">7.5 Routes</h3>
+<p><span class="btn">Routes → Import GPX</span> turns a GPX file into a route for the device. It needs elevation data: routes planned in Komoot, RideWithGPS, Strava's route builder or Garmin Connect have it, as do rides recorded on a bike computer. Some exports leave it out; then the app says so. The app measures the distance, takes the elevation every 10 m and smooths it over about 100 m (GPS heights are noisy), and shows the profile coloured by gradient with distance, climbing, the highest point and the steepest 100 m. Name it and <span class="btn">Save to device</span>. Routes up to 200 km. The list below shows the routes on the device; the bin deletes one.</p>
+
+<h3 id="webapp-plan">7.6 Training plans</h3>
 <p><span class="btn">Plan → Make a plan</span>: pick a goal (raise FTP, build endurance, stay in shape), the days you can ride (tap a riding day again to make it the long ride), the length in weeks and your time per week. The preview shows every session and the weekly load; every 4th week is easier. <b>Raise my FTP</b> starts and ends with an FTP ramp test. Any plan starts with one while the rider's FTP is untested, and the <span class="btn">Today</span> page suggests the test until then.</p>
 <p>After <span class="btn">Start plan</span> the <b>next 7 days</b> are put on the device as workouts named <i>Plan &lt;date&gt; &lt;type&gt;</i>, listed first under <span class="btn">Workouts</span>. Ride the one for today. Each time you open the web app they're rebuilt for your current form and bests (adapt to me), and past ones are removed. If you edit one of them in the builder, it's kept as you saved it. With more than one rider, the files also carry the rider's name. The calendar ticks off the days you rode and shows planned vs. ridden load per week.</p>
 <div class="shots"><figure class="wide"><img src="img/web-plan.png" alt="Plan page: goal, week progress, today's session, calendar with sessions and weekly load"><figcaption>A plan with today's session and the calendar.</figcaption></figure></div>
@@ -498,11 +517,11 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p>To ride a session earlier instead, just ride it: the next 7 days are on the device. After a longer break (illness, holidays), <span class="btn">Change</span> rebuilds the plan from today with the weeks that are left.</p>
 <p class="note">Open the web app at least once a week (on any device on your Wi-Fi) so the next sessions get onto the head unit.</p>
 
-<h3 id="webapp-riders">7.6 Riders</h3>
+<h3 id="webapp-riders">7.7 Riders</h3>
 <p>The <span class="btn">Riders</span> page does everything the rider screens on the device do: add a rider, rename (click the name), set FTP, Max ERG, weight and max HR (same ranges as in <a href="#riders">4</a>), <span class="btn">Make active</span> to choose who rides next, and <span class="btn">Delete</span> (asks first; their rides stay on the SD card). <span class="btn">Save</span> lights up when you changed something; out-of-range values are marked red and the device checks them again. Changes are saved on the device right away. While a ride is running the device has Wi-Fi off, so this only works between rides.</p>
 <div class="shots"><figure class="wide"><img src="img/web-riders.png" alt="Riders page: a card per rider with name, W/kg, FTP, Max ERG, weight and max HR, Save and Delete; the active rider is marked"><figcaption>Riders in the web app.</figcaption></figure></div>
 
-<h3 id="webapp-update">7.7 Device page, updating the web app</h3>
+<h3 id="webapp-update">7.8 Device page, updating the web app</h3>
 <p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) over <code>summary</code> and <code>bests</code>; it loads 34 MB the first time you run a query.</p>
 <p>To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
 <pre><code>tools/web_deploy.sh trainer.local              <span class="c"># or the IP address; ~1 minute</span>

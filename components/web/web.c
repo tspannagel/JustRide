@@ -28,6 +28,7 @@
 #include "freertos/task.h"
 #include "ics.h"
 #include "mdns.h"
+#include "route.h"
 #include "workout.h"
 
 static const char *TAG = "web";
@@ -143,6 +144,7 @@ static const char *mime(const char *path)
         {".html", "text/html"},  {".js", "application/javascript"}, {".mjs", "application/javascript"},
         {".css", "text/css"},    {".wasm", "application/wasm"},     {".json", "application/json"},
         {".csv", "text/csv"},    {".svg", "image/svg+xml"},         {".zwo", "application/xml"},
+        {".route", "text/plain"},
     };
     const char *dot = strrchr(path, '.');
     for (size_t i = 0; dot && i < sizeof(map) / sizeof(map[0]); i++) {
@@ -485,15 +487,23 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
     return ok ? httpd_resp_sendstr(req, "saved") : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "failed");
 }
 
-// /workouts/<name>.zwo -> SD path. The browser sends encodeURIComponent(name).
+static bool ends_with(const char *s, const char *ext)
+{
+    size_t n = strlen(s), e = strlen(ext);
+    return n > e && strcasecmp(s + n - e, ext) == 0;
+}
+
+// Things to ride in /workouts: .zwo workouts and .route files (made from GPX by the web app)
+static bool ride_file(const char *name) { return ends_with(name, ".zwo") || ends_with(name, ".route"); }
+
+// /workouts/<name>.zwo|.route -> SD path. The browser sends encodeURIComponent(name).
 static bool workout_path(httpd_req_t *req, char *path, size_t size)
 {
     char name[80];
     snprintf(name, sizeof(name), "%.*s", (int)strcspn(req->uri + strlen("/workouts/"), "?#"),
              req->uri + strlen("/workouts/"));
-    size_t len = url_decode(name) ? strlen(name) : 0;
-    if (!safe_name(name) || strchr(name, '/') || len < 5 || strcasecmp(name + len - 4, ".zwo") != 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <name>.zwo");
+    if (!url_decode(name) || !safe_name(name) || strchr(name, '/') || !ride_file(name)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "name must be <name>.zwo or <name>.route");
         return false;
     }
     snprintf(path, size, BSP_SD_MOUNT "/workouts/%s", name);
@@ -507,7 +517,7 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
         return ESP_OK;
     }
     mkdir(BSP_SD_MOUNT "/workouts", 0775);
-    return receive_file(req, path, ZWO_MAX_BYTES);
+    return receive_file(req, path, ends_with(path, ".route") ? ROUTE_MAX_BYTES : ZWO_MAX_BYTES);
 }
 
 static esp_err_t h_workout_get(httpd_req_t *req)
@@ -635,7 +645,7 @@ static esp_err_t h_workout_ics(httpd_req_t *req)
     return err;
 }
 
-// [{"name":"Sweet Spot 3x10.zwo","size":512,"mtime":...}]
+// [{"name":"Sweet Spot 3x10.zwo","size":512,"mtime":...}], .route files too
 static esp_err_t h_api_workouts(httpd_req_t *req)
 {
     if (!allowed(req)) {
@@ -649,7 +659,7 @@ static esp_err_t h_api_workouts(httpd_req_t *req)
     struct dirent *e;
     while (d && (e = readdir(d))) {
         size_t len = strlen(e->d_name);
-        if (e->d_name[0] == '.' || !safe_name(e->d_name) || len < 5 || strcasecmp(e->d_name + len - 4, ".zwo") != 0) {
+        if (e->d_name[0] == '.' || !safe_name(e->d_name) || len > 64 || !ride_file(e->d_name)) {
             continue;
         }
         char path[160], item[160];

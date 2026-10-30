@@ -76,6 +76,7 @@ typedef enum {
     ACT_GRADE_MINUS,
     ACT_SKIP,           // workout: next segment
     ACT_DISMISS,        // leave the summary screen
+    ACT_START_ROUTE,    // route already loaded via app_start_route_mem
 } action_t;
 
 typedef enum { MODE_FREE = 0, MODE_ERG = 1 } ride_mode_t;

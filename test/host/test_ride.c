@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "ride.h"
 #include "test.h"
 
@@ -159,6 +160,242 @@ static void test_skip_and_stale_data(void)
     }
     CHECK_EQ(s.power_w, -1);
     CHECK_EQ(s.cadence_rpm10, -1);
+}
+
+// Data arriving between two ticks is newer than the ride's clock: it must show, not
+// read as stale until the next tick (cadence and HR flickered "-" on the bike)
+static void test_data_between_ticks_is_fresh(void)
+{
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, NULL, now, 0);
+    ride_for(&now, 5, 150, NULL);
+    metrics_evt_t e = trainer(160, 850);
+    ride_on_metrics(&r, &e, now + 100);
+    metrics_evt_t h = {.power_w = -1, .cadence_rpm10 = -1, .speed_kmh100 = -1, .hr_bpm = 120, .source = SRC_HR};
+    ride_on_metrics(&r, &h, now + 100);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK_EQ(v.cadence_rpm10, 850);
+    CHECK_EQ(v.speed_kmh100, 3000);
+    CHECK_EQ(v.hr_bpm, 120);
+    CHECK(v.power_w > 0);
+}
+
+// n ticks of 250 ms with the given cadence and speed
+static void ticks(uint32_t *now, int n, int cad10, int speed)
+{
+    for (int i = 0; i < n; i++) {
+        *now += 250;
+        metrics_evt_t e = {.power_w = cad10 ? 150 : 0, .cadence_rpm10 = (int16_t)cad10, .speed_kmh100 = speed,
+                           .hr_bpm = -1, .source = SRC_TRAINER};
+        ride_on_metrics(&r, &e, *now);
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, *now, 0, &s, &beeps);
+    }
+}
+
+static void test_auto_pause(void)
+{
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, NULL, now, 0);
+    ticks(&now, 20, 900, 3000);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+
+    // Coasting: no cadence, but the flywheel still turns
+    ticks(&now, 20, 0, 2000);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    // Stopped: pauses after 3 s, timer stands still, lowest resistance
+    ticks(&now, 11, 0, 300);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    ticks(&now, 2, 0, 300);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.auto_paused);
+    uint32_t t = r.timer_ms;
+    control_cmd_t c;
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_RESISTANCE);
+    ticks(&now, 40, 0, 0);
+    CHECK_EQ(r.timer_ms, t);
+
+    // A few slow turns don't resume; 2 s of pedalling does
+    ticks(&now, 4, 200, 500);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ticks(&now, 9, 800, 1500);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+    ride_view(&r, &v);
+    CHECK(!v.auto_paused);
+
+    // Trainer gone: no auto-pause on stale data
+    for (int i = 0; i < 40; i++) {
+        now += 250;
+        ride_sample_t s;
+        uint8_t beeps;
+        ride_tick(&r, now, 0, &s, &beeps);
+    }
+    CHECK_EQ(r.state, RIDE_RUNNING);
+
+    // A tapped pause doesn't resume by pedalling
+    ticks(&now, 4, 900, 3000);
+    ride_action(&r, ACT_PAUSE_TOGGLE);
+    ticks(&now, 40, 900, 3000);
+    CHECK_EQ(r.state, RIDE_PAUSED);
+    ride_action(&r, ACT_PAUSE_TOGGLE);
+    CHECK_EQ(r.state, RIDE_RUNNING);
+}
+
+static void test_lap_and_interval_feedback(void)
+{
+    static workout_t w = {.n = 2, .total_s = 120,
+                          .seg = {{.dur_s = 60, .p_start = 500, .p_end = 500},
+                                  {.dur_s = 60, .p_start = 1000, .p_end = 1000}}};
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, &w, now, 0);
+    ride_view_t v;
+    ride_for(&now, 30, 150, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_NONE);
+    CHECK_EQ(v.zone, 2);  // 150 W of 200 = 75 %: tempo
+    CHECK(v.zone_s >= 28 && v.zone_s <= 30);
+
+    ride_action(&r, ACT_LAP);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_LAP);
+    CHECK_EQ(v.last_blk.no, 1);
+    CHECK_EQ(v.last_blk.avg_w, 150);
+    CHECK(v.last_blk.s >= 29 && v.last_blk.s <= 30);
+
+    // The first interval ends at 60 s
+    ride_for(&now, 31, 250, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_INTERVAL);
+    CHECK_EQ(v.last_blk.no, 1);
+    CHECK_EQ(v.last_blk.s, 60);
+    CHECK(v.last_blk.avg_w > 150 && v.last_blk.avg_w < 250);
+    // Shown for RIDE_BLOCK_SHOW_S, then gone
+    ride_for(&now, RIDE_BLOCK_SHOW_S + 1, 250, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.kind, BLOCK_NONE);
+
+    // A quick lap press isn't shown
+    ride_action(&r, ACT_LAP);
+    ride_for(&now, 2, 250, NULL);
+    ride_action(&r, ACT_LAP);
+    ride_view(&r, &v);
+    CHECK_EQ(v.last_blk.no, 2);  // still the earlier lap 2 (12 s), not lap 3
+}
+
+// 500 m flat, then 30 % (clamped to +20 % road), 1 km long
+static route_t route;
+static void steep_route(void)
+{
+    route_parser_t p;
+    route_parse_begin(&p, &route);
+    route_parse_line(&p, "JustRide route 1");
+    route_parse_line(&p, "step_m=10");
+    char line[16];
+    for (int d = 0; d <= 1000; d += 10) {
+        snprintf(line, sizeof(line), "%d", d < 500 ? 0 : (d - 500) * 30);
+        route_parse_line(&p, line);
+    }
+    CHECK(route_parse_end(&p));
+}
+
+static void test_route_ride(void)
+{
+    steep_route();
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start_route(&r, &route, now, 0);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.route);
+    CHECK_EQ(v.route_len_m, 1000);
+    CHECK_EQ(v.base_grade, 0);
+    ride_action(&r, ACT_GRADE_PLUS);  // ignored: the route sets it
+    ride_view(&r, &v);
+    CHECK_EQ(v.base_grade, 0);
+
+    // 30 km/h = 8.33 m/s: 72 s to 600 m
+    ride_for(&now, 72, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(v.route_dist_m >= 590 && v.route_dist_m <= 610);
+    CHECK_EQ(v.base_grade, VSHIFT_GRADE_MAX);  // 30 % clamped to 20 %
+    control_cmd_t c;
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_SIM);
+    CHECK(c.grade <= VSHIFT_GRADE_MAX);
+
+    // Past the end: flat, 3 beeps once
+    int beeps = 0;
+    ride_for(&now, 60, 200, &beeps);
+    ride_view(&r, &v);
+    CHECK(v.route_done);
+    CHECK_EQ(v.base_grade, 0);
+    CHECK(beeps >= 3);
+}
+
+// Race the best earlier ride: 1 km route; the ghost rode it at 10 m/s (100 s)
+static void test_race_ghost(void)
+{
+    static ghost_t g;
+    ghost_begin(&g);
+    for (int i = 0; i < 300; i++) {
+        ride_sample_t s = {.speed_kmh100 = 3600};
+        ghost_add(&g, &s);
+    }
+    steep_route();
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start_route(&r, &route, now, 0);
+    ride_set_ghost(&r, &g);
+    // ride_for: 30 km/h = 8.33 m/s, slower than the ghost
+    ride_for(&now, 60, 200, NULL);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.race);
+    // ~500 m done in 60 s; the ghost was there after 50 s: about 10 s behind
+    CHECK(v.race_gap_s <= -9 && v.race_gap_s >= -11);
+    ride_for(&now, 80, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(v.route_done);
+    int32_t final_gap = v.race_gap_s;
+    CHECK(final_gap <= -19 && final_gap >= -21);  // 120 s vs 100 s
+    ride_for(&now, 30, 200, NULL);
+    ride_view(&r, &v);
+    CHECK_EQ(v.race_gap_s, final_gap);  // frozen at the finish
+
+    // A ghost that never finished the route isn't raced
+    ghost_begin(&g);
+    for (int i = 0; i < 50; i++) {
+        ride_sample_t s = {.speed_kmh100 = 3600};
+        ghost_add(&g, &s);
+    }
+    ride_init(&r, &cfg);
+    ride_start_route(&r, &route, now, 0);
+    ride_set_ghost(&r, &g);
+    ride_for(&now, 10, 200, NULL);
+    ride_view(&r, &v);
+    CHECK(!v.race);
+}
+
+// No auto-pause in the ramp of a ramp test: its own rule ends the ramp
+static void test_no_auto_pause_in_ramp(void)
+{
+    static workout_t rt;
+    workout_ramp_test(&rt, 200, 75, 400);
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, &rt, now, 0);
+    r.wo_offset_s = (int32_t)workout_seg_start(&rt, rt.ramp_first);
+    ticks(&now, 8, 900, 3000);
+    ticks(&now, 30, 0, 0);
+    CHECK_EQ(r.state, RIDE_RUNNING);
 }
 
 // n seconds at 4 ticks/s with trainer data and a heart rate (hr < 0: strap silent)
@@ -408,6 +645,12 @@ int main(void)
     test_workout_erg_targets_and_caps();
     test_settings_are_clamped();
     test_skip_and_stale_data();
+    test_data_between_ticks_is_fresh();
+    test_auto_pause();
+    test_no_auto_pause_in_ramp();
+    test_lap_and_interval_feedback();
+    test_route_ride();
+    test_race_ghost();
     test_adaptive_hr();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();

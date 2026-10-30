@@ -24,6 +24,25 @@ void app_get_settings(settings_t *s) { *s = g_settings; }
 void app_post_action(action_t a) {}
 bool app_start_workout(const char *path) { return true; }
 bool app_start_workout_mem(const workout_t *w) { return true; }
+bool app_start_route_mem(const route_t *r) { return true; }
+static route_t g_route;
+static const route_t *g_route_on;  // the ride's route
+const route_t *app_route(void) { return g_route_on; }
+bool app_read_route(const char *path, route_t *r)
+{
+    FILE *f = fopen(path, "r");
+    route_parser_t p;
+    route_parse_begin(&p, r);
+    char line[96];
+    while (f && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = 0;
+        route_parse_line(&p, line);
+    }
+    if (f) {
+        fclose(f);
+    }
+    return route_parse_end(&p);
+}
 void app_ramp_test(workout_t *w)
 {
     const user_t *u = &g_settings.users[g_settings.user];
@@ -47,6 +66,7 @@ const workout_t *app_workout(void) { return &g_wo; }
 void app_web_start(void) {}
 bool app_edit_user(const user_t *u) { return true; }
 void app_accept_ftp(void) {}
+void app_keep_old_ftp(void) {}
 bool app_select_user(const char *id) { return true; }
 bool app_add_user(const char *name) { return true; }
 bool app_delete_user(const char *id) { return true; }
@@ -143,7 +163,9 @@ static void ride_common(void)
     g_view.hr_bpm = 148;
     g_view.gears = 24;
     g_view.intensity = 100;
-    g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325};
+    g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325, .distance_m = 14260};
+    g_view.zone = 3;
+    g_view.zone_s = 412;
 }
 
 int main(int argc, char **argv)
@@ -221,9 +243,40 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("ride-workout");
 
+    // An interval just ended
+    g_view.last_blk = (ride_last_block_t){.kind = BLOCK_INTERVAL, .no = 3, .s = 600, .avg_w = 251, .avg_hr = 156};
+    refresh(NULL);
+    save("ride-interval-done");
+    g_view.last_blk.kind = BLOCK_NONE;
+
     g_view.state = RIDE_PAUSED;
     refresh(NULL);
     save("ride-paused");
+
+    g_view.auto_paused = true;
+    refresh(NULL);
+    save("ride-auto-paused");
+    g_view.auto_paused = false;
+
+    // Route ride, 3.1 km into the sample climb
+    open_route_preview(BSP_SD_MOUNT "/workouts/Sample climb.route");
+    save("route-preview");
+    app_read_route(BSP_SD_MOUNT "/workouts/Sample climb.route", &g_route);
+    g_route_on = &g_route;
+    ride_common();
+    g_view.mode = MODE_FREE;
+    g_view.power_w = 262;
+    g_view.gear = 9;
+    g_view.route = true;
+    g_view.route_len_m = route_length_m(&g_route);
+    g_view.route_dist_m = 3120;
+    g_view.base_grade = route_grade(&g_route, 3120);
+    g_view.grade = g_view.base_grade - 40;
+    g_view.race = true;
+    g_view.race_gap_s = 14;
+    refresh(NULL);
+    save("ride-route");
+    g_route_on = NULL;
 
     // Adaptive part: HR above its range (orange), the target was lowered
     open_adapt(NULL);
@@ -274,9 +327,20 @@ int main(int argc, char **argv)
     g_status.ftp_test = true;
     g_status.ftp_test_60s_w = 316;
     g_status.ftp_test_w = 237;
-    g_status.ftp_suggest_w = 237;
+    g_status.ftp_suggest_w = 0;
+    g_status.ftp_prev_w = 200;
     refresh(NULL);
     save("summary-ftp-test");
+
+    // A route, faster than the best earlier ride on it
+    g_status.ftp_test = false;
+    g_status.ftp_prev_w = 0;
+    g_view.route = true;
+    g_view.route_done = true;
+    g_view.race = true;
+    g_view.race_gap_s = 23;
+    refresh(NULL);
+    save("summary-route");
 
     return 0;
 }

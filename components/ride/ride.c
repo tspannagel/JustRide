@@ -50,6 +50,30 @@ void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc)
     metrics_init(&r->m);
 }
 
+void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t utc)
+{
+    ride_start(r, NULL, now_ms, utc);
+    r->route = route && route_length_m(route) > 0 ? route : NULL;
+}
+
+static uint32_t ride_dist_m(const ride_t *r) { return (uint32_t)(r->m.distance_mm / 1000); }
+
+void ride_set_ghost(ride_t *r, const ghost_t *g)
+{
+    // Only a ride that finished the route can be raced
+    r->ghost = r->route && g && ghost_time_at(g, route_length_m(r->route)) > 0 ? g : NULL;
+}
+
+// The road grade before virtual gearing: the route's, or the rider's own (Grade buttons)
+static int16_t road_grade(const ride_t *r)
+{
+    if (r->route && !r->route_done) {
+        int g = route_grade(r->route, ride_dist_m(r));
+        return (int16_t)(g < VSHIFT_GRADE_MIN ? VSHIFT_GRADE_MIN : g > VSHIFT_GRADE_MAX ? VSHIFT_GRADE_MAX : g);
+    }
+    return r->route ? 0 : r->base_grade;  // a finished route continues flat
+}
+
 void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms)
 {
     if (e->source == SRC_HR) {
@@ -75,14 +99,17 @@ void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms)
     r->trainer_ms = now_ms;
 }
 
-static bool trainer_fresh(const ride_t *r)
+// Signed: data that arrived after the last tick is newer than r->now_ms, not 49 days old
+static bool fresh_since(const ride_t *r, uint32_t t_ms, uint32_t max_ms)
 {
-    return r->trainer_ms != 0 && r->now_ms - r->trainer_ms <= RIDE_TRAINER_STALE_MS;
+    return t_ms != 0 && (int32_t)(r->now_ms - t_ms) <= (int32_t)max_ms;
 }
+
+static bool trainer_fresh(const ride_t *r) { return fresh_since(r, r->trainer_ms, RIDE_TRAINER_STALE_MS); }
 
 static int16_t current_hr(const ride_t *r)
 {
-    if (r->hr_ms != 0 && r->now_ms - r->hr_ms <= RIDE_HR_STALE_MS) {
+    if (fresh_since(r, r->hr_ms, RIDE_HR_STALE_MS)) {
         return r->hr;
     }
     return trainer_fresh(r) && r->trainer.hr_bpm > 0 ? r->trainer.hr_bpm : -1;
@@ -214,6 +241,7 @@ static int ramp_idx(const ride_t *r)
 // On to the cool-down
 static void ramp_end(ride_t *r)
 {
+    r->seg_closing = r->last_seg + 1;
     r->wo_offset_s += (int32_t)workout_seg_start(r->wo, r->wo->ramp_end) - (int32_t)wo_time(r);
     r->last_seg = r->wo->ramp_end;  // no segment beeps on top of the end beeps
 }
@@ -242,6 +270,61 @@ static bool gear_mode(const ride_t *r)
     return !in_erg(r, &pos);
 }
 
+static void block_add(ride_block_t *b, const ride_sample_t *s)
+{
+    b->s++;
+    b->j += s->power_w > 0 ? (uint32_t)s->power_w : 0;
+    if (s->hr_bpm > 0) {
+        b->hr_sum += (uint32_t)s->hr_bpm;
+        b->hr_n++;
+    }
+}
+
+// A lap or interval ended: show it for a while (unless it was too short), start the next
+static void block_close(ride_t *r, ride_block_t *b, uint8_t kind, int no)
+{
+    if (b->s >= RIDE_BLOCK_MIN_S) {
+        r->last_blk = (ride_last_block_t){
+            .kind = kind,
+            .no = (uint8_t)(no > 255 ? 255 : no),
+            .s = b->s,
+            .avg_w = (int16_t)(b->j / b->s),
+            .avg_hr = (int16_t)(b->hr_n ? b->hr_sum / b->hr_n : 0),
+            .until_s = r->timer_ms / 1000 + RIDE_BLOCK_SHOW_S,
+        };
+    }
+    memset(b, 0, sizeof(*b));
+}
+
+// Every tick, running or paused (see AUTOPAUSE_*)
+static void auto_pause(ride_t *r)
+{
+    bool fresh = trainer_fresh(r);
+    int cad = r->trainer.cadence_rpm10, spd = r->trainer.speed_kmh100;
+    if (r->state == RIDE_RUNNING) {
+        bool still = fresh && cad >= 0 && cad < AUTOPAUSE_CAD_RPM10 && (spd < 0 || spd < AUTOPAUSE_SPEED_KMH100);
+        if (!still || ramp_idx(r) >= 0) {
+            r->still_since_ms = 0;
+        } else if (!r->still_since_ms) {
+            r->still_since_ms = r->now_ms ? r->now_ms : 1;
+        } else if (r->now_ms - r->still_since_ms >= AUTOPAUSE_MS) {
+            r->state = RIDE_PAUSED;
+            r->auto_paused = true;
+            r->still_since_ms = r->pedal_since_ms = 0;
+        }
+    } else if (r->state == RIDE_PAUSED && r->auto_paused) {
+        if (!fresh || cad < AUTORESUME_CAD_RPM10) {
+            r->pedal_since_ms = 0;
+        } else if (!r->pedal_since_ms) {
+            r->pedal_since_ms = r->now_ms ? r->now_ms : 1;
+        } else if (r->now_ms - r->pedal_since_ms >= AUTORESUME_MS) {
+            r->state = RIDE_RUNNING;
+            r->auto_paused = false;
+            r->pedal_since_ms = 0;
+        }
+    }
+}
+
 void ride_action(ride_t *r, action_t a)
 {
     switch (a) {
@@ -251,6 +334,8 @@ void ride_action(ride_t *r, action_t a)
         } else if (r->state == RIDE_PAUSED) {
             r->state = RIDE_RUNNING;
         }
+        r->auto_paused = false;  // a tapped pause needs a tap to resume
+        r->still_since_ms = 0;
         break;
     case ACT_STOP:
         if (r->state == RIDE_RUNNING || r->state == RIDE_PAUSED) {
@@ -261,10 +346,12 @@ void ride_action(ride_t *r, action_t a)
         if (r->state == RIDE_DONE) {
             r->state = RIDE_IDLE;
             r->wo = NULL;
+            r->route = NULL;
         }
         break;
     case ACT_LAP:
         if (r->state == RIDE_RUNNING && r->lap < 255) {
+            block_close(r, &r->lap_blk, BLOCK_LAP, r->lap + 1);
             r->lap++;
         }
         break;
@@ -283,6 +370,9 @@ void ride_action(ride_t *r, action_t a)
     }
     case ACT_GRADE_PLUS:
     case ACT_GRADE_MINUS: {
+        if (r->route) {
+            break;  // the route sets the grade
+        }
         int g = r->base_grade + (a == ACT_GRADE_PLUS ? GRADE_STEP : -GRADE_STEP);
         r->base_grade = (int16_t)(g < VSHIFT_GRADE_MIN ? VSHIFT_GRADE_MIN : g > VSHIFT_GRADE_MAX ? VSHIFT_GRADE_MAX : g);
         break;
@@ -326,7 +416,7 @@ void ride_command(const ride_t *r, control_cmd_t *cmd)
         return;
     }
     cmd->kind = CMD_SIM;
-    cmd->grade = vshift_grade(&r->cfg.gears, r->gear, r->base_grade, r->cfg.crr);
+    cmd->grade = vshift_grade(&r->cfg.gears, r->gear, road_grade(r), r->cfg.crr);
     cmd->crr = r->cfg.crr;
     cmd->cw = r->cfg.cw;
 }
@@ -361,6 +451,7 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     uint32_t dt = now_ms - r->last_tick_ms;
     r->last_tick_ms = now_ms;
     r->now_ms = now_ms;
+    auto_pause(r);
     if (r->state != RIDE_RUNNING) {
         return false;
     }
@@ -372,8 +463,12 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
         if (pos.done) {
             r->wo_done = true; // continue as free ride
             *beeps = 3;
+            r->seg_closing = r->last_seg + 1;
         } else if (pos.idx != r->last_seg) {
             *beeps = r->last_seg < 0 ? 0 : 2;
+            if (r->last_seg >= 0) {
+                r->seg_closing = r->last_seg + 1;
+            }
             r->last_seg = pos.idx;
         }
     }
@@ -385,9 +480,27 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     adapt_update(r, beeps);
     fill_sample(r, sample, utc);
     ramp_update(r, sample, beeps);
+    // This second still belongs to the interval that just ended (sample t covers t..t+1)
+    block_add(&r->lap_blk, sample);
+    if (r->wo && (!r->wo_done || r->seg_closing)) {
+        block_add(&r->seg_blk, sample);
+    }
+    if (r->seg_closing) {
+        block_close(r, &r->seg_blk, BLOCK_INTERVAL, r->seg_closing);
+        r->seg_closing = 0;
+    }
+    int z = metrics_zone(sample->power_w, r->cfg.ftp_w);
+    if (z >= 0) {
+        r->zone_s[z]++;
+    }
     r->n_samples++;
     metrics_add(&r->m, sample);
     r->p3[r->n_samples % 3] = sample->power_w;
+    if (r->route && !r->route_done && ride_dist_m(r) >= route_length_m(r->route)) {
+        r->route_done = true;  // on along a flat road
+        r->route_finish_s = r->n_samples;
+        *beeps = 3;
+    }
 
     if (r->wo && !r->wo_done && *beeps == 0) {
         workout_pos_t pos;
@@ -414,11 +527,30 @@ void ride_view(const ride_t *r, ride_view_t *v)
     v->hr_bpm = current_hr(r);
     v->target_w = cmd.kind == CMD_ERG ? cmd.target_w : 0;
     v->grade = cmd.kind == CMD_SIM ? cmd.grade : 0;
-    v->base_grade = r->base_grade;
+    v->base_grade = road_grade(r);
+    if (r->route) {
+        v->route = true;
+        v->route_len_m = route_length_m(r->route);
+        v->route_dist_m = ride_dist_m(r);
+        v->route_done = r->route_done;
+        if (r->ghost) {
+            // How much longer the best ride needed to get as far (finished: to the end)
+            uint32_t len = route_length_m(r->route);
+            uint32_t d = r->route_done ? len : ride_dist_m(r);
+            int32_t t = r->route_done ? (int32_t)r->route_finish_s : (int32_t)r->n_samples;
+            int32_t gt = ghost_time_at(r->ghost, d);
+            v->race = gt >= 0;
+            v->race_gap_s = gt >= 0 ? gt - t : 0;
+        }
+    }
     v->gear = r->gear + 1;
     v->gears = r->cfg.gears.n;
     v->intensity = r->intensity;
     v->lap = r->lap;
+    v->auto_paused = r->state == RIDE_PAUSED && r->auto_paused;
+    if (r->last_blk.kind != BLOCK_NONE && v->timer_s < r->last_blk.until_s) {
+        v->last_blk = r->last_blk;
+    }
 
     // 3 s power while riding, instant power otherwise
     v->power_w = fresh ? r->trainer.power_w : -1;
@@ -432,6 +564,8 @@ void ride_view(const ride_t *r, ride_view_t *v)
         }
         v->power_w = n ? (int16_t)(sum / n) : -1;
     }
+    v->zone = (int8_t)metrics_zone(v->power_w, r->cfg.ftp_w);
+    v->zone_s = v->zone >= 0 ? r->zone_s[v->zone] : 0;
 
     if (r->wo) {
         workout_pos_t pos;

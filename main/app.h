@@ -16,12 +16,14 @@ typedef struct {
     bool sd_ok;
     bool saving;  // last ride is being written to the SD card
     bool saved;   // last ride was saved (false: shorter than 1 min or SD error)
-    // After a ride: 95 % of its best 20 min if above the user's FTP; after a ramp test:
-    // 75 % of its best minute if different from the FTP. 0: nothing to offer.
+    // After a ride: 95 % of its best 20 min if above the user's FTP. 0: nothing to offer.
     uint16_t ftp_suggest_w;
     bool ftp_test;           // the last ride was a ramp test
     int16_t ftp_test_60s_w;  // its best minute, -1 if there's no result (too short, not saved)
     uint16_t ftp_test_w;     // the FTP it gives (75 % of that minute), 0 if no result
+    // A test result was applied: the FTP before it (offered as "Keep"), 0 otherwise
+    uint16_t ftp_prev_w;
+    bool ftp_prev_known;
 } app_status_t;
 
 void app_start(void);
@@ -39,6 +41,12 @@ bool app_start_workout(const char *path);
 bool app_start_workout_mem(const workout_t *w);
 // The FTP ramp test for the active rider (for the preview)
 void app_ramp_test(workout_t *w);
+// Parse a .route from the SD card (no side effects; for previews)
+bool app_read_route(const char *path, route_t *r);
+// Start a route ride from a parsed route (copied). Only while idle.
+bool app_start_route_mem(const route_t *r);
+// The route of the current ride (NULL if none). Only changes while idle.
+const route_t *app_route(void);
 // The workout of the current ride. Only changes while idle, so the UI may read
 // it without a lock during a ride.
 const workout_t *app_workout(void);
@@ -53,6 +61,8 @@ void app_get_settings(settings_t *s);
 bool app_edit_user(const user_t *u);
 // Set the active user's FTP to status.ftp_suggest_w (and mark it known)
 void app_accept_ftp(void);
+// Undo a ramp test's FTP: back to status.ftp_prev_w
+void app_keep_old_ftp(void);
 bool app_select_user(const char *id);
 bool app_add_user(const char *name);   // also selects it
 bool app_delete_user(const char *id);  // never the last

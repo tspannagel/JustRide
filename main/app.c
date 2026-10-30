@@ -36,6 +36,8 @@ static ride_view_t s_view;
 static app_status_t s_status;
 static settings_t s_settings;
 EXT_RAM_BSS_ATTR static workout_t s_wo;  // PSRAM: internal RAM is tight
+EXT_RAM_BSS_ATTR static route_t s_route;  // 80 KB
+EXT_RAM_BSS_ATTR static ghost_t s_ghost;  // best earlier ride on s_route, control task only
 static input_map_t s_input;
 static bool s_finish_pending;
 static uint8_t s_beeps_left;
@@ -45,7 +47,8 @@ static uint8_t s_last_state = RIDE_IDLE;
 // running web requests, and those may be waiting for the lock (deadlock).
 static bool s_web_request;               // app_web_start() was called
 static bool s_start_pending;             // a ride starts once Wi-Fi is off
-static const workout_t *s_start_wo;      // NULL: free ride
+static const workout_t *s_start_wo;      // NULL: free ride (or route)
+static const route_t *s_start_route;     // NULL: no route
 static settings_t s_web_cfg;             // copy for web_start(), task only
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
@@ -66,19 +69,25 @@ static ride_config_t ride_cfg(void)
     };
 }
 
+static void apply_settings(void);
+
 // Called with the lock held, after web_stop() (Wi-Fi off while riding: RGB drift, no OTA mid-ride)
-static void start_ride(const workout_t *wo)
+static void start_ride(const workout_t *wo, const route_t *route)
 {
     if (s_ride.state != RIDE_IDLE) {
         return;
     }
     s_ride.cfg = ride_cfg();  // ride_start re-validates it and keeps live sensor values
-    ride_start(&s_ride, wo, now_ms(), utc_now());
+    if (route) {
+        ride_start_route(&s_ride, route, now_ms(), utc_now());
+    } else {
+        ride_start(&s_ride, wo, now_ms(), utc_now());
+    }
     const user_t *u = settings_user(&s_settings);
     rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr,
                        .utc_offset_s = tz_offset(s_settings.tz, utc_now())};
     snprintf(info.user_id, sizeof(info.user_id), "%s", u->id);
-    snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : "");
+    snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : route ? route->name : "");
     if (!recorder_start(utc_now(), &info)) {
         ESP_LOGE(TAG, "recorder not started: this ride is not saved");
     }
@@ -86,15 +95,17 @@ static void start_ride(const workout_t *wo)
     s_status.ftp_test = wo && wo->ramp_test;
     s_status.ftp_test_60s_w = -1;
     s_status.ftp_test_w = 0;
-    ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
+    s_status.ftp_prev_w = 0;
+    ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : route ? route->name : "free ride");
 }
 
 static void do_action(uint8_t a)
 {
-    if (a == ACT_START_FREE || a == ACT_START_WORKOUT) {
+    if (a == ACT_START_FREE || a == ACT_START_WORKOUT || a == ACT_START_ROUTE) {
         if (s_ride.state == RIDE_IDLE) {
             s_start_pending = true;  // the task loop turns Wi-Fi off, then starts the ride
             s_start_wo = a == ACT_START_WORKOUT ? &s_wo : NULL;
+            s_start_route = a == ACT_START_ROUTE ? &s_route : NULL;
         }
     } else {
         uint8_t before = s_ride.state;
@@ -198,10 +209,25 @@ static void task(void *arg)
         }
         if (start) {
             web_stop();  // waits for running web requests, which may need the lock
+            // A route: race the best earlier ride on it. Read from the SD card without
+            // the lock (a few CSV files), so the UI keeps running.
+            char user[sizeof(s_settings.users[0].id)] = "", route[ROUTE_NAME_LEN] = "";
+            uint32_t len_m = 0;
+            lock();
+            if (s_start_route) {
+                snprintf(user, sizeof(user), "%s", settings_user(&s_settings)->id);
+                snprintf(route, sizeof(route), "%s", s_start_route->name);
+                len_m = route_length_m(s_start_route);
+            }
+            unlock();
+            bool race = len_m && recorder_find_ghost(user, route, len_m, &s_ghost);
             lock();
             if (s_start_pending) {
                 s_start_pending = false;
-                start_ride(s_start_wo);
+                start_ride(s_start_wo, s_start_route);
+                if (race && s_ride.route && strcmp(s_ride.route->name, route) == 0) {
+                    ride_set_ghost(&s_ride, &s_ghost);
+                }
             }
             unlock();
         }
@@ -219,7 +245,8 @@ static void task(void *arg)
             uint16_t ftp = settings_user(&s_settings)->ftp_w, est = metrics_ftp_estimate(bests);
             s_status.ftp_suggest_w = est > ftp && est <= RIDE_FTP_MAX ? est : 0;
             if (s_status.ftp_test && s_ride.ramp_s >= RAMP_MIN_S) {
-                // A test may also lower it (a first test against the 200 W default)
+                // The rider asked for a test: apply it right away (also lower, e.g. against
+                // the 200 W default); the summary offers to keep the old value
                 est = metrics_ramp_ftp(bests);
                 for (int b = 0; b < METRICS_N_BESTS && est; b++) {
                     if (metrics_best_s[b] == 60) {
@@ -227,10 +254,15 @@ static void task(void *arg)
                         s_status.ftp_test_w = est;
                     }
                 }
-                s_status.ftp_suggest_w = est != ftp && est >= RIDE_FTP_MIN && est <= RIDE_FTP_MAX ? est : 0;
-                if (est == ftp && !settings_user(&s_settings)->ftp_known) {
-                    settings_user(&s_settings)->ftp_known = true;  // the test confirmed it
-                    settings_save(&s_settings);
+                s_status.ftp_suggest_w = 0;
+                user_t *u = settings_user(&s_settings);
+                if (est >= RIDE_FTP_MIN && est <= RIDE_FTP_MAX && (est != ftp || !u->ftp_known)) {
+                    s_status.ftp_prev_w = est != ftp ? ftp : 0;
+                    s_status.ftp_prev_known = u->ftp_known;
+                    u->ftp_w = est;
+                    u->ftp_known = true;
+                    apply_settings();
+                    ESP_LOGI(TAG, "FTP test: FTP %u W (was %u W)", est, ftp);
                 }
             }
             unlock();
@@ -336,6 +368,47 @@ bool app_start_workout(const char *path)
 
 const workout_t *app_workout(void) { return &s_wo; }
 
+bool app_read_route(const char *path, route_t *r)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return false;
+    }
+    route_parser_t p;
+    route_parse_begin(&p, r);
+    char line[96];
+    size_t bytes = 0;
+    bool ok = true;
+    while (ok && fgets(line, sizeof(line), f)) {
+        bytes += strlen(line);
+        line[strcspn(line, "\n")] = 0;
+        ok = bytes <= ROUTE_MAX_BYTES && route_parse_line(&p, line);
+    }
+    fclose(f);
+    ok = ok && route_parse_end(&p);
+    if (ok && r->name[0] == 0) {
+        const char *base = strrchr(path, '/');
+        snprintf(r->name, sizeof(r->name), "%.*s", (int)strcspn(base ? base + 1 : path, "."), base ? base + 1 : path);
+    }
+    return ok;
+}
+
+bool app_start_route_mem(const route_t *r)
+{
+    lock();
+    bool ok = route_length_m(r) > 0 && s_ride.state == RIDE_IDLE;
+    if (ok) {
+        s_route = *r;
+    }
+    unlock();
+    if (ok) {
+        app_post_action(ACT_START_ROUTE);
+    }
+    return ok;
+}
+
+const route_t *app_route(void) { return s_ride.route; }
+
 void app_get_settings(settings_t *s)
 {
     lock();
@@ -366,6 +439,7 @@ bool app_edit_user(const user_t *u)
             cur->ftp_known = true;  // entered by hand
             if (idx == s_settings.user) {
                 s_status.ftp_suggest_w = 0;
+                s_status.ftp_prev_w = 0;
             }
         }
         memcpy(cur->name, u->name, sizeof(cur->name));
@@ -391,6 +465,18 @@ void app_accept_ftp(void)
     unlock();
 }
 
+void app_keep_old_ftp(void)
+{
+    lock();
+    if (s_ride.state != RIDE_RUNNING && s_ride.state != RIDE_PAUSED && s_status.ftp_prev_w) {
+        settings_user(&s_settings)->ftp_w = s_status.ftp_prev_w;
+        settings_user(&s_settings)->ftp_known = s_status.ftp_prev_known;
+        s_status.ftp_prev_w = 0;
+        apply_settings();
+    }
+    unlock();
+}
+
 bool app_set_tz(const char *posix)
 {
     lock();
@@ -407,6 +493,7 @@ bool app_set_tz(const char *posix)
 static void user_changed(void)
 {
     s_status.ftp_suggest_w = 0;
+    s_status.ftp_prev_w = 0;  // "Keep" would write the old FTP onto another rider
     apply_settings();
     ble_mgr_set_user(settings_user(&s_settings)->id);  // reconnects to this user's HR strap
 }

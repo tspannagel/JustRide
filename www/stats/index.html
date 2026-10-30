@@ -21,6 +21,7 @@
     <a href="#rides" data-view="rides" data-icon="activity"><span>Rides</span></a>
     <a href="#power" data-view="power" data-icon="trending"><span>Power</span></a>
     <a href="#workouts" data-view="workouts" data-icon="layers"><span>Workouts</span></a>
+    <a href="#routes" data-view="routes" data-icon="map"><span>Routes</span></a>
     <a href="#plan" data-view="plan" data-icon="calendar"><span>Plan</span></a>
     <a href="#riders" data-view="riders" data-icon="user"><span>Riders</span></a>
     <a href="#device" data-view="device" data-icon="cpu"><span>Device</span></a>
@@ -81,6 +82,15 @@
   </section>
 
   <!-- Workouts -->
+  <section id="routes" class="view" hidden>
+    <header class="page-head"><div><span class="eyebrow">Climbs &amp; loops</span><h1>Routes</h1></div>
+      <div class="actions"><button class="btn primary" id="rt-import-btn" data-icon="upload">Import GPX</button></div>
+      <input type="file" id="rt-import" accept=".gpx,application/gpx+xml" hidden>
+    </header>
+    <div id="rt-new"></div>
+    <div id="rt-list" class="stack"></div>
+  </section>
+
   <section id="workouts" class="view" hidden>
     <header class="page-head"><div><span class="eyebrow">Builder</span><h1>Workouts</h1></div>
       <div class="actions">

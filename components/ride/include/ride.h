@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include "jr_types.h"
 #include "metrics.h"
+#include "ghost.h"
+#include "route.h"
 #include "vshift.h"
 #include "workout.h"
 
@@ -38,6 +40,39 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define RAMP_FAIL_S 10           // for this many seconds in a row (no trainer data counts too)
 #define RAMP_MIN_S 120           // a result needs at least this much of the ramp (metrics_ramp_ftp)
 
+// Auto-pause: no pedalling (and the flywheel nearly stopped, so coasting downhill
+// doesn't count) pauses the ride; pedalling again resumes it. A pause the rider
+// tapped needs a tap to resume (they may be off the bike). Never during the ramp
+// of a ramp test (it has its own end rule) and never on stale trainer data.
+#define AUTOPAUSE_CAD_RPM10 50      // below 5 rpm
+#define AUTOPAUSE_SPEED_KMH100 500  // and below 5 km/h (if the trainer reports speed)
+#define AUTOPAUSE_MS 3000
+#define AUTORESUME_CAD_RPM10 300    // 30 rpm
+#define AUTORESUME_MS 2000
+
+#define RIDE_BLOCK_SHOW_S 10  // a finished lap or interval is shown this long
+#define RIDE_BLOCK_MIN_S 5    // shorter ones (a quick skip) aren't
+
+// A lap or a workout interval being ridden
+typedef struct {
+    uint32_t s;
+    uint32_t j;               // energy, J (unknown power counts as 0, like the averages)
+    uint32_t hr_sum;
+    uint16_t hr_n;
+} ride_block_t;
+
+typedef enum { BLOCK_NONE, BLOCK_LAP, BLOCK_INTERVAL } block_kind_t;
+
+// A finished one, for the ride screen
+typedef struct {
+    uint8_t kind;             // block_kind_t
+    uint8_t no;               // 1-based lap or interval number
+    uint32_t s;
+    int16_t avg_w;
+    int16_t avg_hr;           // 0 = none
+    uint32_t until_s;         // shown while timer < this
+} ride_last_block_t;
+
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
@@ -50,6 +85,10 @@ typedef struct {
     ride_config_t cfg;
     uint8_t state;           // ride_state_t
     const workout_t *wo;     // NULL in free ride
+    const route_t *route;    // route ride: SIM grade from the route by distance; NULL otherwise
+    bool route_done;         // past its end: flat road
+    const ghost_t *ghost;    // best earlier ride on this route, NULL: none
+    uint32_t route_finish_s; // ride seconds at the route's end
     int32_t wo_offset_s;     // workout time = timer + offset (skips)
     int last_seg;
     bool wo_done;
@@ -88,6 +127,17 @@ typedef struct {
     uint16_t ramp_s;         // seconds ridden in the ramp
     uint8_t ramp_low_s;      // seconds in a row below cadence or power
 
+    // lap / interval feedback, time in zones
+    ride_block_t lap_blk, seg_blk;
+    ride_last_block_t last_blk;
+    int seg_closing;         // interval (1-based) that ended this tick, closed after its last sample
+    uint32_t zone_s[METRICS_N_ZONES];
+
+    // auto-pause
+    bool auto_paused;        // paused by auto-pause (resumes by pedalling)
+    uint32_t still_since_ms; // not pedalling since, 0 = pedalling
+    uint32_t pedal_since_ms; // auto-paused and pedalling since, 0 = not
+
     metrics_t m;
 } ride_t;
 
@@ -108,6 +158,16 @@ typedef struct {
     uint8_t gears;
     uint8_t intensity;
     uint8_t lap;
+    bool auto_paused;
+    bool route;              // riding a route
+    uint32_t route_dist_m;   // distance on it
+    uint32_t route_len_m;
+    bool route_done;
+    bool race;               // racing the best earlier ride on this route
+    int32_t race_gap_s;      // seconds ahead of it (negative: behind); final once route_done
+    int8_t zone;             // of the shown power, -1 unknown
+    uint32_t zone_s;         // seconds in that zone this ride
+    ride_last_block_t last_blk;  // kind BLOCK_NONE when there's nothing to show
     bool has_workout;
     int seg_idx;
     int seg_count;
@@ -130,6 +190,10 @@ typedef struct {
 void ride_init(ride_t *r, const ride_config_t *cfg);
 // Start a ride; wo == NULL for free ride. wo must stay valid until the ride ends.
 void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc);
+// Start a route ride (SIM, gears work, grade from the route). route must stay valid until the ride ends.
+void ride_start_route(ride_t *r, const route_t *route, uint32_t now_ms, uint32_t utc);
+// Race a best earlier ride on the route (after ride_start_route; g stays valid until the ride ends)
+void ride_set_ghost(ride_t *r, const ghost_t *g);
 void ride_on_metrics(ride_t *r, const metrics_evt_t *e, uint32_t now_ms);
 void ride_action(ride_t *r, action_t a);
 

@@ -164,6 +164,8 @@ static bool all_roles_linked(void)
     return true;
 }
 
+static void schedule_rescan(void);
+
 static void start_scan(void)
 {
     if (s_connecting || all_roles_linked() || ble_gap_disc_active()) {
@@ -174,7 +176,9 @@ static void start_scan(void)
     struct ble_gap_disc_params p = {.itvl = 160, .window = 48, .filter_duplicates = 1};
     int rc = ble_gap_disc(s_own_addr_type, BLE_HS_FOREVER, &p, gap_event, NULL);
     if (rc != 0) {
-        ESP_LOGW(TAG, "scan start failed: %d", rc);
+        // e.g. busy while a receiver connects: try again, or a missing sensor is never looked for
+        ESP_LOGW(TAG, "scan start failed: %d, retrying", rc);
+        schedule_rescan();
     }
 }
 

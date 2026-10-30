@@ -426,3 +426,9 @@ details.card[open] summary { margin-bottom: 4px; }
 .rider-actions { display: flex; gap: 8px; justify-content: space-between; }
 .btn:disabled { opacity: 0.45; cursor: default; box-shadow: none; filter: none; }
 @media (max-width: 760px) { .rider-fields { grid-template-columns: 1fr 1fr; } .rider-add { width: 100%; } .rider-add input { flex: 1; width: auto; } }
+
+/* Routes */
+.route-profile { display: block; width: 100%; height: 120px; margin-top: 10px; border-radius: 10px; background: var(--surface-2); }
+#rt-new .route-profile { height: 160px; }
+#rt-new .card { margin-bottom: 16px; }
+#rt-new .actions { justify-content: flex-end; margin-top: 14px; }
