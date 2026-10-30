@@ -115,6 +115,7 @@
         <div class="save-bar">
           <button class="btn danger ghost" id="wo-delete" data-icon="trash" hidden>Delete from device</button>
           <span class="spacer"></span>
+          <button class="btn ghost" id="wo-cal-open" data-icon="calendar">Add to calendar</button>
           <button class="btn ghost" id="wo-download" data-icon="download">Download</button>
           <button class="btn primary" id="wo-save" data-icon="save">Save to device</button>
         </div>
@@ -130,6 +131,16 @@
       <label class="switch"><input type="checkbox" id="gen-adapt"><span></span><div><b>Adapt to me</b><small id="gen-adapt-note"></small></div></label>
       <div id="gen-preview" class="gen-preview"><div id="gen-prof"></div><div id="gen-sum" class="gen-sum"></div></div>
       <div class="sheet-foot"><button class="btn primary" id="wo-gen-apply" data-icon="sparkles">Use this workout</button></div>
+    </dialog>
+    <dialog id="wo-cal" class="sheet narrow">
+      <div class="sheet-head"><h2 id="cal-title">Add to calendar</h2><button class="icon-btn" id="wo-cal-close" aria-label="Close" data-icon="x"></button></div>
+      <p id="cal-info" class="muted small"></p>
+      <div class="sliders">
+        <label class="field wide"><span>Day</span><input type="date" id="cal-date" required></label>
+        <label class="field wide"><span>Preferred training time</span><input type="time" id="cal-time" required></label>
+      </div>
+      <p class="muted small">Your calendar app adds it with a reminder 15 minutes before. The time is remembered for next time.</p>
+      <div class="sheet-foot"><button class="btn primary" id="wo-cal-add" data-icon="calendar">Add to calendar</button></div>
     </dialog>
   </section>
 

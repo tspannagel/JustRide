@@ -44,6 +44,7 @@ void app_accept_ftp(void) {}
 bool app_select_user(const char *id) { return true; }
 bool app_add_user(const char *name) { return true; }
 bool app_delete_user(const char *id) { return true; }
+bool app_set_tz(const char *posix) { return true; }
 bool settings_valid_name(const char *name) { return true; }
 
 void web_stop(void) {}
@@ -151,6 +152,7 @@ int main(int argc, char **argv)
 
     add_user("u1", "Sam", 250, 75, 185);
     add_user("u3", "Anna", 190, 62, 178);
+    snprintf(g_settings.tz, sizeof(g_settings.tz), "%s", "CET-1CEST,M3.5.0,M10.5.0/3");
     g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .clock_ok = true, .sd_ok = true};
 
     go(scr_home);

@@ -14,16 +14,22 @@ const S = { users: [], user: null, rides: [], bests: [], pmc: null, view: null, 
 async function loadUser(u) {
   S.user = u;
   const [sum, best] = await Promise.all([api.text(`/rides/${u.id}/summary.csv`), api.text(`/rides/${u.id}/bests.csv`)]);
-  S.rides = parseCsv(sum, SUMMARY_T).sort((a, b) => (b.start_utc || 0) - (a.start_utc || 0));
-  S.bests = parseCsv(best, BESTS_T);
+  // Older firmware could append a recovered ride twice: keep the first row per key
+  S.rides = unique(parseCsv(sum, SUMMARY_T), (r) => r.ride_id).sort((a, b) => (b.start_utc || 0) - (a.start_utc || 0));
+  S.bests = unique(parseCsv(best, BESTS_T), (b) => `${b.ride_id} ${b.duration_s}`);
   S.pmc = pmc(S.rides);
+}
+
+function unique(rows, key) {
+  const seen = new Set();
+  return rows.filter((r) => !seen.has(key(r)) && seen.add(key(r)));
 }
 
 // What the workout generator adapts to
 function ctx() {
   const ftp = S.user.ftp_w || S.rides.find((r) => r.ftp_w)?.ftp_w || null;
   const tsb = S.pmc?.tsb.length ? S.pmc.tsb[S.pmc.tsb.length - 1] : null;
-  return { ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
+  return { userId: S.user.id, ftp, tsb, best: bestsSince(90), weight: S.user.weight_kg || S.rides.find((r) => r.weight_kg)?.weight_kg, maxHr: S.user.max_hr };
 }
 
 // Best watts per duration for rides in the last `days` (null: all time)

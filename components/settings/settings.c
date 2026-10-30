@@ -222,6 +222,7 @@ void settings_load(settings_t *s)
     s->next_id = 1;
     s->crr = 40;
     s->cw = 51;
+    strcpy(s->tz, "UTC0");
 
     char *text = read_text(SETTINGS_PATH);
     if (!text) {
@@ -245,6 +246,11 @@ void settings_load(settings_t *s)
         get_str(root, "wifi_ssid", s->wifi_ssid, sizeof(s->wifi_ssid));
         get_str(root, "wifi_password", s->wifi_pass, sizeof(s->wifi_pass));
         get_str(root, "ap_password", s->ap_pass, sizeof(s->ap_pass));
+        get_str(root, "tz", s->tz, sizeof(s->tz));
+        if (!tz_valid(s->tz)) {
+            ESP_LOGW(TAG, "tz \"%s\" not supported, using UTC", s->tz);
+            strcpy(s->tz, "UTC0");
+        }
         cJSON_Delete(root);
     } else if (exists) {
         // Never overwrite a file the user is editing: a typo would erase their Wi-Fi settings
@@ -289,6 +295,7 @@ bool settings_save(const settings_t *s)
     cJSON_AddStringToObject(root, "wifi_ssid", s->wifi_ssid);
     cJSON_AddStringToObject(root, "wifi_password", s->wifi_pass);
     cJSON_AddStringToObject(root, "ap_password", s->ap_pass);
+    cJSON_AddStringToObject(root, "tz", s->tz);
     char *text = cJSON_Print(root);
     cJSON_Delete(root);
     if (!text) {

@@ -46,3 +46,5 @@ void app_accept_ftp(void);
 bool app_select_user(const char *id);
 bool app_add_user(const char *name);   // also selects it
 bool app_delete_user(const char *id);  // never the last
+// Time zone for ride names and FIT local time (a POSIX TZ rule, see tz.h)
+bool app_set_tz(const char *posix);

@@ -3,6 +3,7 @@
 #include <time.h>
 #include "app.h"
 #include "ble_mgr.h"
+#include "ble_srv.h"
 #include "bsp.h"
 #include "diag.h"
 #include "drv_ftms.h"
@@ -58,7 +59,7 @@ void app_main(void)
     web_init();
     static const web_users_t users = {app_get_settings, app_select_user, app_add_user, app_edit_user, app_delete_user};
     web_set_users(&users);
-    ble_mgr_start(s_drivers, sizeof(s_drivers) / sizeof(s_drivers[0]));
+    ble_mgr_start(s_drivers, sizeof(s_drivers) / sizeof(s_drivers[0]), &ble_srv);
     app_web_start();  // Wi-Fi is on whenever no ride is running
 
     // We got this far: keep this firmware (cancels OTA rollback)

@@ -42,6 +42,7 @@ typedef struct {
 
 static const ble_drv_t *const *s_drv;
 static int s_n_drv;
+static const ble_server_t *s_server;
 static link_t s_links[MAX_LINKS];
 static uint8_t s_own_addr_type;
 static bool s_connecting;
@@ -603,6 +604,9 @@ static void on_sync(void)
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
     start_scan();
+    if (s_server) {
+        s_server->sync(s_own_addr_type);
+    }
 }
 
 static void on_reset(int reason) { ESP_LOGE(TAG, "host reset: %d", reason); }
@@ -613,11 +617,15 @@ static void host_task(void *arg)
     nimble_port_freertos_deinit();
 }
 
-void ble_mgr_start(const ble_drv_t *const *drivers, int n)
+void ble_mgr_start(const ble_drv_t *const *drivers, int n, const ble_server_t *server)
 {
     s_drv = drivers;
     s_n_drv = n;
+    s_server = server;
     ESP_ERROR_CHECK(nimble_port_init());
+    if (server) {
+        server->init();  // services must be registered before the host starts
+    }
     ble_npl_callout_init(&s_rescan, nimble_port_get_dflt_eventq(), rescan_cb, NULL);
     ble_npl_event_init(&s_user_ev, user_cb, NULL);
     ble_npl_event_init(&s_forget_ev, forget_cb, NULL);

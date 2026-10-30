@@ -466,6 +466,9 @@ async function onClick(e) {
     case 'wo-gen-apply': applyGenerator(); break;
     case 'wo-save': await save(); break;
     case 'wo-download': download(); break;
+    case 'wo-cal-open': openCalendar(); break;
+    case 'wo-cal-close': $('#wo-cal').close(); break;
+    case 'wo-cal-add': addToCalendar(); break;
     case 'wo-delete': await remove(); break;
     case 'wo-import-btn': $('#wo-import').click(); break;
     default: break;
@@ -531,6 +534,38 @@ async function remove() {
     await refreshList();
     render();
   } catch (err) { toast(`Delete failed: ${err.message}`, 'bad'); }
+}
+
+// ---- Add to calendar ------------------------------------------------------------------------
+// The device builds the event (GET /api/workout.ics) and serves it as text/calendar, so
+// phones open the calendar's add sheet and computers download an .ics.
+
+const TIME_KEY = 'justride.trainingTime';
+
+function openCalendar() {
+  if (!state.file || state.dirty) return toast('Save the workout to the device first', 'bad');
+  let time = '18:00';
+  try { time = localStorage.getItem(TIME_KEY) || time; } catch { /* private mode */ }
+  const d = new Date();
+  if (d.getHours() >= 20) d.setDate(d.getDate() + 1);  // late: suggest tomorrow
+  const L = load(state.w, state.ftp);
+  $('#cal-title').textContent = state.w.name;
+  $('#cal-info').textContent = `${fmt.dur(L.secs)} · TSS ${fmt.num(L.tss)} · IF ${fmt.num(L.if, 2)} · ` +
+    `on the device: Workouts → ${state.file.replace(/\.zwo$/i, '').replace(/_/g, ' ')}`;
+  $('#cal-date').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  $('#cal-time').value = time;
+  $('#wo-cal').showModal();
+}
+
+function addToCalendar() {
+  const day = $('#cal-date').value, time = $('#cal-time').value;
+  if (!day || !time) return toast('Pick a day and a time', 'bad');
+  try { localStorage.setItem(TIME_KEY, time); } catch { /* private mode: just don't remember */ }
+  const start = Math.round(new Date(`${day}T${time}`).getTime() / 1000);  // the browser's local time
+  $('#wo-cal').close();
+  // encodeURIComponent, not URLSearchParams: the device decodes %20, not "+"
+  location.href = `/api/workout.ics?file=${encodeURIComponent(state.file)}&start=${start}` +
+    (state.ctx?.userId ? `&user=${encodeURIComponent(state.ctx.userId)}` : '');
 }
 
 // ---- Generator dialog ---------------------------------------------------------------------

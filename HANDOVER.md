@@ -7,7 +7,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - Planning: done (hardware choice, protocols, architecture, data formats, stats app, milestones).
 - Hardware: the user's board is a **V4.0** (REV 4), not V3 (2026-10-28). `bsp.c` was ported to V4 from Waveshare's V4 BSP: CH32V003 helper at 0x24 instead of TCA9554 + SW6106, SD over 1-bit SDMMC, Waveshare's ST7701 init table and 16 MHz timing. First boot on the board: CH32, RTC (0x51) and GT911 (0x14) respond, the device reaches `jr>`, BLE scans. LVGL's built-in 64 KB pool overflowed while building the screens (hang); now `CONFIG_LV_USE_CLIB_MALLOC`. Later the same day: picture correct after switching to one frame buffer + LVGL partial rendering (direct mode on two buffers ghosted); touch works after driving GT911 INT (CH32 EXIO2) low through reset; SD mounts after enabling internal pull-ups (~1.5 MB/s write, ~1 MB/s read). After `idf.py flash` with a card inserted the USB console sometimes stays silent until the board is re-plugged. Open: backlight PWM polarity, the 0x5e seen in post-boot scans (likely a scan/touch-poll clash).
 - Firmware: everything is written, including Zwift Ride support (unverified button table) and multiple riders (2026-10-27). **The firmware compiles and links with ESP-IDF 5.3.2 in CI and on the user's Mac** (`.github/workflows/ci.yml`; 1.6 MB image, 73 % of the app partition free). Compiling says nothing about runtime behaviour: the API usage of esp_lcd_st7701, esp_lvgl_port, esp_lcd_touch_gt911 and NimBLE was written from memory and is unverified on hardware. `dependencies.lock` is committed (pins component versions).
-- Verified off-device: pure components (proto_ftms, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
+- Verified off-device: pure components (proto_ftms incl. the control-point state machine, workout/zwo, metrics, vshift, ride, recorder CSV/FIT) pass host tests under ASan/UBSan; FIT output decodes with fitdecode; the statistics app runs in headless Chrome against CSVs from the real recorder code.
 - User manual: `docs/manual.html` with screenshots rendered from `main/ui.c` by `tools/ui_shots/shots.sh` (device screens) and of the stats app with generated sample rides.
 
 ## Decisions made
@@ -38,7 +38,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 
 ## Open questions (ask the user)
 
-2. Record alone, or also re-broadcast as an FTMS peripheral so a watch records the same ride?
+2. ~~Record alone, or also re-broadcast?~~ Answered 2026-10-30: re-broadcast as a Cycling Power + CSC sensor (`ble_srv`), so an Apple Watch records the ride. Unverified on a real watch.
 3. Is it OK that the web app reloads summary/bests on every visit (no OPFS)? Fine up to hundreds of rides.
 
 ## Must verify on real hardware (don't assume)
@@ -51,6 +51,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - KICKR Core: connects over FTMS (0x2AD2/0x2AD9 etc. found, MTU 75). Data and ERG/SIM response not checked yet.
 - LVGL direct mode with `avoid_tearing` on the panel's two frame buffers looks stable; Wi-Fi on → RGB drift?
 - FTMS Target Resistance (0x04) accepted by the KICKR Core; otherwise the flat-SIM fallback kicks in (log says "rejected").
+- Re-broadcast (`ble_srv`): Apple Watch (watchOS 10+) finds "JustRide" under Health devices, pairs without bonding, and shows power + cadence in Indoor Cycle; scanning for sensors keeps working while advertising. Delete the Mac's old `sdkconfig` first (peripheral role was off).
 
 ## Milestones
 

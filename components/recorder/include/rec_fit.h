@@ -13,6 +13,7 @@ typedef bool (*fit_write_fn)(void *ctx, const void *data, size_t len);
 typedef struct {
     uint16_t ftp_w;
     uint16_t sw_version;  // x100
+    int32_t utc_offset_s; // local time - UTC (activity local_timestamp)
 } fit_meta_t;
 
 // Writes a complete .FIT file for the samples. Returns false on write failure

@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include "ble_mgr.h"
+#include "ble_srv.h"
 #include "bsp.h"
 #include "drv_ftms.h"
 #include "esp_attr.h"
@@ -17,6 +18,7 @@
 #include "freertos/task.h"
 #include "input_map.h"
 #include "recorder.h"
+#include "tz.h"
 #include "ui.h"
 #include "web.h"
 
@@ -26,6 +28,7 @@ static const char *TAG = "app";
 #define BEEP_MS 150
 #define BEEP_GAP_MS 350
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01
+#define REBROADCAST_MS 1000
 
 static SemaphoreHandle_t s_lock;
 static ride_t s_ride;
@@ -66,10 +69,13 @@ static void start_ride(const workout_t *wo)
     s_ride.cfg = ride_cfg();  // ride_start re-validates it and keeps live sensor values
     ride_start(&s_ride, wo, now_ms(), utc_now());
     const user_t *u = settings_user(&s_settings);
-    rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr};
+    rec_info_t info = {.ftp_w = u->ftp_w, .weight_kg = u->weight_kg, .max_hr = u->max_hr,
+                       .utc_offset_s = tz_offset(s_settings.tz, utc_now())};
     snprintf(info.user_id, sizeof(info.user_id), "%s", u->id);
     snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : "");
-    recorder_start(utc_now(), &info);
+    if (!recorder_start(utc_now(), &info)) {
+        ESP_LOGE(TAG, "recorder not started: this ride is not saved");
+    }
     s_status.ftp_suggest_w = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : "free ride");
 }
@@ -128,7 +134,7 @@ static void handle(const evt_t *e)
 
 static void task(void *arg)
 {
-    uint32_t last_tick = now_ms();
+    uint32_t last_tick = now_ms(), last_bcast = last_tick;
     for (;;) {
         evt_t e;
         bool got = evbus_get(&e, pdMS_TO_TICKS(50));
@@ -161,6 +167,11 @@ static void task(void *arg)
         ride_command(&s_ride, &cmd);
         drv_ftms_set(&cmd);
         ride_view(&s_ride, &s_view);
+        if (now - last_bcast >= REBROADCAST_MS) {
+            // Power and cadence as shown (3 s power while riding; -1 when stale) to a watch
+            last_bcast = now;
+            ble_srv_update(s_view.power_w, s_view.cadence_rpm10, now);
+        }
         s_status.clock_ok = utc_now() > CLOCK_VALID_AFTER;
         bool finish = s_finish_pending;
         s_finish_pending = false;
@@ -310,6 +321,18 @@ void app_accept_ftp(void)
         apply_settings();
     }
     unlock();
+}
+
+bool app_set_tz(const char *posix)
+{
+    lock();
+    bool ok = s_ride.state == RIDE_IDLE && tz_valid(posix);
+    if (ok && strcmp(posix, s_settings.tz) != 0) {
+        snprintf(s_settings.tz, sizeof(s_settings.tz), "%s", posix);
+        settings_save(&s_settings);
+    }
+    unlock();
+    return ok;
 }
 
 // Called with the lock held, after s_settings.user changed
