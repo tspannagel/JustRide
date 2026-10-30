@@ -12,7 +12,7 @@ void ftms_ctl_init(ftms_ctl_t *c)
 void ftms_ctl_on_connected(ftms_ctl_t *c)
 {
     c->stage = FTMS_CTL_NEED_CONTROL;
-    c->in_flight = c->have_acked = false;
+    c->in_flight = c->have_acked = c->retry_pending = false;
 }
 
 void ftms_ctl_on_lost(ftms_ctl_t *c)
@@ -31,6 +31,7 @@ void ftms_ctl_on_control_lost(ftms_ctl_t *c, uint32_t now_ms)
     }
     c->have_acked = false;
     c->retry_ms = now_ms + FTMS_CTL_RETRY_MS;
+    c->retry_pending = true;
 }
 
 ftms_ctl_resp_t ftms_ctl_on_response(ftms_ctl_t *c, uint8_t op, uint8_t result, uint32_t now_ms)
@@ -50,6 +51,7 @@ ftms_ctl_resp_t ftms_ctl_on_response(ftms_ctl_t *c, uint8_t op, uint8_t result, 
             return FTMS_CTL_RESP_OK;
         }
         c->retry_ms = now_ms + FTMS_CTL_RETRY_MS;
+        c->retry_pending = true;
         return FTMS_CTL_RESP_REFUSED;
     }
     if (op == FTMS_OP_START) {
@@ -98,8 +100,11 @@ size_t ftms_ctl_step(ftms_ctl_t *c, const control_cmd_t *desired, uint32_t now_m
         c->timed_out_op = c->in_flight_op;
         c->in_flight = false;
     }
-    if (c->stage == FTMS_CTL_DOWN || c->in_flight || now_ms - c->last_write_ms < FTMS_CTL_MIN_WRITE_GAP_MS ||
-        (int32_t)(now_ms - c->retry_ms) < 0) {
+    if (c->retry_pending && (int32_t)(now_ms - c->retry_ms) < 0) {
+        return 0;
+    }
+    c->retry_pending = false;
+    if (c->stage == FTMS_CTL_DOWN || c->in_flight || now_ms - c->last_write_ms < FTMS_CTL_MIN_WRITE_GAP_MS) {
         return 0;
     }
 

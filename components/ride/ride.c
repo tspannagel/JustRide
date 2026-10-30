@@ -120,7 +120,9 @@ static void adapt_bounds(const ride_t *r, const goal_t *g, int *lo, int *hi)
 // Once per recorded second while running. HR above the range always wins: it
 // lowers the target (hold-average: a ceiling); below the range it raises it only
 // in segments without an average to hold; without HR it never raises it.
-// Hold-average spreads any shortfall over the rest of the segment.
+// Hold-average spreads any shortfall over the rest of the segment, but seconds
+// without pedalling (a stop to drink) are no shortfall, and the target rises
+// slowly, so the rider never comes back to a sudden jump.
 static void adapt_update(ride_t *r, uint8_t *beeps)
 {
     workout_pos_t pos;
@@ -147,8 +149,9 @@ static void adapt_update(ride_t *r, uint8_t *beeps)
     }
     bool fresh = trainer_fresh(r);
     int power = fresh ? r->trainer.power_w : -1;
+    int cad10 = fresh ? r->trainer.cadence_rpm10 : -1;
     r->adapt_s++;
-    r->adapt_j += power >= 0 ? power : r->adapt_w;
+    r->adapt_j += power < 0 || cad10 == 0 ? r->adapt_w : power;
 
     int hr = current_hr(r);
     if (g->hr_hi) {
@@ -176,12 +179,13 @@ static void adapt_update(ride_t *r, uint8_t *beeps)
     if (g->hold_avg) {
         int32_t left = (int32_t)pos.seg_left_s > ADAPT_AVG_HORIZON_S ? (int32_t)pos.seg_left_s : ADAPT_AVG_HORIZON_S;
         int32_t want = base + ((int32_t)base * (int32_t)r->adapt_s - r->adapt_j) / left;
+        int32_t rise = r->adapt_s % ADAPT_RAISE_S == 0 ? ADAPT_STEP_W : 0;
+        want = want > r->adapt_w + rise ? r->adapt_w + rise : want;
         r->adapt_w = (int16_t)clampi(want, lo, g->hr_hi ? r->adapt_cap_w : hi);
     }
     r->adapt_w = (int16_t)clampi(r->adapt_w, lo, hi);
 
     // Cadence: a cue only, and only while pedalling
-    int cad10 = fresh ? r->trainer.cadence_rpm10 : -1;
     if (g->cad_hi && cad10 > 0) {
         int rpm = cad10 / 10, out = rpm < g->cad_lo ? -1 : rpm > g->cad_hi ? 1 : 0;
         r->cad_out_s = out ? (uint8_t)(r->cad_out_s < 255 ? r->cad_out_s + 1 : 255) : 0;
