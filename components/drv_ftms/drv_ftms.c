@@ -44,7 +44,7 @@ const ble_drv_t drv_ftms = {
 typedef enum { ST_DOWN, ST_NEED_CONTROL, ST_NEED_START, ST_RUNNING } stage_t;
 
 typedef struct {
-    uint8_t type;  // 0 = connected, 1 = lost, 2 = response
+    uint8_t type;  // 0 = connected, 1 = lost, 2 = response, 3 = control permission lost
     uint16_t conn;
     uint8_t op, result;
 } ftms_msg_t;
@@ -86,6 +86,10 @@ static void on_notify(uint16_t conn, int idx, const uint8_t *d, uint16_t len)
         }
     } else if (idx == CHR_STATUS && len > 0) {
         ESP_LOGD(TAG, "machine status 0x%02x", d[0]);
+        if (d[0] == FTMS_STATUS_CONTROL_LOST) {
+            ftms_msg_t m = {.type = 3, .conn = conn};
+            xQueueSend(s_msgs, &m, 0);
+        }
     }
 }
 
@@ -142,6 +146,20 @@ static void task(void *arg)
                 conn = 0xFFFF;
                 stage = ST_DOWN;
                 in_flight = false;
+            } else if (m.type == 3 || (in_flight && m.op == in_flight_op && m.op != FTMS_OP_REQUEST_CONTROL &&
+                                       m.result == FTMS_RESULT_CONTROL_NOT_PERMITTED)) {
+                // Another app (the KICKR allows 3 connections) took control: ask for
+                // it again, then resend the current command. The pause avoids a
+                // tug of war with an app that grabs control back right away.
+                ESP_LOGW(TAG, "control lost, requesting it again");
+                if (m.type == 2) {
+                    in_flight = false;
+                }
+                if (stage != ST_DOWN) {
+                    stage = ST_NEED_CONTROL;
+                }
+                have_acked = false;
+                retry_ms = now_ms() + CONTROL_RETRY_MS;
             } else if (in_flight && m.op == in_flight_op) {
                 in_flight = false;
                 bool ok = m.result == FTMS_RESULT_SUCCESS;

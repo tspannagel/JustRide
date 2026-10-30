@@ -77,7 +77,6 @@ bool recorder_start(uint32_t start_utc, const rec_info_t *info)
         return false;
     }
     memset(&s_meta, 0, sizeof(s_meta));
-    csv_ride_id(s_meta.id, start_utc);
     s_meta.start_utc = start_utc;
     s_meta.info = *info;
     // One line, no newline inside: the journal is line-based
@@ -86,6 +85,19 @@ bool recorder_start(uint32_t start_utc, const rec_info_t *info)
     char p[64];
     snprintf(p, sizeof(p), RIDES_DIR "/%s", s_meta.info.user_id);
     mkdir(p, 0775);
+    // Ride ids are local time: after a DST change (or a clock fix) the same
+    // minute can come round again. Never reuse the name of an existing ride.
+    int64_t local = (int64_t)start_utc + info->utc_offset_s;
+    for (int i = 0; i < 60; i++, local += 60) {
+        struct stat st;
+        csv_ride_id(s_meta.id, (uint32_t)local);
+        path(p, sizeof(p), "csv");
+        bool taken = stat(p, &st) == 0;
+        path(p, sizeof(p), "fit");
+        if (!taken && stat(p, &st) != 0) {
+            break;
+        }
+    }
     s_n = 0;
     s_pending_len = 0;
     s_write_error = false;
@@ -98,8 +110,8 @@ bool recorder_start(uint32_t start_utc, const rec_info_t *info)
     FILE *j = fopen(JOURNAL, "w");
     if (j) {
         const rec_info_t *i = &s_meta.info;
-        fprintf(j, "%s %lu %s %u %u %u\n%s\n", s_meta.id, (unsigned long)start_utc, i->user_id, i->ftp_w,
-                i->weight_kg, i->max_hr, i->workout);
+        fprintf(j, "%s %lu %s %u %u %u %ld\n%s\n", s_meta.id, (unsigned long)start_utc, i->user_id, i->ftp_w,
+                i->weight_kg, i->max_hr, (long)i->utc_offset_s, i->workout);
         fclose(j);
     }
     if (!s_csv || !j) {
@@ -160,7 +172,7 @@ static bool write_outputs(void)
     path(p, sizeof(p), "fit");
     FILE *f = fopen(p, "wb");
     const rec_info_t *info = &s_meta.info;
-    fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100};
+    fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100, .utc_offset_s = info->utc_offset_s};
     bool ok = f && fit_write_activity(fit_sink, f, s_buf, s_n, &meta);
     if (f) {
         ok = fclose(f) == 0 && ok;
@@ -173,18 +185,21 @@ static bool write_outputs(void)
     }
     metrics_summary_t sum;
     metrics_summary(&m, info->ftp_w, &sum);
+    // Rows already there come from an earlier attempt (e.g. the FIT write
+    // failed and this is the recovery at boot): never add a ride twice.
     char row[256];
-    if (csv_format_summary(row, sizeof(row), s_meta.id, s_meta.start_utc, info->workout, info->ftp_w, &sum,
+    user_path(p, sizeof(p), "summary.csv");
+    if (!csv_has_ride(p, s_meta.id) &&
+        csv_format_summary(row, sizeof(row), s_meta.id, s_meta.start_utc, info->workout, info->ftp_w, &sum,
                            app->version, info->weight_kg, info->max_hr)) {
-        user_path(p, sizeof(p), "summary.csv");
         ok = append(p, CSV_SUMMARY_HEADER, row) && ok;
     }
     int16_t bests[METRICS_N_BESTS];
     metrics_bests(s_buf, s_n, bests);
     s_meta.ftp_estimate = metrics_ftp_estimate(bests);
     char brows[METRICS_N_BESTS * 40];
-    if (csv_format_bests(brows, sizeof(brows), s_meta.id, bests)) {
-        user_path(p, sizeof(p), "bests.csv");
+    user_path(p, sizeof(p), "bests.csv");
+    if (!csv_has_ride(p, s_meta.id) && csv_format_bests(brows, sizeof(brows), s_meta.id, bests)) {
         ok = append(p, CSV_BESTS_HEADER, brows) && ok;
     }
     if (ok) {
@@ -238,10 +253,11 @@ void recorder_recover(void)
     char line[96];
     unsigned long start = 0;
     unsigned ftp = 0, weight = 0, max_hr = 0;
+    long offset = 0;  // missing in journals from older firmware
     memset(&s_meta, 0, sizeof(s_meta));
     rec_info_t *info = &s_meta.info;
-    bool ok = fgets(line, sizeof(line), j) &&
-              sscanf(line, "%15s %lu %7s %u %u %u", s_meta.id, &start, info->user_id, &ftp, &weight, &max_hr) == 6;
+    bool ok = fgets(line, sizeof(line), j) && sscanf(line, "%15s %lu %7s %u %u %u %ld", s_meta.id, &start,
+                                                     info->user_id, &ftp, &weight, &max_hr, &offset) >= 6;
     if (ok && fgets(info->workout, sizeof(info->workout), j)) {
         info->workout[strcspn(info->workout, "\r\n")] = 0;
     }
@@ -250,6 +266,7 @@ void recorder_recover(void)
     info->ftp_w = (uint16_t)(ftp <= 600 ? ftp : 0);
     info->weight_kg = (uint8_t)(weight <= 255 ? weight : 0);
     info->max_hr = (uint8_t)(max_hr <= 255 ? max_hr : 0);
+    info->utc_offset_s = (int32_t)(offset >= -86400 && offset <= 86400 ? offset : 0);
     if (!ok || strlen(s_meta.id) != 15 || strchr(s_meta.id, '/') || !valid_user_id(info->user_id)) {
         ESP_LOGW(TAG, "journal unreadable, removed");
         remove(JOURNAL);
