@@ -42,7 +42,7 @@ jobs:
     name: Host tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cmake -S test/host -B test/host/build
       - run: cmake --build test/host/build -j
       - run: ctest --test-dir test/host/build --output-on-failure
@@ -55,7 +55,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ESP-IDF takes the app version (shown on the device, checked by the web app) from version.txt
       - run: printf '%s' "$VERSION" > version.txt
@@ -70,9 +70,9 @@ jobs:
             cd build &&
             python -m esptool --chip esp32s3 merge_bin -o justride-full.bin @flash_args
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Web app (gzipped, same layout as tools/sd_deploy.sh)
         run: |
