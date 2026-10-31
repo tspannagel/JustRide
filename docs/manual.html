@@ -80,7 +80,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
     <li><a href="#riding">Riding</a></li>
     <li><a href="#workouts">Workouts</a></li>
     <li><a href="#wifi">Wi-Fi and the web app</a></li>
-    <li><a href="#updates">Firmware updates</a></li>
+    <li><a href="#updates">Updates</a></li>
     <li><a href="#settings">Settings reference</a></li>
     <li><a href="#numbers">How the numbers are calculated</a></li>
     <li><a href="#trouble">Troubleshooting</a></li>
@@ -144,6 +144,7 @@ git clone -b v5.3.2 --recursive https://github.com/espressif/esp-idf.git
 <p>(Windows/Linux: follow Espressif's <a href="https://docs.espressif.com/projects/esp-idf/en/v5.3.2/esp32s3/get-started/index.html">ESP-IDF Get Started guide for v5.3.2</a>, then continue below.)</p>
 
 <h3 id="build">3.3 Build and flash</h3>
+<p>No need to build: each <a href="#updates">release</a> has a ready <code>-full.bin</code> you can flash as in <a href="#update-usb">8.3</a>. Build it yourself if you want to change the code.</p>
 <p>You can build without the board; it only proves the code compiles. For flashing, connect the board to your computer with the USB-C cable.</p>
 <p>In <b>every new terminal</b>, load the tools first, then change into <b>this repository</b> (not <code>~/esp</code>), because <code>idf.py</code> builds the project in the current folder:</p>
 <pre><code>. ~/esp/esp-idf/export.sh     <span class="c"># makes idf.py available in this terminal (works from any folder)</span>
@@ -167,6 +168,7 @@ diskutil eraseDisk FAT32 JUSTRIDE MBRFormat /dev/disk8</code></pre>
 <p>Then copy the files (the card is now mounted as <code>/Volumes/JUSTRIDE</code>):</p>
 <pre><code>tools/vendor_stats.sh                     <span class="c"># once: downloads the statistics libraries (needs Node + internet)</span>
 tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app and sample workouts</span></code></pre>
+<p>Without the repository and Node: download <code>justride-www-&lt;version&gt;.zip</code> from a <a href="#updates">release</a> and copy its <code>www</code> folder to the card instead (<a href="#update-www">8.2</a>). The device creates its other folders itself; the sample workouts only come with <code>sd_deploy.sh</code>.</p>
 <p>Later updates of the web app don't need the card: see <a href="#webapp-update">7.8</a>.</p>
 <p>The card then contains:</p>
 <pre><code>/www/stats/     web app
@@ -524,7 +526,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 
 <h3 id="webapp-update">7.8 Device page, updating the web app</h3>
 <p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) over <code>summary</code> and <code>bests</code>; it loads 34 MB the first time you run a query.</p>
-<p>To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
+<p>The ready-made web app from a release goes onto the card as in <a href="#update-www">8.2</a>. To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
 <pre><code>tools/web_deploy.sh trainer.local              <span class="c"># or the IP address; ~1 minute</span>
 tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only, a few seconds</span></code></pre>
 <p>The screenshots show generated sample rides (<code>tools/web_dev.py</code> runs the web app on your computer with sample data, or with <code>--device &lt;address&gt;</code> against your head unit).</p>
@@ -548,15 +550,45 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
 <p class="note">To try it without the head unit, run <code>tools/web_dev.py</code> and point the server at <code>--device localhost:8080</code>: it then sees the sample rides.</p>
 
 <!-- ------------------------------------------------------------------ -->
-<h2 id="updates">8. Firmware updates</h2>
-<p><b>Over USB:</b> <code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.3</a>.</p>
-<p><b>Over Wi-Fi:</b></p>
+<h2 id="updates">8. Updates</h2>
+<p>New versions are published as releases on GitHub: <a href="https://github.com/tspannagel/JustRide/releases">github.com/tspannagel/JustRide/releases</a>. The device shows its firmware version at the bottom of <span class="btn">Settings</span>, next to <span class="btn">Forget paired devices</span>. Version numbers follow <a href="https://semver.org">SemVer</a> (<code>1.2.0</code>); a version with a dash, like <code>1.3.0-alpha.1</code> or <code>1.3.0-rc.1</code>, is a <b>pre-release</b> for testing and is marked as such on GitHub. The web app doesn't check for new versions yet: look at the releases page.</p>
+<p>Each release has these files (the names carry the version):</p>
+<table>
+  <tr><th>File</th><th>For</th></tr>
+  <tr><td><code>justride-1.2.0.bin</code></td><td>Firmware update over Wi-Fi (<a href="#update-fw">8.1</a>)</td></tr>
+  <tr><td><code>justride-www-1.2.0.zip</code></td><td>The web app for the SD card (<a href="#update-www">8.2</a>)</td></tr>
+  <tr><td><code>justride-1.2.0-full.bin</code></td><td>First install over USB, without building (<a href="#update-usb">8.3</a>)</td></tr>
+  <tr><td><code>SHA256SUMS</code></td><td>Checksums: <code>shasum -a 256 -c SHA256SUMS --ignore-missing</code> in the download folder</td></tr>
+</table>
+<p class="note">Update the firmware and the web app to the <b>same version</b>: a new web app may need a new firmware and the other way round.</p>
+
+<h3 id="update-fw">8.1 Firmware over Wi-Fi</h3>
 <ol>
-  <li>Build on your computer: <code>idf.py build</code> → the file is <code>build/justride.bin</code>.</li>
+  <li>Download <code>justride-&lt;version&gt;.bin</code> from the release, or build it yourself: <code>idf.py build</code> → <code>build/justride.bin</code>.</li>
   <li>On the device: <span class="btn">Wi-Fi → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
   <li>In the web app open <span class="btn">Device → Choose firmware</span> and pick the <code>.bin</code>. Don't unplug the board while it says “Uploading”.</li>
   <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.</li>
 </ol>
+<p>Your riders, settings, rides and workouts are on the SD card and stay as they are; paired devices are kept too.</p>
+
+<h3 id="update-www">8.2 The web app</h3>
+<p>The web app lives on the SD card, not in the firmware, so it's updated separately:</p>
+<ol>
+  <li>Download <code>justride-www-&lt;version&gt;.zip</code> and unzip it on your computer. It contains a folder <code>www</code>.</li>
+  <li>Unplug the device, put the SD card into the computer and copy that <code>www</code> folder to the top level of the card, replacing the old one. Nothing else on the card is touched (rides, workouts, settings and plans live in other folders).</li>
+  <li>Eject the card, put it back, plug the device in and reload the web app in the browser.</li>
+</ol>
+<p>From a copy of the repository you can also update it over Wi-Fi with <code>tools/web_deploy.sh</code> (<a href="#webapp-update">7.8</a>).</p>
+
+<h3 id="update-usb">8.3 First install over USB, without building</h3>
+<p>For a new board, or if the device doesn't start at all. <code>justride-&lt;version&gt;-full.bin</code> holds everything the board needs (boot loader, partition table, firmware) and goes to address 0:</p>
+<pre><code>pip3 install esptool                      <span class="c"># once; not needed if ESP-IDF is installed</span>
+esptool.py --chip esp32s3 -p /dev/cu.usbmodem* write_flash 0x0 justride-1.2.0-full.bin</code></pre>
+<p>Without a terminal: open <a href="https://espressif.github.io/esptool-js/">Espressif's web flasher</a> in Chrome or Edge, <b>Connect</b>, choose the board's port, set the address to <code>0x0</code>, pick the file and press <b>Program</b>.</p>
+<p class="note">This also forgets the paired trainer, heart-rate strap and Zwift Ride (they're found again on the next start, see <a href="#pair">3.7</a>). The SD card isn't touched. If the board isn't found, hold <b>BOOT</b> while plugging in the cable.</p>
+
+<h3 id="update-build">8.4 Your own build over USB</h3>
+<p><code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.3</a>. This keeps the paired devices.</p>
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="settings">9. Settings reference</h2>
