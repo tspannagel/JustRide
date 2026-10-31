@@ -22,7 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WWW = os.path.join(ROOT, 'www', 'stats')
 MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'application/javascript', '.css': 'text/css',
         '.wasm': 'application/wasm', '.json': 'application/json', '.csv': 'text/csv', '.zwo': 'application/xml',
-        '.route': 'text/plain', '.png': 'image/png', '.svg': 'image/svg+xml',
+        '.route': 'text/plain', '.txt': 'text/plain', '.png': 'image/png', '.svg': 'image/svg+xml',
         '.webmanifest': 'application/manifest+json'}
 
 
@@ -197,6 +197,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 with open(os.path.join(d, 'users.json'), 'w') as f:
                     json.dump(users, f)
             return self.send(200, json.dumps(users).encode(), 'application/json')
+        if path == '/api/info':  # firmware version + upload window (sample: always open)
+            return self.send(200, json.dumps({'project': 'justride', 'version': 'dev', 'idf': 'v5.3.2', 'upload_s': 300}).encode(),
+                             'application/json')
         if path == '/api/time':
             return self.send(200, b'kept')
         if path == '/api/rides':

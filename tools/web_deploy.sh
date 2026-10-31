@@ -17,6 +17,7 @@ cp -R "$ROOT/www/stats/." "$TMP/"
 mkdir -p "$TMP/manual"
 cp "$ROOT/docs/manual.html" "$TMP/manual/index.html"
 cp -R "$ROOT/docs/img" "$TMP/manual/img"
+(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev) > "$TMP/version.txt"
 find "$TMP" -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) -exec gzip -9 -f {} \;
 find "$TMP" -name '._*' -delete
 

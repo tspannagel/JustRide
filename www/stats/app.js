@@ -294,6 +294,76 @@ async function device() {
     files.map((f) => `<tr><td><a href="/rides/${esc(f.name)}" download>${icon('download')} ${esc(f.name.split('/')[1])}</a></td>
       <td>${esc(names[f.name.split('/')[0]] || '?')}</td><td>${fmt.num(f.size / 1024)} kB</td></tr>`).join('')}</tbody></table>`
     : '<p class="muted small">No ride files yet.</p>';
+  showVersions();
+}
+
+// ---- Firmware: installed versions, update file check, restart watch ----------------------
+// /api/info: {project, version, idf, upload_s}; null on firmware without it or while away.
+const deviceInfo = () => api.json('/api/info').catch(() => null);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function showVersions() {
+  const [info, www] = await Promise.all([deviceInfo(), api.text('version.txt').catch(() => null)]);
+  $('#versions').innerHTML = `Installed: firmware <b>${esc(info?.version || 'unknown')}</b> · web app <b>${
+    esc((www || '').trim() || 'development build')}</b>`;
+  return info;
+}
+
+// The app image starts with esp_image_header_t (magic 0xE9) + one segment header, then
+// esp_app_desc_t at 0x20: magic 0xABCD5432, version at 0x30, project name at 0x50.
+// A -full.bin starts with the boot loader instead, so it has no app description there.
+async function readFirmware(f) {
+  const v = new DataView(await f.slice(0, 0x70).arrayBuffer());
+  if (v.byteLength < 0x70 || v.getUint8(0) !== 0xe9 || v.getUint32(0x20, true) !== 0xabcd5432) {
+    return { err: /-full\.bin$/i.test(f.name) || (v.byteLength >= 1 && v.getUint8(0) === 0xe9)
+      ? `${f.name} is the full image for a first install over USB. For an update choose justride-<version>.bin (without -full).`
+      : `${f.name} is not a firmware file.` };
+  }
+  const str = (o) => new TextDecoder().decode(new Uint8Array(v.buffer, o, 32)).replace(/\0[\s\S]*$/, '');
+  return { version: str(0x30), project: str(0x50) };
+}
+
+function otaStatus(text, tone) {
+  const el = $('#ota-status');
+  el.textContent = text;
+  el.className = `small${tone ? ` status-${tone}` : ''}`;
+}
+
+async function flashFirmware(f) {
+  const [fw, info] = await Promise.all([readFirmware(f), deviceInfo()]);
+  if (fw.err) return otaStatus(fw.err, 'bad');
+  if (info && fw.project !== info.project) return otaStatus(`${f.name} is firmware for "${fw.project}", not for this device.`, 'bad');
+  if (info && info.upload_s <= 0) {
+    return otaStatus('The device refuses updates right now: tap Wi-Fi → Allow firmware update on it, then choose the file again.', 'bad');
+  }
+  const old = info?.version;
+  const same = old === fw.version ? ' (the same version that is installed)' : '';
+  if (!confirm(`Install firmware ${fw.version}${same}?${old ? ` Installed: ${old}.` : ''}\nKeep the device powered until it restarts.`)) return;
+  otaStatus(`Uploading ${fw.version}… do not unplug the device`);
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 180000);
+  try {
+    const r = await fetch('/ota', { method: 'POST', headers: { 'X-JustRide': '1' }, body: f, signal: abort.signal });
+    const t = await r.text();
+    if (!r.ok) return otaStatus(t || `Upload failed (${r.status})`, 'bad');
+  } catch (err) {
+    // The device answers a refused upload at once and closes the connection; browsers
+    // then often report a network error instead of its message.
+    return otaStatus(abort.signal.aborted ? 'No answer from the device within 3 minutes. Check that it is on Wi-Fi and try again.'
+      : 'The device closed the connection. Tap Allow firmware update on it again and retry; if it keeps failing, check the file.', 'bad');
+  } finally { clearTimeout(timer); }
+  // Restart: the old firmware answers for about a second, then the device is away
+  // for a few seconds. If the new firmware doesn't start, the boot loader goes back.
+  otaStatus(`Uploaded. Restarting with ${fw.version}…`);
+  await sleep(6000);
+  for (const until = Date.now() + 90000; Date.now() < until; await sleep(3000)) {
+    const now = await deviceInfo();
+    if (!now) continue;
+    showVersions();
+    if (now.version === fw.version) return otaStatus(`Done: firmware ${fw.version} is running.`, 'good');
+    return otaStatus(`The device restarted with ${now.version}, not ${fw.version}: the new firmware didn't start and the device went back. A USB log helps to find out why.`, 'bad');
+  }
+  otaStatus('The device hasn\'t come back within 90 seconds. Check its screen and Wi-Fi, then reload this page.', 'bad');
 }
 
 function initDevice() {
@@ -303,12 +373,10 @@ function initDevice() {
     }
     e.target.value = '';
   };
-  $('#up-ota').onchange = async (e) => {
+  $('#up-ota').onchange = (e) => {
     const f = e.target.files[0];
     e.target.value = '';
-    if (!f || !confirm(`Flash ${f.name}? Keep the device powered until it restarts.`)) return;
-    $('#ota-status').textContent = 'Uploading… do not unplug the device';
-    try { $('#ota-status').textContent = await api.send('POST', '/ota', f); } catch (err) { $('#ota-status').textContent = err.message; }
+    if (f) flashFirmware(f);
   };
   $('#sql-run').onclick = runSql;
 }

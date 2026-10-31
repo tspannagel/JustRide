@@ -211,7 +211,8 @@
     <div class="grid-2">
       <div class="card"><h2>Upload workouts</h2><p class="small muted">Zwift .zwo files, up to 64 KB each. They appear on the device under Workouts.</p>
         <label class="btn ghost file-btn" data-icon="upload">Choose .zwo files<input type="file" id="up-zwo" accept=".zwo" multiple hidden></label></div>
-      <div class="card"><h2>Firmware update</h2><p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the firmware file (<code>justride-&lt;version&gt;.bin</code> from a release, or <code>build/justride.bin</code>) within 5 minutes.</p>
+      <div class="card"><h2>Firmware update</h2><p class="small" id="versions"></p>
+        <p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the firmware file within 5 minutes: <code>justride-&lt;version&gt;.bin</code> from a release (not the <code>-full.bin</code>, that one is for USB), or <code>build/justride.bin</code>.</p>
         <label class="btn ghost file-btn" data-icon="cpu">Choose firmware<input type="file" id="up-ota" accept=".bin" hidden></label>
         <p class="small" id="ota-status"></p></div>
     </div>
