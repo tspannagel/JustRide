@@ -21,6 +21,9 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define RIDE_INTENSITY_MAX 150
 #define RIDE_TRAINER_STALE_MS 3000
 #define RIDE_HR_STALE_MS 5000
+#define RIDE_MAX_HR_MIN 100       // rider max HR (HR zones), bpm
+#define RIDE_MAX_HR_MAX 230
+#define RIDE_MAX_HR_DEFAULT 185
 
 // Adaptive segments (goal_t): the ERG target moves within the segment's bounds,
 // never above Max ERG. HR is slow, so it is steered in small steps.
@@ -76,6 +79,7 @@ typedef struct {
 typedef struct {
     uint16_t ftp_w;
     uint16_t max_erg_w;  // user limit, further capped by RIDE_ERG_CAP_W
+    uint8_t max_hr;      // bpm, for HR zones (0: RIDE_MAX_HR_DEFAULT)
     uint8_t crr;         // 0.0001
     uint8_t cw;          // 0.01 kg/m
     gear_table_t gears;
@@ -132,6 +136,7 @@ typedef struct {
     ride_last_block_t last_blk;
     int seg_closing;         // interval (1-based) that ended this tick, closed after its last sample
     uint32_t zone_s[METRICS_N_ZONES];
+    uint32_t hr_zone_s[METRICS_N_HR_ZONES];
 
     // auto-pause
     bool auto_paused;        // paused by auto-pause (resumes by pedalling)
@@ -167,6 +172,8 @@ typedef struct {
     int32_t race_gap_s;      // seconds ahead of it (negative: behind); final once route_done
     int8_t zone;             // of the shown power, -1 unknown
     uint32_t zone_s;         // seconds in that zone this ride
+    int8_t hr_zone;          // of the shown HR (% of max HR), -1 unknown
+    uint32_t hr_zone_s;      // seconds in that HR zone this ride
     ride_last_block_t last_blk;  // kind BLOCK_NONE when there's nothing to show
     bool has_workout;
     int seg_idx;
@@ -176,7 +183,8 @@ typedef struct {
     // adaptive segment
     bool adaptive;
     bool hold_avg;
-    uint8_t hr_lo, hr_hi, cad_lo, cad_hi;
+    uint8_t hr_lo, hr_hi, cad_lo, cad_hi;  // bpm (an HR zone already turned into bpm), rpm
+    int8_t hr_goal_zone;     // the HR range is zone 0..4 of the rider's max HR, -1 otherwise
     int8_t hr_cue, cad_cue;  // -1 below, 0 ok, +1 above
     int16_t avg_goal_w;      // hold-average: the average to hold
     int16_t seg_avg_w;       // average power so far in this segment

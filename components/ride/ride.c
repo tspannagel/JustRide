@@ -13,6 +13,8 @@ void ride_init(ride_t *r, const ride_config_t *cfg)
     r->cfg = *cfg;
     r->cfg.ftp_w = clamp_u16(cfg->ftp_w, RIDE_FTP_MIN, RIDE_FTP_MAX);
     r->cfg.max_erg_w = clamp_u16(cfg->max_erg_w, 0, RIDE_ERG_CAP_W);
+    r->cfg.max_hr = (uint8_t)clamp_u16(cfg->max_hr ? cfg->max_hr : RIDE_MAX_HR_DEFAULT, RIDE_MAX_HR_MIN,
+                                       RIDE_MAX_HR_MAX);
     if (r->cfg.gears.n == 0) {
         vshift_default(&r->cfg.gears);
     }
@@ -144,6 +146,26 @@ static void adapt_bounds(const ride_t *r, const goal_t *g, int *lo, int *hi)
     *lo = watts(r, g->min_pm) < *hi ? watts(r, g->min_pm) : *hi;
 }
 
+// HR range of an adaptive segment in bpm (an HR zone from the rider's max HR); hi 0: none
+static void goal_hr(const ride_t *r, const goal_t *g, int *lo, int *hi)
+{
+    *lo = g->hr_pct ? metrics_hr_of_pct(g->hr_lo, r->cfg.max_hr) : g->hr_lo;
+    *hi = g->hr_pct ? metrics_hr_of_pct(g->hr_hi, r->cfg.max_hr) : g->hr_hi;
+}
+
+// The HR zone (0..4) an HR range is exactly, -1 if it isn't one
+static int goal_hr_zone(const goal_t *g)
+{
+    for (int z = 0; g->hr_pct && z < METRICS_N_HR_ZONES; z++) {
+        uint8_t lo, hi;
+        metrics_hr_zone_pct(z, &lo, &hi);
+        if (g->hr_lo == lo && g->hr_hi == hi) {
+            return z;
+        }
+    }
+    return -1;
+}
+
 // Once per recorded second while running. HR above the range always wins: it
 // lowers the target (hold-average: a ceiling); below the range it raises it only
 // in segments without an average to hold; without HR it never raises it.
@@ -180,13 +202,14 @@ static void adapt_update(ride_t *r, uint8_t *beeps)
     r->adapt_s++;
     r->adapt_j += power < 0 || cad10 == 0 ? r->adapt_w : power;
 
-    int hr = current_hr(r);
-    if (g->hr_hi) {
+    int hr = current_hr(r), hr_lo, hr_hi;
+    goal_hr(r, g, &hr_lo, &hr_hi);
+    if (hr_hi) {
         r->adapt_hr_lost_s = hr < 0 ? (uint16_t)(r->adapt_hr_lost_s + 1) : 0;
-        r->hr_cue = (int8_t)(hr < 0 ? 0 : hr > g->hr_hi ? 1 : hr < g->hr_lo ? -1 : 0);
+        r->hr_cue = (int8_t)(hr < 0 ? 0 : hr > hr_hi ? 1 : hr < hr_lo ? -1 : 0);
         if (++r->adapt_tick >= ADAPT_PERIOD_S) {
             r->adapt_tick = 0;
-            int step = hr > g->hr_hi + 5 ? ADAPT_BIG_STEP_W : ADAPT_STEP_W;
+            int step = hr > hr_hi + 5 ? ADAPT_BIG_STEP_W : ADAPT_STEP_W;
             if (g->hold_avg) {
                 if (r->hr_cue > 0) {
                     r->adapt_cap_w = (int16_t)((r->adapt_w < r->adapt_cap_w ? r->adapt_w : r->adapt_cap_w) - step);
@@ -208,7 +231,7 @@ static void adapt_update(ride_t *r, uint8_t *beeps)
         int32_t want = base + ((int32_t)base * (int32_t)r->adapt_s - r->adapt_j) / left;
         int32_t rise = r->adapt_s % ADAPT_RAISE_S == 0 ? ADAPT_STEP_W : 0;
         want = want > r->adapt_w + rise ? r->adapt_w + rise : want;
-        r->adapt_w = (int16_t)clampi(want, lo, g->hr_hi ? r->adapt_cap_w : hi);
+        r->adapt_w = (int16_t)clampi(want, lo, hr_hi ? r->adapt_cap_w : hi);
     }
     r->adapt_w = (int16_t)clampi(r->adapt_w, lo, hi);
 
@@ -493,6 +516,10 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
     if (z >= 0) {
         r->zone_s[z]++;
     }
+    z = metrics_hr_zone(sample->hr_bpm, r->cfg.max_hr);
+    if (z >= 0) {
+        r->hr_zone_s[z]++;
+    }
     r->n_samples++;
     metrics_add(&r->m, sample);
     r->p3[r->n_samples % 3] = sample->power_w;
@@ -515,6 +542,7 @@ bool ride_tick(ride_t *r, uint32_t now_ms, uint32_t utc, ride_sample_t *sample, 
 void ride_view(const ride_t *r, ride_view_t *v)
 {
     memset(v, 0, sizeof(*v));
+    v->hr_goal_zone = -1;
     control_cmd_t cmd;
     ride_command(r, &cmd);
     bool fresh = trainer_fresh(r);
@@ -566,6 +594,8 @@ void ride_view(const ride_t *r, ride_view_t *v)
     }
     v->zone = (int8_t)metrics_zone(v->power_w, r->cfg.ftp_w);
     v->zone_s = v->zone >= 0 ? r->zone_s[v->zone] : 0;
+    v->hr_zone = (int8_t)metrics_hr_zone(v->hr_bpm, r->cfg.max_hr);
+    v->hr_zone_s = v->hr_zone >= 0 ? r->hr_zone_s[v->hr_zone] : 0;
 
     if (r->wo) {
         workout_pos_t pos;
@@ -580,8 +610,11 @@ void ride_view(const ride_t *r, ride_view_t *v)
         if (g) {
             v->adaptive = true;
             v->hold_avg = g->hold_avg;
-            v->hr_lo = g->hr_lo;
-            v->hr_hi = g->hr_hi;
+            int lo, hi;
+            goal_hr(r, g, &lo, &hi);
+            v->hr_lo = (uint8_t)lo;
+            v->hr_hi = (uint8_t)hi;
+            v->hr_goal_zone = (int8_t)goal_hr_zone(g);
             v->cad_lo = g->cad_lo;
             v->cad_hi = g->cad_hi;
             v->hr_cue = r->adapt_seg == pos.idx ? r->hr_cue : 0;

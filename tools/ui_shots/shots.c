@@ -67,6 +67,7 @@ void app_web_start(void) {}
 bool app_edit_user(const user_t *u) { return true; }
 void app_accept_ftp(void) {}
 void app_keep_old_ftp(void) {}
+void app_accept_max_hr(void) {}
 bool app_select_user(const char *id) { return true; }
 bool app_add_user(const char *name) { return true; }
 bool app_delete_user(const char *id) { return true; }
@@ -166,6 +167,9 @@ static void ride_common(void)
     g_view.sum = (metrics_summary_t){.avg_w = 212, .np_w = 224, .kj = 325, .distance_m = 14260};
     g_view.zone = 3;
     g_view.zone_s = 412;
+    g_view.hr_zone = 2;
+    g_view.hr_zone_s = 655;
+    g_view.hr_goal_zone = -1;
 }
 
 int main(int argc, char **argv)
@@ -278,7 +282,7 @@ int main(int argc, char **argv)
     save("ride-route");
     g_route_on = NULL;
 
-    // Adaptive part: HR above its range (orange), the target was lowered
+    // Zone ride, HR zone 2: HR above it (orange), the target was lowered
     open_adapt(NULL);
     on_adapt_next(NULL);
     g_wo = s_preview;
@@ -291,8 +295,10 @@ int main(int argc, char **argv)
     g_view.seg_count = g_wo.n;
     g_view.seg_left_s = 1712;
     g_view.adaptive = true;
-    g_view.hr_lo = 130;
-    g_view.hr_hi = 140;
+    g_view.hr_lo = 111;
+    g_view.hr_hi = 130;
+    g_view.hr_goal_zone = 1;
+    g_view.hr_bpm = 134;
     g_view.hr_cue = 1;
     refresh(NULL);
     save("ride-adaptive");
@@ -319,8 +325,10 @@ int main(int argc, char **argv)
                                      .kj = 797, .avg_hr = 151, .distance_m = 33420};
     g_status.saved = true;
     g_status.ftp_suggest_w = 262;
+    g_status.max_hr_suggest = 191;
     refresh(NULL);
     save("summary");
+    g_status.max_hr_suggest = 0;
 
     g_view.sum = (metrics_summary_t){.duration_s = 1342, .avg_w = 178, .np_w = 214, .max_w = 341, .tss10 = 189, .if_1000 = 856,
                                      .kj = 239, .avg_hr = 158, .distance_m = 10870};

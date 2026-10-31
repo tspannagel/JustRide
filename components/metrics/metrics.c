@@ -42,6 +42,19 @@ void metrics_add(metrics_t *m, const ride_sample_t *s)
         if (s->hr_bpm > m->max_hr) {
             m->max_hr = s->hr_bpm;
         }
+        uint8_t hr = s->hr_bpm > 255 ? 255 : (uint8_t)s->hr_bpm;
+        uint32_t slot = m->hr_run % METRICS_HR_PEAK_S;
+        m->hr_ring_sum = (uint16_t)(m->hr_ring_sum + hr - (m->hr_run >= METRICS_HR_PEAK_S ? m->hr_ring[slot] : 0));
+        m->hr_ring[slot] = hr;
+        if (m->hr_run < UINT16_MAX) {
+            m->hr_run++;
+        }
+        if (m->hr_run >= METRICS_HR_PEAK_S && m->hr_ring_sum / METRICS_HR_PEAK_S > m->max_hr_peak) {
+            m->max_hr_peak = (int16_t)(m->hr_ring_sum / METRICS_HR_PEAK_S);
+        }
+    } else {
+        m->hr_run = 0;  // a peak needs HR in every second of it
+        m->hr_ring_sum = 0;
     }
     if (s->speed_kmh100 > 0) {
         m->distance_mm += (uint64_t)s->speed_kmh100 * 100 / 36; // km/h x100 -> mm per s
@@ -70,6 +83,7 @@ void metrics_summary(const metrics_t *m, uint16_t ftp_w, metrics_summary_t *out)
     if (m->n_hr > 0) {
         out->avg_hr = (int16_t)(m->sum_hr / m->n_hr);
         out->max_hr = m->max_hr;
+        out->max_hr_peak = m->max_hr_peak;
     }
     if (m->n_cad > 0) {
         out->avg_cad10 = (uint16_t)(m->sum_cad10 / m->n_cad);
@@ -124,5 +138,24 @@ int metrics_zone(int power_w, uint16_t ftp_w)
     }
     return z;
 }
+
+int metrics_hr_zone(int hr_bpm, uint8_t max_hr)
+{
+    if (hr_bpm <= 0 || max_hr == 0) {
+        return -1;
+    }
+    int pct10 = hr_bpm * 1000 / max_hr;  // 0.1 %
+    int z = pct10 < 600 ? 0 : (pct10 - 500) / 100;
+    return z > METRICS_N_HR_ZONES - 1 ? METRICS_N_HR_ZONES - 1 : z;
+}
+
+void metrics_hr_zone_pct(int z, uint8_t *lo_pct, uint8_t *hi_pct)
+{
+    z = z < 0 ? 0 : z > METRICS_N_HR_ZONES - 1 ? METRICS_N_HR_ZONES - 1 : z;
+    *lo_pct = (uint8_t)(50 + z * 10);
+    *hi_pct = (uint8_t)(*lo_pct + 10);
+}
+
+uint8_t metrics_hr_of_pct(uint8_t pct, uint8_t max_hr) { return (uint8_t)(((unsigned)pct * max_hr + 50) / 100); }
 
 uint16_t metrics_ramp_ftp(const int16_t bests[METRICS_N_BESTS]) { return share_of_best(bests, 60, 75); }

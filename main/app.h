@@ -24,6 +24,8 @@ typedef struct {
     // A test result was applied: the FTP before it (offered as "Keep"), 0 otherwise
     uint16_t ftp_prev_w;
     bool ftp_prev_known;
+    // After a ride: its 10 s HR peak if above the user's max HR (HR zones). 0: nothing to offer.
+    uint8_t max_hr_suggest;
 } app_status_t;
 
 void app_start(void);
@@ -63,6 +65,8 @@ bool app_edit_user(const user_t *u);
 void app_accept_ftp(void);
 // Undo a ramp test's FTP: back to status.ftp_prev_w
 void app_keep_old_ftp(void);
+// Set the active user's max HR to status.max_hr_suggest
+void app_accept_max_hr(void);
 bool app_select_user(const char *id);
 bool app_add_user(const char *name);   // also selects it
 bool app_delete_user(const char *id);  // never the last

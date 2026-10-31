@@ -63,6 +63,7 @@ static ride_config_t ride_cfg(void)
     return (ride_config_t){
         .ftp_w = u->ftp_w,
         .max_erg_w = u->max_erg_w,
+        .max_hr = u->max_hr,
         .crr = s_settings.crr,
         .cw = s_settings.cw,
         .gears = s_settings.gears,
@@ -96,6 +97,7 @@ static void start_ride(const workout_t *wo, const route_t *route)
     s_status.ftp_test_60s_w = -1;
     s_status.ftp_test_w = 0;
     s_status.ftp_prev_w = 0;
+    s_status.max_hr_suggest = 0;
     ESP_LOGI(TAG, "ride started (%s)", wo ? wo->name : route ? route->name : "free ride");
 }
 
@@ -244,6 +246,12 @@ static void task(void *arg)
             // Only suggested, never applied: one bad power reading must not raise every ERG target
             uint16_t ftp = settings_user(&s_settings)->ftp_w, est = metrics_ftp_estimate(bests);
             s_status.ftp_suggest_w = est > ftp && est <= RIDE_FTP_MAX ? est : 0;
+            // Max HR (HR zones): the best 10 s, so a strap glitch isn't a new max; only offered
+            metrics_summary_t sum;
+            metrics_summary(&s_ride.m, ftp, &sum);
+            uint8_t max_hr = settings_user(&s_settings)->max_hr;
+            s_status.max_hr_suggest =
+                sum.max_hr_peak > max_hr && sum.max_hr_peak <= RIDE_MAX_HR_MAX ? (uint8_t)sum.max_hr_peak : 0;
             if (s_status.ftp_test && s_ride.ramp_s >= RAMP_MIN_S) {
                 // The rider asked for a test: apply it right away (also lower, e.g. against
                 // the 200 W default); the summary offers to keep the old value
@@ -435,6 +443,9 @@ bool app_edit_user(const user_t *u)
     ok = ok && s_ride.state == RIDE_IDLE && idx >= 0;
     if (ok) {
         user_t *cur = &s_settings.users[idx];
+        if (u->max_hr != cur->max_hr && idx == s_settings.user) {
+            s_status.max_hr_suggest = 0;
+        }
         if (u->ftp_w != cur->ftp_w) {
             cur->ftp_known = true;  // entered by hand
             if (idx == s_settings.user) {
@@ -460,6 +471,17 @@ void app_accept_ftp(void)
         settings_user(&s_settings)->ftp_w = s_status.ftp_suggest_w;
         settings_user(&s_settings)->ftp_known = true;
         s_status.ftp_suggest_w = 0;
+        apply_settings();
+    }
+    unlock();
+}
+
+void app_accept_max_hr(void)
+{
+    lock();
+    if (s_ride.state != RIDE_RUNNING && s_ride.state != RIDE_PAUSED && s_status.max_hr_suggest) {
+        settings_user(&s_settings)->max_hr = s_status.max_hr_suggest;
+        s_status.max_hr_suggest = 0;
         apply_settings();
     }
     unlock();
@@ -494,6 +516,7 @@ static void user_changed(void)
 {
     s_status.ftp_suggest_w = 0;
     s_status.ftp_prev_w = 0;  // "Keep" would write the old FTP onto another rider
+    s_status.max_hr_suggest = 0;
     apply_settings();
     ble_mgr_set_user(settings_user(&s_settings)->id);  // reconnects to this user's HR strap
 }

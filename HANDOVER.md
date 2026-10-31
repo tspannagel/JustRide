@@ -87,9 +87,10 @@ Added the same day, host-tested but not built in this session (no ESP-IDF/LVGL i
 
 ## Adaptive workouts (built 2026-10-29, not yet ridden)
 
-User's choices: HR range adjusts power; an average watt goal is held (shortfalls made up later); cadence is a cue only; set up from builder blocks, generator presets (HR steady, Steady average) and a device quick start (Workouts → Adaptive ride).
+User's choices: HR range adjusts power; an average watt goal is held (shortfalls made up later); cadence is a cue only; set up from builder blocks, generator presets (HR zone 2, Steady average) and a device quick start (Workouts → Zone ride).
 - `.zwo`: `SteadyState` with `JrHrLow/JrHrHigh`, `JrAvg="1"`, `JrCadLow/JrCadHigh`, `JrMin/JrMax` (FTP fractions). Parsed into `goal_t` (≤ 16 per workout, `segment_t.goal` 1-based). Zwift ignores the attributes.
 - Controller in `ride.c` (`adapt_update`, once per recorded second, host-tested): HR above range −5 W / 20 s (−10 W if > 5 bpm above), below +5 W / 20 s (not in hold-average parts); no HR → never raises, after 60 s back towards plan; hold-average spreads the shortfall over the remaining part (≥ 60 s), capped by the HR ceiling. Always within the part's bounds (default −30 % / +15 %, ≥ 30 % FTP) and Max ERG; sent in 5 W steps. Cadence: beep after 5 s out of range, ≤ 1 per minute.
+- HR zones (2026-10-31, user: % of max HR, max HR offered after rides): 5 zones as the stats page (`metrics_hr_zone`, < 60/70/80/90 %); to ride in one, Z1 = 50–60 % … Z5 = 90–100 % (`metrics_hr_zone_pct`). `JrHrLow/JrHrHigh` both ≤ 1 are fractions of max HR (`goal_t.hr_pct`); `ride.c` turns them into bpm with `ride_config_t.max_hr` (`goal_hr`), so files, plans and the quick start follow the rider's current max HR. Ride screen shows the HR zone; summary offers "Set max HR" when the ride's best 10 s HR (`max_hr_peak`, every second with HR) beats it, never applied silently. Old bpm files still work. Not done: HR-reserve/LTHR zones.
 - To verify on the bike: HR step sizes feel right (KICKR response lag), the cadence beep isn't annoying, hold-average after a pause.
 - Not done: interval-failure rules (lower the next repeat), learning from adjustments in the web app.
 

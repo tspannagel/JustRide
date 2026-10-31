@@ -121,6 +121,16 @@ export const ZONES = [
 ];
 export const zoneOf = (frac) => ZONES.findIndex((z) => frac < z.max);
 export const zoneColor = (i) => `var(--z${i + 1})`;
+// Heart-rate zones by % of max HR, as on the device (metrics_hr_zone): a zone is the range
+// to ride in it (Z1 from 50 %). Adaptive blocks store them as fractions of max HR, so they
+// follow the rider's max HR. Colours: style.css --h1..--h5.
+export const HR_ZONES = [
+  { name: 'Recovery', lo: 0.5, hi: 0.6 }, { name: 'Endurance', lo: 0.6, hi: 0.7 }, { name: 'Aerobic', lo: 0.7, hi: 0.8 },
+  { name: 'Threshold', lo: 0.8, hi: 0.9 }, { name: 'Maximum', lo: 0.9, hi: 1.0 },
+];
+// Zone index of a heart rate, in per mille like the device (no float edge at 70 %)
+export const hrZoneOf = (bpm, maxHr) => Math.min(4, Math.max(0, Math.floor((Math.floor((bpm * 1000) / maxHr) - 500) / 100)));
+export const hrOfPct = (frac, maxHr) => Math.round(frac * maxHr);
 
 // ---- Formatting -------------------------------------------------------------------
 

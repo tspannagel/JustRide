@@ -244,7 +244,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td>FTP</td><td>±5 W</td><td>50–600 W</td><td>Workout targets, zones, IF and TSS</td></tr>
   <tr><td>Max ERG</td><td>±50 W</td><td>100–1500 W</td><td>Highest ERG target the device will ever send for this rider</td></tr>
   <tr><td>Weight</td><td>±1 kg</td><td>30–200 kg</td><td>W/kg in the statistics</td></tr>
-  <tr><td>Max HR</td><td>±1 bpm</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>
+  <tr><td>Max HR</td><td>±1 bpm</td><td>100–230</td><td>Heart-rate zones: ride screen, zone rides, statistics</td></tr>
 </table></div>
 <p>Weight doesn't change how hard the trainer feels: the trainer's simulation protocol has no weight field.</p>
 
@@ -265,6 +265,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 
 <h3 id="ftp">FTP from your rides</h3>
 <p>After every ride of 20 minutes or longer, the device takes 95 % of your best 20-minute power in that ride. If that is higher than your current FTP, the summary screen offers <span class="btn">Set FTP to … W</span> (see <a href="#after">After the ride</a>). One tap accepts it; otherwise nothing changes. It is never applied on its own, because a single bad power reading would otherwise raise every future ERG target.</p>
+<p>Max HR works the same way: if you held a higher heart rate than your max HR for 10 seconds in a ride, the summary offers <span class="btn">Set max HR to … bpm</span>. Your heart-rate zones move with it. A single spike from the strap doesn't count.</p>
 <p>The web app shows the same estimate over all your rides (<a href="#webapp-power">Power</a>).</p>
 
 <!-- ------------------------------------------------------------------ -->
@@ -284,7 +285,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <figure class="device"><img src="img/ride-paused.png" alt="Ride screen with an orange frame around the power card, caption PAUSED, and a Resume button"><figcaption>Paused: orange frame; the trainer is at its lowest resistance.</figcaption></figure>
 </div>
 <p>In an ERG segment the power number turns <b>green</b> while you are within 5 % (at least 5 W) of the target.</p>
-<p><b>Zones and laps:</b> next to <i>POWER</i> you see your power zone (Z1–Z7 by % of FTP, the same zones as in the web app) and how long you've been in that zone this ride. When a lap or a workout interval ends, the line under the cards shows it for 10 seconds: <i>Interval 3 done: 0:10:00 251 W avg 156 bpm</i>. Laps and intervals shorter than 5 seconds (a quick skip) aren't shown.</p>
+<p><b>Zones and laps:</b> next to <i>POWER</i> you see your power zone (Z1–Z7 by % of FTP, the same zones as in the web app) and how long you've been in that zone this ride. The heart-rate card shows your heart-rate zone (Z1–Z5 by % of max HR). When a lap or a workout interval ends, the line under the cards shows it for 10 seconds: <i>Interval 3 done: 0:10:00 251 W avg 156 bpm</i>. Laps and intervals shorter than 5 seconds (a quick skip) aren't shown.</p>
 <p><b>Auto-pause:</b> stop pedalling and let the flywheel slow down below 5 km/h, and after 3 seconds the ride pauses by itself (<i>PAUSED - PEDAL TO RESUME</i>, lowest resistance, timer stops). Pedal at 30 rpm or more for 2 seconds and it carries on. Coasting downhill with the flywheel still turning doesn't pause. A pause you tapped yourself only ends with <span class="btn">Resume</span>, so the trainer never picks up just because a pedal turns while you're off the bike. There's no auto-pause in the ramp of an FTP test.</p>
 <div class="scroll"><table>
   <tr><th>Control</th><th>Free ride / free segment</th><th>ERG workout segment</th></tr>
@@ -321,10 +322,10 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 
 <h3 id="after">After the ride</h3>
 <div class="shots">
-  <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; Set FTP to 262 W and Done buttons"><figcaption>Summary, with an FTP offer after a strong 20 minutes.</figcaption></figure>
+  <figure class="device"><img src="img/summary.png" alt="Ride finished screen: tiles for time, distance, energy, average power, NP, max power, TSS, IF, average heart rate; Saved; FTP 262 W, Max HR 191 and Done buttons"><figcaption>Summary, with FTP and max HR offers after a hard ride.</figcaption></figure>
   <figure class="device"><img src="img/summary-ftp-test.png" alt="Ride finished after an FTP test: best minute 316 W, your FTP is now 237 W; Keep old FTP 200 W and Done buttons"><figcaption>After an FTP test.</figcaption></figure>
 </div>
-<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears; after an FTP test the new FTP is already set and <span class="btn">Keep old FTP … W</span> undoes it (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
+<p>The summary shows time, distance, energy, average, normalized and maximum power, TSS, IF and average heart rate, and at the top right whether the ride was saved. If the ride suggests a higher FTP, <span class="btn">Set FTP to … W</span> appears, and <span class="btn">Set max HR to … bpm</span> if you went above your max HR (both buttons get shorter labels when they appear together); after an FTP test the new FTP is already set and <span class="btn">Keep old FTP … W</span> undoes it (see <a href="#ftp">FTP from your rides</a> and <a href="#ftptest">FTP test</a>). Tap <span class="btn">Done</span>.</p>
 <p>The ride is saved as <code>.csv</code> and <code>.fit</code> in the rider's folder <code>/rides/&lt;id&gt;/</code>. Rides shorter than 60 seconds are discarded.</p>
 <p>If the power fails mid-ride, the ride is not lost: everything up to the last 10 seconds is on the card, and the FIT file and summary are completed on the next start, for the rider who was riding.</p>
 
@@ -409,14 +410,14 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 </ul>
 <p>Tap <span class="btn">Start workout</span> to ride it, or <span class="btn">‹</span> to go back. During the ride a small copy of the profile sits under the timer: the part you have done is dimmed and a white line marks where you are.</p>
 
-<h3 id="adaptive">Adaptive rides: ride to a goal</h3>
+<h3 id="adaptive">Zone rides and adaptive parts: ride to a goal</h3>
 <div class="shots">
-  <figure class="device"><img src="img/adaptive-setup.png" alt="Adaptive ride screen: duration, power and heart-rate range steppers, hold average switch, Next button"><figcaption>Setting the goals.</figcaption></figure>
-  <figure class="device"><img src="img/ride-adaptive.png" alt="Ride screen of an adaptive part: target line with average and HR range, HR and cadence coloured by range"><figcaption>Riding an adaptive part.</figcaption></figure>
+  <figure class="device"><img src="img/adaptive-setup.png" alt="Zone ride screen: duration, power with its power zone, heart-rate zone 2 with 111-130 bpm, hold average switch, Next button"><figcaption>Setting the goals.</figcaption></figure>
+  <figure class="device"><img src="img/ride-adaptive.png" alt="Ride screen of an adaptive part: target line with HR zone 2 and its bpm, heart rate orange above the zone, HR card shows zone 3"><figcaption>Riding in heart-rate zone 2.</figcaption></figure>
 </div>
-<p>In an adaptive part the device changes the ERG target while you ride, to meet goals you set. Start one with <span class="btn">Workouts → Adaptive ride: set goals</span>: choose the duration, the power and a heart-rate range (set it below 100 bpm to switch it off) and whether to <b>hold the average</b>, then <span class="btn">Next</span> shows the preview. The ride is 10 min warm-up, the adaptive part, and 5 min cool-down. Adaptive parts can also be built in the web app (<a href="#webapp-workouts">7.4</a>) and combined with normal parts.</p>
+<p>In an adaptive part the device changes the ERG target while you ride, to meet goals you set. For zone training, start one with <span class="btn">Workouts → Zone ride: HR zone, power, average</span>: choose the duration, the power (its power zone is shown next to it), a <b>heart-rate zone</b> (Z1–Z5, or <i>Off</i> below Z1) and whether to <b>hold the average</b>, then <span class="btn">Next</span> shows the preview. The zone is stored as % of max HR, not as bpm: the device works out the bpm from the max HR of the rider who starts the ride, so a zone 2 workout stays right when your max HR changes or someone else rides it. The ride is 10 min warm-up, the adaptive part, and 5 min cool-down. Adaptive parts can also be built in the web app (<a href="#webapp-workouts">7.4</a>) and combined with normal parts.</p>
 <ul>
-  <li><b>Heart-rate range:</b> above the range the target drops by 5 W every 20 s (10 W when you're more than 5 bpm above); below it, it rises by 5 W every 20 s. Without a heart-rate signal it never rises, and after a minute it goes back towards the planned power.</li>
+  <li><b>Heart-rate zone or range:</b> above the range the target drops by 5 W every 20 s (10 W when you're more than 5 bpm above); below it, it rises by 5 W every 20 s. Without a heart-rate signal it never rises, and after a minute it goes back towards the planned power.</li>
   <li><b>Hold the average:</b> if you fell short (for example because of the HR limit), the target is raised later to make up for it, spread over the rest of the part (at least one minute) and by at most 5 W every 10 seconds, never in one jump. Seconds where you stop pedalling (to drink, say) and paused time don't count as falling short. In this mode the HR range only limits, it never raises.</li>
   <li><b>Cadence range</b> (web app only): a cue, never a power change. The cadence turns orange and the device beeps once when you're out of range for 5 s, at most once a minute.</li>
 </ul>
@@ -455,7 +456,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td><code>IntervalsT</code></td><td><code>Repeat</code>, <code>OnDuration</code>, <code>OffDuration</code>, <code>OnPower</code>, <code>OffPower</code></td><td>repeated on/off pairs</td></tr>
   <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: free ride with virtual gears for that time</td></tr>
   <tr><td><code>workout</code> (JustRide only)</td><td><code>JrRampTest="1"</code></td><td>marks an FTP ramp test: the device replaces the segments with its own ramp for the active rider (see <a href="#ftptest">FTP test</a>). The generator writes it for <i>FTP ramp test</i></td></tr>
-  <tr><td><code>SteadyState</code> (adaptive, JustRide only)</td><td><code>JrHrLow</code>, <code>JrHrHigh</code> (bpm), <code>JrAvg="1"</code> (hold the average), <code>JrCadLow</code>, <code>JrCadHigh</code> (rpm), <code>JrMin</code>, <code>JrMax</code> (bounds, fraction of FTP)</td><td>adaptive part (see <a href="#adaptive">Adaptive rides</a>); Zwift ignores these attributes and rides it as a steady part. At most 16 per workout</td></tr>
+  <tr><td><code>SteadyState</code> (adaptive, JustRide only)</td><td><code>JrHrLow</code>, <code>JrHrHigh</code> (bpm, or fractions of max HR when both are 1 or less, e.g. <code>0.6</code>–<code>0.7</code> for HR zone 2), <code>JrAvg="1"</code> (hold the average), <code>JrCadLow</code>, <code>JrCadHigh</code> (rpm), <code>JrMin</code>, <code>JrMax</code> (bounds, fraction of FTP)</td><td>adaptive part (see <a href="#adaptive">Adaptive rides</a>); Zwift ignores these attributes and rides it as a steady part. At most 16 per workout</td></tr>
   <tr><td>any of the above</td><td><code>Cadence</code> (rpm), <code>CadenceResting</code> (rpm, for <code>IntervalsT</code> off parts)</td><td>cadence shown as a target on the ride screen</td></tr>
 </table></div>
 <p>Limits: up to 200 segments (each interval repeat counts as two), 10 hours per segment, 300 % FTP. Whatever a file says, ERG targets never go above the rider's <i>Max ERG</i>. Elements the device doesn't know (text messages, <code>textevent</code>, …) are ignored. Name files without special characters, e.g. <code>threshold_2x20.zwo</code>; underscores are shown as spaces.</p>
@@ -489,8 +490,8 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p>Left: the workouts on the device. Click one to edit it. Right: the editor with the profile (coloured by power zone), length, training load (TSS), intensity (IF), average power and work for your FTP.</p>
 <ul>
   <li><b>Blocks:</b> warm-up, steady, intervals (repeats × on/off), ramp, free ride (no target, you ride by feel), adaptive and cool-down. Power is in % of FTP, so the workout fits whoever rides it; the watts next to each field are for the FTP shown below the profile. Times are minutes:seconds. Arrows move a block, the copy icon duplicates it.</li>
-  <li><b>Adaptive</b> blocks take a power plus any of: <i>an average to hold</i>, a heart-rate range, a cadence cue range, and the bounds the power may move between (empty = default). The profile shows the bounds as a dashed band. How the device steers is described in <a href="#adaptive">Adaptive rides</a>.</li>
-  <li><span class="btn">Generate</span> builds a workout for you: pick a type (recovery, endurance, HR steady, steady average, tempo, sweet spot, threshold, VO2max, sprints, FTP ramp test), length and difficulty. <b>HR steady</b> is endurance steered by your heart rate (range from your max HR); <b>Steady average</b> holds an average power with an HR ceiling and a cadence cue.</li>
+  <li><b>Adaptive</b> blocks take a power plus any of: <i>an average to hold</i>, a heart-rate goal (a zone Z1–Z5, another range in % of max HR, or fixed bpm; zones and % follow the rider's max HR on the day, the bpm next to them are for the active rider), a cadence cue range, and the bounds the power may move between (empty = default). The profile shows the bounds as a dashed band. How the device steers is described in <a href="#adaptive">Adaptive rides</a>.</li>
+  <li><span class="btn">Generate</span> builds a workout for you: pick a type (recovery, endurance, HR zone 2, steady average, tempo, sweet spot, threshold, VO2max, sprints, FTP ramp test), length and difficulty. <b>HR zone 2</b> is endurance steered by your heart rate, in heart-rate zone 2; <b>Steady average</b> holds an average power with an HR ceiling and a cadence cue.</li>
   <li><b>Adapt to me</b> (on by default) uses your history: targets are 3–6 % lower when your form shows you're tired and 2 % higher when you're fresh; VO2max and sprint targets come from your own 5-minute and 1-minute bests. The description says what was adapted.</li>
   <li><span class="btn">Save to device</span> writes the <code>.zwo</code> to the card; it appears on the device under <span class="btn">Workouts</span> right away. <span class="btn">Download</span> saves it for Zwift or elsewhere, <span class="btn">Import .zwo</span> opens a file from your computer.</li>
 </ul>
@@ -566,7 +567,7 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   <tr><td><code>users[].ftp_known</code></td><td>false</td><td>true/false</td><td><code>false</code>: the FTP is still the default guess, so the device and web app suggest the <a href="#ftptest">FTP test</a>. Becomes <code>true</code> when you accept a result or enter an FTP. Missing (older files): <code>true</code> unless the FTP is 200</td></tr>
   <tr><td><code>users[].max_erg_w</code></td><td>600</td><td>100–1500</td><td>Highest ERG target the device will ever send</td></tr>
   <tr><td><code>users[].weight_kg</code></td><td>75</td><td>30–200</td><td>W/kg in the statistics</td></tr>
-  <tr><td><code>users[].max_hr</code></td><td>185</td><td>100–230</td><td>Heart-rate zones in the statistics</td></tr>
+  <tr><td><code>users[].max_hr</code></td><td>185</td><td>100–230</td><td>Heart-rate zones (ride screen, zone rides, statistics)</td></tr>
   <tr><td><code>crr</code></td><td>0.004</td><td>0.001–0.02</td><td>Rolling resistance sent to the trainer in free ride</td></tr>
   <tr><td><code>cw</code></td><td>0.51</td><td>0.1–2.0</td><td>Wind resistance coefficient (kg/m) in free ride</td></tr>
   <tr><td><code>wifi_ssid</code>, <code>wifi_password</code></td><td>empty</td><td></td><td>Your home Wi-Fi</td></tr>
@@ -640,7 +641,7 @@ tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only,
   <tr><td>Z6 Anaerobic: 120–150 %</td><td></td></tr>
   <tr><td>Z7 Neuromuscular: 150 % and above</td><td></td></tr>
 </table></div>
-<p>The lower limit belongs to the zone (exactly 75 % is Z3). Time in zone counts seconds with a known value. The workout profile on the device uses the same power zones as colours.</p>
+<p>The lower limit belongs to the zone (exactly 75 % is Z3). Time in zone counts seconds with a known value. The workout profile on the device uses the same power zones as colours. To <i>ride</i> in a heart-rate zone (zone rides, adaptive blocks) Z1 is 50–60 % and Z5 is 90–100 % of max HR.</p>
 
 <h3>Heart-rate drift (Pa:HR)</h3>
 <p>The ride is split into a first and second half by time. For each half, using only seconds with both power and heart rate: average power ÷ average heart rate. Drift = first half ÷ second half − 1. Around 0 % means your heart rate stayed in step with your power; above about 5 % on a steady endurance ride means your heart rate crept up (fatigue, heat, too little to drink). It says little about interval workouts.</p>

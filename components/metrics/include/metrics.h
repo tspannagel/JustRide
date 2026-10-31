@@ -7,6 +7,7 @@
 #include "jr_types.h"
 
 #define NP_WINDOW_S 30
+#define METRICS_HR_PEAK_S 10  // max_hr_peak: HR held this long, so one bad reading isn't a peak
 
 typedef struct {
     uint32_t n;            // samples (= timer seconds)
@@ -20,6 +21,10 @@ typedef struct {
     uint64_t sum_hr;
     uint32_t n_hr;
     int16_t max_hr;
+    uint8_t hr_ring[METRICS_HR_PEAK_S];  // last seconds of known HR, for max_hr_peak
+    uint16_t hr_run;                     // seconds in a row with HR
+    uint16_t hr_ring_sum;
+    int16_t max_hr_peak;
     uint64_t sum_cad10;
     uint32_t n_cad;
     uint64_t distance_mm;
@@ -36,6 +41,7 @@ typedef struct {
     uint32_t kj;
     int16_t avg_hr;       // 0 if no HR
     int16_t max_hr;
+    int16_t max_hr_peak;  // best METRICS_HR_PEAK_S average with HR in every second, 0 if none
     uint16_t avg_cad10;   // over pedalling seconds
     uint32_t distance_m;
 } metrics_summary_t;
@@ -56,6 +62,15 @@ uint16_t metrics_ftp_estimate(const int16_t bests[METRICS_N_BESTS]);
 // -1 for unknown power
 #define METRICS_N_ZONES 7
 int metrics_zone(int power_w, uint16_t ftp_w);
+
+// Heart-rate zone 0..4 by % of max HR (as the web app: < 60, 70, 80, 90 %, above);
+// -1 for unknown HR
+#define METRICS_N_HR_ZONES 5
+int metrics_hr_zone(int hr_bpm, uint8_t max_hr);
+// Range to ride in heart-rate zone z (0..4), % of max HR: 50-60, 60-70, ... 90-100
+void metrics_hr_zone_pct(int z, uint8_t *lo_pct, uint8_t *hi_pct);
+// pct % of max HR in bpm, rounded
+uint8_t metrics_hr_of_pct(uint8_t pct, uint8_t max_hr);
 
 // FTP from a ramp test: 75 % of the best minute; 0 if the ride is shorter than 1 min.
 uint16_t metrics_ramp_ftp(const int16_t bests[METRICS_N_BESTS]);

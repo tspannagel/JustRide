@@ -158,6 +158,25 @@ static void test_adaptive_goals(void)
         CHECK_EQ(g->max_pm, 800);
     }
     CHECK(workout_goal(&w, 3) == NULL);
+
+    // Fractions of max HR: an HR zone that follows the rider
+    const char *zone = "<workout_file><workout>"
+                       "<SteadyState Duration=\"1800\" Power=\"0.65\" JrHrLow=\"0.6\" JrHrHigh=\"0.7\"/>"
+                       "<SteadyState Duration=\"600\" Power=\"0.7\" JrHrLow=\"0.9\" JrHrHigh=\"1.5\"/>"
+                       "<SteadyState Duration=\"600\" Power=\"0.7\" JrHrLow=\"0.6\" JrHrHigh=\"150\"/>"
+                       "</workout></workout_file>";
+    workout_t wz;
+    CHECK(zwo_parse(zone, strlen(zone), &wz));
+    g = workout_goal(&wz, 0);
+    CHECK(g && g->hr_pct && g->hr_lo == 60 && g->hr_hi == 70);
+    g = workout_goal(&wz, 1);  // above 1: bpm (1-2 bpm is no range anyone rides), not 150 % of max HR
+    CHECK(g && !g->hr_pct);
+    g = workout_goal(&wz, 2);  // mixed: bpm
+    CHECK(g && !g->hr_pct && g->hr_hi == 150);
+    workout_t wp = {0};
+    workout_add_goal(&wp, 650, (goal_t){.hr_lo = 120, .hr_hi = 90, .hr_pct = true});
+    CHECK(wp.goals[0].hr_pct && wp.goals[0].hr_lo == 90 && wp.goals[0].hr_hi == 100);  // ordered, <= 100 %
+
     workout_pos_t pos;
     workout_at(&w, 400, &pos);
     CHECK_EQ(pos.goal, 1);
