@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <time.h>
 #include "app.h"
 #include "ble_mgr.h"
@@ -284,12 +285,17 @@ static lv_obj_t *metric(lv_obj_t *parent, const char *icon, const char *name, ui
 
 // ---- Workout profile ------------------------------------------------------------
 
-// Zone colours by % of FTP, same zones and colours as the web app
-static uint32_t zone_color(uint16_t pm)
+// Zone colours by % of FTP, same zones and colours as the web app; the last one is
+// for free-ride parts in the workout list
+static const uint32_t ZONE_RGB[8] = {0x6B7385, 0x3987E5, 0x1FB57F, 0xE8B100, 0xEB6834, 0xE34948, 0xA07CF0, C_MUTED};
+#define ZONE_FREE 7
+
+static uint8_t zone_of(uint16_t pm)
 {
-    return pm < 550 ? 0x6B7385 : pm < 750 ? 0x3987E5 : pm < 900 ? 0x1FB57F : pm < 1050 ? 0xE8B100
-         : pm < 1200 ? 0xEB6834 : pm < 1500 ? 0xE34948 : 0xA07CF0;
+    return pm < 550 ? 0 : pm < 750 ? 1 : pm < 900 ? 2 : pm < 1050 ? 3 : pm < 1200 ? 4 : pm < 1500 ? 5 : 6;
 }
+
+static uint32_t zone_color(uint16_t pm) { return ZONE_RGB[zone_of(pm)]; }
 
 typedef struct {
     const workout_t *w;
@@ -323,11 +329,13 @@ static void blur(const int16_t *in, int16_t *out, int n, int r)
 }
 
 // Gradient colours for routes, the web app's ramp: < 2, 4, 6, 8, 10 %, steeper
-static uint32_t grade_color(int16_t g)
+// (the zone colours from blue on)
+static uint8_t grade_zone(int16_t g)
 {
-    return g < 200 ? 0x3987E5 : g < 400 ? 0x1FB57F : g < 600 ? 0xE8B100 : g < 800 ? 0xEB6834 : g < 1000 ? 0xE34948
-                                                                                                 : 0xA07CF0;
+    return g < 200 ? 1 : g < 400 ? 2 : g < 600 ? 3 : g < 800 ? 4 : g < 1000 ? 5 : 6;
 }
+
+static uint32_t grade_color(int16_t g) { return ZONE_RGB[grade_zone(g)]; }
 
 // A route's elevation, one column per pixel coloured by gradient; done part dimmed,
 // marker at pos_m. Solid fills (no gradients on the dark surface: RGB565 bands).
@@ -634,7 +642,7 @@ static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_e
 {
     lv_obj_t *b = lv_list_add_button(l, icon, text);
     lv_obj_add_style(b, &st_btn, 0);
-    lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_ACCENT), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_ACCENT), 0);  // the icon
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
     navigable(b);
     return b;
@@ -858,6 +866,176 @@ static int cmp_workout(const void *a, const void *b)
     return px != py ? py - px : strcasecmp(x, y);
 }
 
+// One row of the workout list: name, length and a small profile in zone colours
+// (routes: distance, climbing and the elevation in gradient colours).
+#define MINI_W 104
+#define MINI_H 40
+
+typedef struct {
+    char file[64];     // cache key: file name, size and time
+    long size;         // -1: never reused (ramp tests depend on the rider)
+    time_t mtime;
+    bool ok;
+    char info[40];     // "45 min  -  TSS 52", "12.4 km  -  350 m up"
+    uint8_t h[MINI_W]; // column heights, 0..255 of the graphic
+    uint8_t c[MINI_W]; // ZONE_RGB index
+} wo_item_t;
+
+// s_items: the rows on screen (index as s_paths; MAX_LIST: built-in ramp test).
+// s_cache: the previous list, so unchanged files aren't read again. Both in PSRAM.
+EXT_RAM_BSS_ATTR static wo_item_t s_items[MAX_LIST + 1], s_cache[MAX_LIST];
+static int s_n_cache;
+
+static void fmt_len(char *buf, size_t n, uint32_t s)
+{
+    unsigned min = (unsigned)((s + 30) / 60);
+    if (min < 60) {
+        snprintf(buf, n, "%u min", min);
+    } else {
+        snprintf(buf, n, "%u:%02u h", min / 60, min % 60);
+    }
+}
+
+static void mini_workout(wo_item_t *it, const workout_t *w)
+{
+    if (w->total_s == 0) {
+        return;
+    }
+    uint16_t pm[MINI_W];
+    uint32_t top = 1000;
+    for (int x = 0; x < MINI_W; x++) {
+        uint32_t t = (uint32_t)(((2ULL * x + 1) * w->total_s) / (2ULL * MINI_W));
+        workout_pos_t pos;
+        workout_at(w, t, &pos);
+        pm[x] = workout_profile_at(w, t);
+        it->c[x] = pos.kind == SEG_FREE ? ZONE_FREE : zone_of(pm[x]);
+        top = pm[x] > top ? pm[x] : top;
+    }
+    top += top / 10;  // headroom, as in the big profile
+    for (int x = 0; x < MINI_W; x++) {
+        it->h[x] = (uint8_t)(pm[x] * 255U / top);
+    }
+    char len[16];
+    fmt_len(len, sizeof(len), w->total_s);
+    if (w->ramp_test) {
+        // Nobody rides it to the end: the steps instead of a length
+        settings_t s;
+        app_get_settings(&s);
+        uint16_t start, step;
+        workout_ramp_steps(settings_user(&s)->weight_kg, &start, &step);
+        snprintf(it->info, sizeof(it->info), "From %u W, +%u W every minute", start, step);
+    } else {
+        workout_est_t est;
+        workout_estimate(w, &est);
+        snprintf(it->info, sizeof(it->info), "%s  -  TSS %u", len, (est.tss10 + 5) / 10);
+    }
+}
+
+static void mini_route(wo_item_t *it, const route_t *r)
+{
+    uint32_t len = route_length_m(r);
+    if (len == 0) {
+        return;
+    }
+    int32_t lo = r->ele_cm[0], hi = r->ele_cm[0];
+    for (uint32_t i = 1; i < r->n; i++) {
+        lo = r->ele_cm[i] < lo ? r->ele_cm[i] : lo;
+        hi = r->ele_cm[i] > hi ? r->ele_cm[i] : hi;
+    }
+    int32_t range = hi - lo < 5000 ? 5000 : hi - lo;  // at least 50 m: flat routes stay flat
+    for (int x = 0; x < MINI_W; x++) {
+        uint32_t d = (uint32_t)(((2ULL * x + 1) * len) / (2ULL * MINI_W));
+        it->h[x] = (uint8_t)(40 + (int64_t)(route_ele_cm(r, d) - lo) * 215 / range);  // a floor under the line
+        it->c[x] = grade_zone(route_grade(r, d));
+    }
+    route_info_t i;
+    route_info(r, &i);
+    snprintf(it->info, sizeof(it->info), "%lu.%lu km  -  %lu m up", (unsigned long)(i.length_m / 1000),
+             (unsigned long)(i.length_m % 1000 / 100), (unsigned long)i.climb_m);
+}
+
+// Reads one file for its row, or takes the row from the previous list if the file is unchanged.
+// s_preview and s_route_pv are free while the list is built: used as scratch.
+static void load_item(wo_item_t *it, const char *path)
+{
+    const char *file = strrchr(path, '/') + 1;
+    struct stat st;
+    bool have = stat(path, &st) == 0;
+    for (int i = 0; have && i < s_n_cache; i++) {
+        if (s_cache[i].size == (long)st.st_size && s_cache[i].mtime == st.st_mtime && strcmp(s_cache[i].file, file) == 0) {
+            *it = s_cache[i];
+            return;
+        }
+    }
+    memset(it, 0, sizeof(*it));
+    snprintf(it->file, sizeof(it->file), "%s", file);
+    it->size = have ? (long)st.st_size : -1;
+    it->mtime = have ? st.st_mtime : 0;
+    if (is_route(path)) {
+        it->ok = app_read_route(path, &s_route_pv);
+        if (it->ok) {
+            mini_route(it, &s_route_pv);
+        }
+    } else {
+        it->ok = app_read_workout(path, &s_preview);
+        if (it->ok) {
+            mini_workout(it, &s_preview);
+            if (s_preview.ramp_test) {
+                it->size = -1;
+            }
+        }
+    }
+    if (!it->ok) {
+        snprintf(it->info, sizeof(it->info), "Can't read this file");
+    }
+}
+
+// Solid columns (no gradients on the dark surface: RGB565 bands), a full-colour top pixel
+static void draw_mini(lv_event_t *e)
+{
+    const wo_item_t *it = lv_event_get_user_data(e);
+    lv_obj_t *o = lv_event_get_target_obj(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_content_coords(o, &a);
+    int width = lv_area_get_width(&a), height = lv_area_get_height(&a);
+    if (width <= 0 || height <= 1) {
+        return;
+    }
+    for (int x = 0; x < width; x++) {
+        int i = x * MINI_W / width;
+        int y = a.y2 - (it->h[i] * (height - 1) + 127) / 255;
+        fill(layer, a.x1 + x, y, a.x1 + x, a.y2, ZONE_RGB[it->c[i]], LV_OPA_50);
+        fill(layer, a.x1 + x, y, a.x1 + x, y, ZONE_RGB[it->c[i]], LV_OPA_COVER);
+    }
+}
+
+// List row: icon, name over an info line, and the profile (it: NULL for none)
+static void wo_row(const char *icon, const char *name, const char *info, const wo_item_t *it, lv_event_cb_t cb,
+                   void *data)
+{
+    lv_obj_t *b = list_item(wo_list, icon, NULL, cb, data);
+    lv_obj_set_style_pad_column(b, 10, 0);
+    // Not clickable: a tap anywhere on the row goes to the button
+    lv_obj_t *col = grow(box(b, LV_FLEX_FLOW_COLUMN));
+    lv_obj_set_width(col, 0);
+    lv_obj_set_style_pad_row(col, 2, 0);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *l = label(col, &lv_font_montserrat_20, name);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    l = muted(col, &lv_font_montserrat_14, info);
+    lv_obj_set_width(l, LV_PCT(100));
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    if (it && it->ok) {
+        lv_obj_t *g = lv_obj_create(b);
+        lv_obj_remove_style_all(g);
+        lv_obj_remove_flag(g, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(g, MINI_W, MINI_H);
+        lv_obj_add_event_cb(g, draw_mini, LV_EVENT_DRAW_MAIN_END, (void *)it);
+    }
+}
+
 static void open_workouts(lv_event_t *e)
 {
     lv_obj_clean(wo_list);
@@ -878,9 +1056,16 @@ static void open_workouts(lv_event_t *e)
         closedir(d);
     }
     qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
-    list_item(wo_list, LV_SYMBOL_CHARGE, "FTP ramp test", open_ramp_test, NULL);
-    list_item(wo_list, LV_SYMBOL_SHUFFLE, "Zone ride: HR zone, power, average", open_adapt, NULL);
+
+    wo_item_t *ramp = &s_items[MAX_LIST];
+    memset(ramp, 0, sizeof(*ramp));
+    app_ramp_test(&s_preview);  // this rider's steps
+    ramp->ok = true;
+    mini_workout(ramp, &s_preview);
+    wo_row(LV_SYMBOL_CHARGE, "FTP ramp test", ramp->info, ramp, open_ramp_test, NULL);
+    wo_row(LV_SYMBOL_SHUFFLE, "Zone ride", "HR zone, power or average: you choose", NULL, open_adapt, NULL);
     for (int i = 0; i < n; i++) {
+        load_item(&s_items[i], s_paths[i]);
         char name[64];
         snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
         bool route = is_route(name);
@@ -888,8 +1073,10 @@ static void open_workouts(lv_event_t *e)
         for (char *c = name; *c; c++) {
             *c = *c == '_' ? ' ' : *c;
         }
-        list_item(wo_list, route ? LV_SYMBOL_GPS : LV_SYMBOL_PLAY, name, on_workout, s_paths[i]);
+        wo_row(route ? LV_SYMBOL_GPS : LV_SYMBOL_PLAY, name, s_items[i].info, &s_items[i], on_workout, s_paths[i]);
     }
+    memcpy(s_cache, s_items, (size_t)n * sizeof(s_items[0]));
+    s_n_cache = n;
     if (n == 0) {
         lv_label_set_text(wo_msg, "No workouts or routes in /workouts on the SD card yet");
     }
