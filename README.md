@@ -23,6 +23,17 @@ tools/vendor_stats.sh                  # once: pinned DuckDB-WASM + uPlot into w
 tools/sd_deploy.sh /Volumes/<card>     # statistics app + sample workouts
 ```
 
+## Releases
+
+Push a SemVer tag and `.github/workflows/release.yml` builds and publishes a GitHub release:
+
+```sh
+git tag v1.0.0-alpha.1 && git push origin v1.0.0-alpha.1   # anything after "-" = pre-release
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+Assets: `justride-<version>.bin` (OTA through the web app), `justride-<version>-full.bin` (first USB flash at 0x0), `justride-www-<version>.zip` (web app for the SD card, gzipped, with vendor/) and `SHA256SUMS`. The tag without the `v` becomes the firmware version (`version.txt` → `esp_app_desc`), max 31 characters.
+
 ## Host tests
 
 ```sh

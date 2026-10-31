@@ -195,6 +195,10 @@ Riders: up to 8, chosen on the home screen (only while idle). FTP is never chang
 
 stdio MCP server on the user's computer (Claude Desktop / Claude Code), not on the device (no RAM to spare, Wi-Fi off while riding, no internet). Talks to the device's HTTP API like the web app (`--device`, default `trainer.local`; `X-JustRide` on writes). Tools: list_riders, ride_history, power_bests, ride_detail (downsampled series + zones + intervals), training_load (same PMC as core.js), list_workouts, get_workout, get_plan, create_workout. Writes only new `.zwo` workouts (replace only on request, never `Plan ` names), each checked by `zwo_check` (firmware parser, compiled on first use) and against the rider's Max ERG (adaptive: JrMax or power +15 %). No rider edits, deletes, plan writes or OTA (user's decision for v1, 2026-10-31). Works with mcp 1.x (FastMCP) and 2.x (MCPServer); `JustRideError` -> `ToolError`. Logic is in the `JustRide` class, tested without the mcp library.
 
+## Releases
+
+`v*` SemVer tags (`v1.2.3`, `v1.2.3-alpha.1`; `-` = pre-release) run `.github/workflows/release.yml`: host tests, firmware with the tag as app version (`version.txt`), web app zip, GitHub release with `.bin`, merged `-full.bin`, `www` zip and `SHA256SUMS`.
+
 ## Testing
 
 - Host unit tests (Unity or plain CMake + ctest) for every pure component: FTMS parsing (all flag combinations), control point encoding, ZAP decoding from captured fixtures, ZWO parsing (sample files in `tools/`), metrics (NP/IF/TSS against known values), vshift math, CSV and FIT output (validate FIT with the FIT SDK's FitCSVTool or fitdecode).

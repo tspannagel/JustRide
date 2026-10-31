@@ -96,3 +96,6 @@ Thumbs.db
 # ---------------------------------------------------------------------------
 .claude/settings.local.json
 /docs/img/JustRide.code-workspace
+
+# Written by the release workflow (app version from the git tag)
+/version.txt
