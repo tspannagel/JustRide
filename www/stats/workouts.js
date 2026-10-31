@@ -1,12 +1,13 @@
 // Workouts: model, .zwo read/write, load estimate, profile drawing, the generator and
 // the editor view. Targets are fractions of FTP, as in .zwo, so a workout scales with
 // whoever rides it. Only the elements the device's parser knows are written.
-import { $, $$, api, esc, fmt, icon, toast, tile, zoneOf, zoneColor, ZONES } from './core.js';
+import { $, $$, api, esc, fmt, icon, toast, tile, zoneOf, zoneColor, ZONES, HR_ZONES, hrOfPct } from './core.js';
 
 // ---- Model ------------------------------------------------------------------------
 // Block: {type, dur, p, lo, hi, reps, on, off, onP, offP, cad, cadRest}
 // Adaptive block: {type: 'adaptive', dur, p, avg, hrLo, hrHi, cadLo, cadHi, min, max}: the device
-// steers the power (start p, or hold p on average) within min..max to meet the goals.
+// steers the power (start p, or hold p on average) within min..max to meet the goals. hrLo/hrHi
+// <= 1 are fractions of max HR (an HR zone, turned into bpm for the rider on the device), else bpm.
 
 export const BLOCK_TYPES = {
   warmup: { label: 'Warm-up', fields: ['dur', 'lo', 'hi'] },
@@ -25,7 +26,7 @@ const NEW_BLOCK = {
   warmup: { dur: 600, lo: 0.45, hi: 0.75 }, steady: { dur: 600, p: 0.75 },
   intervals: { reps: 4, on: 240, onP: 1.1, off: 240, offP: 0.5 }, ramp: { dur: 300, lo: 0.6, hi: 0.9 },
   free: { dur: 600 }, cooldown: { dur: 300, hi: 0.65, lo: 0.4 },
-  adaptive: { dur: 1800, p: 0.65, avg: false, hrLo: 0, hrHi: 0 },
+  adaptive: { dur: 1800, p: 0.65, avg: false, hrLo: HR_ZONES[1].lo, hrHi: HR_ZONES[1].hi },
 };
 
 export const blockDur = (b) => (b.type === 'intervals' ? b.reps * (b.on + b.off) : b.dur);
@@ -75,6 +76,16 @@ export function load(w, ftp) {
 const xmlEsc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const p3 = (v) => (Math.round(v * 1000) / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '.0');
 
+const hrAttr = (v) => (v <= 1 ? p3(v) : Math.round(v));
+
+// HR goal of an adaptive block: 'off', a zone index, 'pct' (other % of max HR) or 'bpm'
+export function hrMode(b) {
+  if (!b.hrLo || !b.hrHi) return 'off';
+  if (b.hrHi > 1) return 'bpm';
+  const z = HR_ZONES.findIndex((h) => Math.abs(h.lo - b.hrLo) < 0.001 && Math.abs(h.hi - b.hrHi) < 0.001);
+  return z >= 0 ? z : 'pct';
+}
+
 export function toZwo(w) {
   const cad = (b) => (b.cad ? ` Cadence="${Math.round(b.cad)}"` : '');
   const el = (b) => {
@@ -84,7 +95,7 @@ export function toZwo(w) {
       case 'ramp': return `<Ramp Duration="${b.dur}" PowerLow="${p3(b.lo)}" PowerHigh="${p3(b.hi)}"${cad(b)}/>`;
       case 'steady': return `<SteadyState Duration="${b.dur}" Power="${p3(b.p)}"${cad(b)}/>`;
       case 'adaptive': return `<SteadyState Duration="${b.dur}" Power="${p3(b.p)}"${b.avg ? ' JrAvg="1"' : ''}${
-        b.hrLo && b.hrHi ? ` JrHrLow="${b.hrLo}" JrHrHigh="${b.hrHi}"` : ''}${b.cadLo && b.cadHi ? ` JrCadLow="${b.cadLo}" JrCadHigh="${b.cadHi}"` : ''}${
+        b.hrLo && b.hrHi ? ` JrHrLow="${hrAttr(b.hrLo)}" JrHrHigh="${hrAttr(b.hrHi)}"` : ''}${b.cadLo && b.cadHi ? ` JrCadLow="${b.cadLo}" JrCadHigh="${b.cadHi}"` : ''}${
         b.min ? ` JrMin="${p3(b.min)}"` : ''}${b.max ? ` JrMax="${p3(b.max)}"` : ''}/>`;
       case 'free': return `<FreeRide Duration="${b.dur}"/>`;
       case 'intervals': return `<IntervalsT Repeat="${b.reps}" OnDuration="${b.on}" OffDuration="${b.off}" ` +
@@ -221,7 +232,7 @@ export const GEN_TYPES = {
   vo2: { label: 'VO2max', zone: 4, about: 'Hard 2–5 minute efforts for top-end aerobic power.' },
   anaerobic: { label: 'Sprints', zone: 5, about: 'Short all-out efforts with long recovery.' },
   ramptest: { label: 'FTP ramp test', zone: 6, about: 'From 1.5 W/kg, +0.25 W/kg every minute until you can\'t hold it; the device ends the test then. FTP = 75 % of your best minute.' },
-  hrsteady: { label: 'HR steady', zone: 1, about: 'Endurance steered by heart rate: the power follows to keep you in your HR range.' },
+  hrsteady: { label: 'HR zone 2', zone: 1, about: 'Endurance in heart-rate zone 2 (60–70 % of your max HR): the power follows your heart rate.' },
   holdavg: { label: 'Steady average', zone: 2, about: 'Holds an average power; an HR ceiling and a cadence range keep it honest.' },
 };
 
@@ -250,7 +261,6 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
   const d = Math.min(5, Math.max(1, difficulty));
   const k = (d - 3) * 0.02;            // intensity shift per difficulty step
   const P = (v) => Math.round(v * a.factor * 1000) / 1000;
-  const maxHr = ctx?.maxHr || 185;
   const total = minutes * 60;
   const blocks = [];
   let name;
@@ -286,13 +296,11 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
     case 'threshold': { const on = [360, 480, 600, 720, 900][d - 1]; sets(on, Math.round(on / 2), 0.98 + k / 2, 0.55, 'Threshold'); break; }
     case 'vo2': { const on = [120, 180, 180, 240, 300][d - 1]; sets(on, on, a.vo2 + k / 2, 0.5, 'VO2max', 100); break; }
     case 'anaerobic': sets(30, [210, 180, 150, 120, 90][d - 1], a.an + k, 0.5, 'Sprints', 110); break;
-    case 'hrsteady': {
-      const lo = Math.round(maxHr * (0.68 + k));
-      blocks.push({ type: 'adaptive', dur: main, p: P(0.65 + k), avg: false, hrLo: lo, hrHi: lo + 10 });
-      name = `HR steady ${minutes}min`; break;
-    }
+    case 'hrsteady':  // HR ranges as fractions of max HR: the device uses the rider's max HR on the day
+      blocks.push({ type: 'adaptive', dur: main, p: P(0.65 + k), avg: false, hrLo: HR_ZONES[1].lo, hrHi: HR_ZONES[1].hi });
+      name = `HR zone 2 ${minutes}min`; break;
     case 'holdavg':
-      blocks.push({ type: 'adaptive', dur: main, p: P(0.75 + k), avg: true, hrLo: Math.round(maxHr * 0.72), hrHi: Math.round(maxHr * (0.85 + k)), cadLo: 85, cadHi: 95 });
+      blocks.push({ type: 'adaptive', dur: main, p: P(0.75 + k), avg: true, hrLo: 0.72, hrHi: Math.round((0.85 + k) * 100) / 100, cadLo: 85, cadHi: 95 });
       name = `Steady average ${minutes}min`; break;
     default: throw new Error(`unknown type ${type}`);
   }
@@ -402,8 +410,17 @@ function blockRow(b, i) {
       case 'reps': return field('Repeats', `<input data-k="reps" type="number" min="1" max="50" value="${b.reps}" class="n">`);
       case 'cad': return field('Cadence', `<input data-k="cad" type="number" min="0" max="150" placeholder="any" value="${b.cad || ''}" class="n">`);
       case 'avg': return `<label class="field check"><span>Power is</span><div><input data-k="avg" type="checkbox"${b.avg ? ' checked' : ''}><i>an average to hold</i></div></label>`;
-      case 'hr': return field('Heart rate', `<input data-k="hrLo" type="number" min="0" max="230" placeholder="off" value="${b.hrLo || ''}" class="n"><i>–</i>
-        <input data-k="hrHi" type="number" min="0" max="230" placeholder="off" value="${b.hrHi || ''}" class="n"><i>bpm</i>`);
+      case 'hr': {
+        const m = hrMode(b), maxHr = state.ctx?.maxHr || 185;
+        const opt = (v, t) => `<option value="${v}"${String(m) === String(v) ? ' selected' : ''}>${t}</option>`;
+        const sel = `<select data-k="hrMode">${opt('off', 'Off')}${HR_ZONES.map((h, i) => opt(i, `Zone ${i + 1} · ${h.name}`)).join('')}${
+          opt('pct', '% of max HR')}${opt('bpm', 'bpm')}</select>`;
+        const bpm = m === 'off' || m === 'bpm' ? '' : `<span class="bpm" title="For a max HR of ${maxHr} bpm">${hrOfPct(b.hrLo, maxHr)}–${hrOfPct(b.hrHi, maxHr)} bpm</span>`;
+        const range = (k, v, max) => `<input data-k="${k}" type="number" min="0" max="${max}" value="${v}" class="n">`;
+        const inputs = m === 'pct' ? `${range('hrLoPct', Math.round(b.hrLo * 100), 100)}<i>–</i>${range('hrHiPct', Math.round(b.hrHi * 100), 100)}<i>%</i>`
+          : m === 'bpm' ? `${range('hrLo', b.hrLo, 230)}<i>–</i>${range('hrHi', b.hrHi, 230)}<i>bpm</i>` : '';
+        return field('Heart rate', `${sel}${inputs}${bpm}`);
+      }
       case 'cadR': return field('Cadence cue', `<input data-k="cadLo" type="number" min="0" max="150" placeholder="off" value="${b.cadLo || ''}" class="n"><i>–</i>
         <input data-k="cadHi" type="number" min="0" max="150" placeholder="off" value="${b.cadHi || ''}" class="n"><i>rpm</i>`);
       case 'bounds': return field('Steer between', `<input data-k="min" type="number" min="30" max="300" placeholder="${pct(adaptMin(b))}" value="${b.min ? pct(b.min) : ''}" class="n"><i>–</i>
@@ -443,14 +460,38 @@ function onInput(e) {
   } else if (k === 'reps') b.reps = Math.min(50, Math.max(1, Math.round(Number(t.value) || 1)));
   else if (k === 'cad') b.cad = Number(t.value) || undefined;
   else if (k === 'avg') b.avg = t.checked;
+  else if (k === 'hrMode') return setHrMode(b, t.value);
+  else if (k === 'hrLoPct' || k === 'hrHiPct') b[k.slice(0, 4)] = Math.min(1, Math.max(0.3, (Number(t.value) || 0) / 100));
   else if (['hrLo', 'hrHi', 'cadLo', 'cadHi'].includes(k)) b[k] = Math.max(0, Math.round(Number(t.value) || 0));
   else if (k === 'min' || k === 'max') b[k] = t.value === '' ? undefined : Math.min(3, Math.max(0.3, Number(t.value) / 100));
   else b[k] = Math.min(3, Math.max(0, (Number(t.value) || 0) / 100));
   state.dirty = true;
   renderStats();
+  const hb = row.querySelector('.bpm');
+  if (hb && b.hrHi <= 1) { const mh = state.ctx?.maxHr || 185; hb.textContent = `${hrOfPct(b.hrLo, mh)}–${hrOfPct(b.hrHi, mh)} bpm`; }
   const w = row.querySelector(`[data-k="${k}"] ~ .watts`);
   if (w) w.textContent = `${Math.round(b[k] * state.ftp)} W`;
   row.querySelector('.block-dur').textContent = fmt.dur(blockDur(b));
+}
+
+// Switching modes converts the range with the rider's max HR, so it stays about the same
+function setHrMode(b, mode) {
+  const maxHr = state.ctx?.maxHr || 185, was = hrMode(b);
+  if (mode === 'off') { b.hrLo = 0; b.hrHi = 0; }
+  else if (mode === 'bpm') {
+    if (was !== 'bpm') {
+      const f = was === 'off' ? HR_ZONES[1] : { lo: b.hrLo, hi: b.hrHi };
+      b.hrLo = hrOfPct(f.lo, maxHr); b.hrHi = hrOfPct(f.hi, maxHr);
+    }
+  } else if (mode === 'pct') {
+    if (was === 'bpm') { b.hrLo = Math.round((b.hrLo / maxHr) * 100) / 100; b.hrHi = Math.min(1, Math.round((b.hrHi / maxHr) * 100) / 100); }
+    else if (was === 'off') { b.hrLo = HR_ZONES[1].lo; b.hrHi = HR_ZONES[1].hi; }
+    if (hrMode(b) !== 'pct') {  // still a zone: widen it a bit so it shows as a custom range
+      if (b.hrHi < 1) b.hrHi = Math.round((b.hrHi + 0.05) * 100) / 100; else b.hrLo = Math.round((b.hrLo - 0.05) * 100) / 100;
+    }
+  } else { const z = HR_ZONES[Number(mode)]; b.hrLo = z.lo; b.hrHi = z.hi; }
+  state.dirty = true;
+  refreshRows();
 }
 
 function refreshRows() { renderStats(); $('#wo-blocks').innerHTML = state.w.blocks.map(blockRow).join(''); }
@@ -462,7 +503,6 @@ async function onClick(e) {
   if (b.dataset.open) return openFile(b.dataset.open);
   if (b.dataset.add) {
     const nb = { type: b.dataset.add, ...NEW_BLOCK[b.dataset.add] };
-    if (nb.type === 'adaptive') { const hr = state.ctx?.maxHr || 185; nb.hrLo = Math.round(hr * 0.7); nb.hrHi = nb.hrLo + 10; }
     blocks.push(nb); state.dirty = true; return refreshRows();
   }
   if (b.dataset.act) {

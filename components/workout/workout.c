@@ -48,8 +48,15 @@ uint8_t workout_add_goal(workout_t *w, uint16_t p_pm, goal_t g)
         g.cad_lo = g.cad_hi;
         g.cad_hi = t;
     }
+    if (g.hr_pct && g.hr_hi > 100) {
+        g.hr_hi = 100;
+        g.hr_lo = g.hr_lo < 100 ? g.hr_lo : 100;
+    }
     if (g.hr_lo == 0) {
         g.hr_hi = 0;  // a range needs both ends
+    }
+    if (g.hr_hi == 0) {
+        g.hr_pct = false;
     }
     if (g.cad_lo == 0) {
         g.cad_hi = 0;

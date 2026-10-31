@@ -134,9 +134,12 @@ static void add_element(workout_t *w, const char *tag, size_t len, const attrs_t
         int n = w->n;
         add(w, a->duration, a->power, a->power, a->cadence, SEG_ERG);
         if (w->n > n) {
+            // Both ends <= 1: fractions of max HR (like Zwift's power), else bpm
+            bool pct = a->hr_hi > 0 && a->hr_hi <= 1 && a->hr_lo <= 1;
             goal_t g = {
-                .hr_lo = (uint8_t)clamp_u16(a->hr_lo, 230),
-                .hr_hi = (uint8_t)clamp_u16(a->hr_hi, 230),
+                .hr_lo = (uint8_t)clamp_u16(pct ? a->hr_lo * 100 : a->hr_lo, pct ? 100 : 230),
+                .hr_hi = (uint8_t)clamp_u16(pct ? a->hr_hi * 100 : a->hr_hi, pct ? 100 : 230),
+                .hr_pct = pct,
                 .cad_lo = (uint8_t)clamp_u16(a->cad_lo, 200),
                 .cad_hi = (uint8_t)clamp_u16(a->cad_hi, 200),
                 .min_pm = clamp_u16(a->p_min * 1000, MAX_POWER_PM),

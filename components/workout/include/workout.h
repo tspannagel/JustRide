@@ -14,10 +14,12 @@ typedef enum { SEG_ERG = 0, SEG_FREE = 1 } seg_kind_t;
 
 // Goals of an adaptive segment: the device steers the ERG target within
 // [min_pm, max_pm] to meet them (see ride.h). JustRide attributes on a
-// SteadyState in the .zwo: JrHrLow, JrHrHigh, JrCadLow, JrCadHigh (bpm/rpm),
+// SteadyState in the .zwo: JrHrLow, JrHrHigh (bpm, or fractions of max HR when
+// both are <= 1: an HR zone that follows the rider), JrCadLow, JrCadHigh (rpm),
 // JrAvg="1" (Power is an average to hold), JrMin, JrMax (fractions of FTP).
 typedef struct {
-    uint8_t hr_lo, hr_hi;    // bpm, 0 = no HR goal
+    uint8_t hr_lo, hr_hi;    // bpm (hr_pct: % of max HR), 0 = no HR goal
+    bool hr_pct;             // HR range is % of the rider's max HR (ride.c turns it into bpm)
     uint8_t cad_lo, cad_hi;  // rpm, 0 = no cadence goal (cue only)
     uint16_t min_pm, max_pm; // bounds for the target, per mille of FTP
     bool hold_avg;           // the segment's power is an average to hold

@@ -83,15 +83,16 @@ static const char *s_preview_path;   // points into s_paths; NULL: built in memo
 static lv_obj_t *s_preview_from;     // screen the preview's back button returns to
 static lv_obj_t *ad_dur, *ad_power, *ad_hr, *ad_avg_label;
 static struct {
-    int min, watts, hr_lo;  // hr_lo 0: no HR range
+    int min, watts, hr_zone;  // hr_zone 1..5 (% of max HR, metrics_hr_zone_pct), 0: no HR goal
     bool hold_avg;
 } s_adapt;
 static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
 static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label, *wifi_tz, *wifi_time;
 static lv_obj_t *r_profile;
-static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_speed, *r_stats;
+static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_hr_cap, *r_speed,
+    *r_stats;
 static lv_obj_t *r_pause_label, *r_grade_minus, *r_grade_plus, *r_skip;
-static lv_obj_t *sum_saved, *sum_note, *sum_val[9], *sum_ftp_btn, *sum_ftp_label;
+static lv_obj_t *sum_saved, *sum_note, *sum_val[9], *sum_ftp_btn, *sum_ftp_label, *sum_hr_btn, *sum_hr_label;
 
 static char s_paths[MAX_LIST][80];
 
@@ -878,7 +879,7 @@ static void open_workouts(lv_event_t *e)
     }
     qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
     list_item(wo_list, LV_SYMBOL_CHARGE, "FTP ramp test", open_ramp_test, NULL);
-    list_item(wo_list, LV_SYMBOL_SHUFFLE, "Adaptive ride: set goals", open_adapt, NULL);
+    list_item(wo_list, LV_SYMBOL_SHUFFLE, "Zone ride: HR zone, power, average", open_adapt, NULL);
     for (int i = 0; i < n; i++) {
         char name[64];
         snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
@@ -979,19 +980,25 @@ static void build_settings(void)
     muted(r, &lv_font_montserrat_14, esp_app_get_description()->version);
 }
 
-// ---- Adaptive ride (quick start) ------------------------------------------------
+// ---- Zone ride (adaptive quick start) ---------------------------------------------
 // Warm-up, one adaptive part with these goals, cool-down. "Next" shows it on the
-// preview screen, which starts it. The ride steers the power (ride.c, goal_t).
+// preview screen, which starts it. The ride steers the power (ride.c, goal_t). The
+// HR zone is stored as % of max HR, so it follows the rider's max HR.
 
 enum { AD_DUR, AD_POWER, AD_HR };
-#define AD_HR_WIDTH 10
 
 static void update_adapt(void)
 {
+    settings_t s;
+    app_get_settings(&s);
+    const user_t *u = settings_user(&s);
     lv_label_set_text_fmt(ad_dur, "%d min", s_adapt.min);
-    lv_label_set_text_fmt(ad_power, "%d W", s_adapt.watts);
-    if (s_adapt.hr_lo) {
-        lv_label_set_text_fmt(ad_hr, "%d-%d bpm", s_adapt.hr_lo, s_adapt.hr_lo + AD_HR_WIDTH);
+    lv_label_set_text_fmt(ad_power, "%d W  Z%d", s_adapt.watts, metrics_zone(s_adapt.watts, u->ftp_w) + 1);
+    if (s_adapt.hr_zone) {
+        uint8_t lo, hi;
+        metrics_hr_zone_pct(s_adapt.hr_zone - 1, &lo, &hi);
+        lv_label_set_text_fmt(ad_hr, "Z%d  %u-%u bpm", s_adapt.hr_zone, metrics_hr_of_pct(lo, u->max_hr),
+                              metrics_hr_of_pct(hi, u->max_hr));
     } else {
         lv_label_set_text(ad_hr, "Off");
     }
@@ -1007,9 +1014,7 @@ static void on_adapt_step(lv_event_t *e)
     } else if (field == AD_POWER) {
         s_adapt.watts = LV_CLAMP(50, s_adapt.watts + step, RIDE_ERG_CAP_W);  // Max ERG still applies in the ride
     } else {
-        // Below 100 bpm: off; + from off: 100
-        int h = s_adapt.hr_lo ? s_adapt.hr_lo + step : 100;
-        s_adapt.hr_lo = h < 100 ? 0 : LV_MIN(h, 200);
+        s_adapt.hr_zone = LV_CLAMP(0, s_adapt.hr_zone + (step > 0 ? 1 : -1), METRICS_N_HR_ZONES);  // 0: off
     }
     update_adapt();
 }
@@ -1028,7 +1033,7 @@ static void open_adapt(lv_event_t *e)
         const user_t *u = settings_user(&s);
         s_adapt.min = 60;
         s_adapt.watts = (u->ftp_w * 65 / 100 + 2) / 5 * 5;    // endurance
-        s_adapt.hr_lo = (u->max_hr * 70 / 100 + 2) / 5 * 5;   // 70-75 % of max HR, roughly
+        s_adapt.hr_zone = 2;                                   // 60-70 % of max HR
     }
     update_adapt();
     go(scr_adapt);
@@ -1042,12 +1047,20 @@ static void on_adapt_next(lv_event_t *e)
     uint16_t pm = (uint16_t)LV_MIN(s_adapt.watts * 1000 / ftp, 3000);
     workout_t *w = &s_preview;
     memset(w, 0, sizeof(*w));
-    snprintf(w->name, sizeof(w->name), "Adaptive %d min", s_adapt.min);
+    if (s_adapt.hr_zone) {
+        snprintf(w->name, sizeof(w->name), "HR zone %d, %d min", s_adapt.hr_zone, s_adapt.min);
+    } else {
+        snprintf(w->name, sizeof(w->name), "Zone %d, %d min", metrics_zone(s_adapt.watts, (uint16_t)ftp) + 1,
+                 s_adapt.min);
+    }
+    uint8_t hr_lo = 0, hr_hi = 0;
+    if (s_adapt.hr_zone) {
+        metrics_hr_zone_pct(s_adapt.hr_zone - 1, &hr_lo, &hr_hi);
+    }
     uint16_t easy = (uint16_t)LV_MIN(450, pm * 7 / 10);
     w->seg[0] = (segment_t){.dur_s = 600, .p_start = easy, .p_end = pm, .kind = SEG_ERG};
     w->seg[1] = (segment_t){.dur_s = (uint16_t)((s_adapt.min - 15) * 60), .p_start = pm, .p_end = pm, .kind = SEG_ERG};
-    w->seg[1].goal = workout_add_goal(w, pm, (goal_t){.hr_lo = (uint8_t)s_adapt.hr_lo,
-                                                      .hr_hi = (uint8_t)(s_adapt.hr_lo ? s_adapt.hr_lo + AD_HR_WIDTH : 0),
+    w->seg[1].goal = workout_add_goal(w, pm, (goal_t){.hr_lo = hr_lo, .hr_hi = hr_hi, .hr_pct = true,
                                                       .hold_avg = s_adapt.hold_avg});
     w->seg[2] = (segment_t){.dur_s = 300, .p_start = pm, .p_end = easy, .kind = SEG_ERG};
     w->n = 3;
@@ -1064,16 +1077,16 @@ static void build_adapt(void)
     scr_adapt = screen(NULL, false);
     lv_obj_t *top = row(scr_adapt);
     lv_obj_set_user_data(scr_adapt, button(top, LV_SYMBOL_LEFT, 56, 44, on_adapt_back, NULL));
-    label(top, &lv_font_montserrat_28, "Adaptive ride");
+    label(top, &lv_font_montserrat_28, "Zone ride");
     stepper(scr_adapt, &ad_dur, "DURATION", on_adapt_step, AD_DUR, 5);
     stepper(scr_adapt, &ad_power, "POWER", on_adapt_step, AD_POWER, 5);
-    stepper(scr_adapt, &ad_hr, "HEART-RATE RANGE", on_adapt_step, AD_HR, 5);
+    stepper(scr_adapt, &ad_hr, "HEART-RATE ZONE", on_adapt_step, AD_HR, 1);
     lv_obj_t *r = row(scr_adapt);
     ad_avg_label = lv_obj_get_child(grow(button(r, "", 0, 56, on_adapt_avg, NULL)), 0);
     primary(grow(button(r, "Next " LV_SYMBOL_RIGHT, 0, 56, on_adapt_next, NULL)));
     lv_obj_t *note = muted(scr_adapt, &lv_font_montserrat_14,
-                           "HR steers the power slowly, within -30 / +15 % of it. Hold average makes up "
-                           "for easier minutes later. Max ERG always applies.");
+                           "HR zones are % of your max HR. HR steers the power slowly, within -30 / +15 % "
+                           "of it. Hold average makes up for easier minutes later. Max ERG always applies.");
     lv_obj_set_width(note, LV_PCT(100));
     lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
 }
@@ -1203,6 +1216,7 @@ static void build_ride(void)
     lv_obj_t *mid = row(scr_ride);
     r_cad = metric(mid, I_CADENCE, "CADENCE", C_CAD, "rpm");
     r_hr = metric(mid, I_HEART, "HEART RATE", C_HR, "bpm");
+    r_hr_cap = lv_obj_get_child(lv_obj_get_child(lv_obj_get_parent(lv_obj_get_parent(r_hr)), 0), 1);
     r_speed = metric(mid, I_SPEED, "SPEED", C_SPEED, "km/h");
 
     r_stats = muted(scr_ride, &lv_font_montserrat_16, "");
@@ -1324,7 +1338,10 @@ static void update_ride(const ride_view_t *v)
         if (v->hold_avg) {
             snprintf(goals, sizeof(goals), "  -  avg %d of %d W", v->seg_avg_w < 0 ? 0 : v->seg_avg_w, v->avg_goal_w);
         }
-        if (v->hr_hi) {
+        if (v->hr_hi && v->hr_goal_zone >= 0) {
+            size_t n = strlen(goals);
+            snprintf(goals + n, sizeof(goals) - n, "  -  HR Z%d %u-%u", v->hr_goal_zone + 1, v->hr_lo, v->hr_hi);
+        } else if (v->hr_hi) {
             size_t n = strlen(goals);
             snprintf(goals + n, sizeof(goals) - n, "  -  HR %u-%u", v->hr_lo, v->hr_hi);
         }
@@ -1359,6 +1376,12 @@ static void update_ride(const ride_view_t *v)
         lv_label_set_text_fmt(r_hr, "%d", v->hr_bpm);
     } else {
         lv_label_set_text(r_hr, "-");
+    }
+    // HR zone (% of the rider's max HR)
+    if (v->hr_zone >= 0) {
+        lv_label_set_text_fmt(r_hr_cap, "HR  -  Z%d", v->hr_zone + 1);
+    } else {
+        lv_label_set_text(r_hr_cap, "HEART RATE");
     }
     // Adaptive goals: green in range, orange outside
     bool hr_goal = v->adaptive && v->hr_hi && v->hr_bpm > 0, cad_goal = v->adaptive && v->cad_hi && v->cadence_rpm10 > 0;
@@ -1407,6 +1430,8 @@ static void on_ftp_btn(lv_event_t *e)
     }
 }
 
+static void on_max_hr_btn(lv_event_t *e) { app_accept_max_hr(); }
+
 static void build_summary(void)
 {
     scr_summary = screen(NULL, false);
@@ -1430,6 +1455,9 @@ static void build_summary(void)
     sum_ftp_btn = grow(button(b, "", 0, 64, on_ftp_btn, NULL));
     lv_obj_set_flex_grow(sum_ftp_btn, 3);
     sum_ftp_label = lv_obj_get_child(sum_ftp_btn, 0);
+    sum_hr_btn = grow(button(b, "", 0, 64, on_max_hr_btn, NULL));
+    lv_obj_set_flex_grow(sum_hr_btn, 3);
+    sum_hr_label = lv_obj_get_child(sum_hr_btn, 0);
     lv_obj_set_flex_grow(primary(button(b, LV_SYMBOL_OK " Done", 0, 64, on_action, (void *)ACT_DISMISS)), 2);
 }
 
@@ -1475,14 +1503,20 @@ static void update_summary(const ride_view_t *v, const app_status_t *st)
     // A test's result is already applied: offer the old value back.
     settings_t s;
     app_get_settings(&s);
-    show(sum_ftp_btn, st->ftp_suggest_w > 0 || st->ftp_prev_w > 0);
+    bool ftp = st->ftp_suggest_w > 0 || st->ftp_prev_w > 0, hr = st->max_hr_suggest > 0;
+    show(sum_ftp_btn, ftp);
     if (st->ftp_prev_w) {
-        lv_label_set_text_fmt(sum_ftp_label, LV_SYMBOL_LOOP " Keep old FTP %u W", st->ftp_prev_w);
+        lv_label_set_text_fmt(sum_ftp_label, hr ? LV_SYMBOL_LOOP " FTP %u W" : LV_SYMBOL_LOOP " Keep old FTP %u W",
+                              st->ftp_prev_w);
     } else {
-        lv_label_set_text_fmt(sum_ftp_label, "%s Set FTP to %u W",
+        lv_label_set_text_fmt(sum_ftp_label, hr ? "%s FTP %u W" : "%s Set FTP to %u W",
                               st->ftp_suggest_w > settings_user(&s)->ftp_w ? LV_SYMBOL_UP : LV_SYMBOL_DOWN,
                               st->ftp_suggest_w);
     }
+    // This ride's 10 s HR peak beat the max HR the HR zones use: offer it, never apply it silently
+    show(sum_hr_btn, hr);
+    lv_label_set_text_fmt(sum_hr_label, ftp ? LV_SYMBOL_UP " Max HR %u" : LV_SYMBOL_UP " Set max HR to %u bpm",
+                          st->max_hr_suggest);
 }
 
 // ---- Screens + refresh --------------------------------------------------------

@@ -2,7 +2,7 @@
 // Device). The CSV files the head unit writes are parsed in JS, so the app is usable
 // within a second; DuckDB-WASM (34 MB) is only loaded when the SQL console is used.
 import { $, $$, api, esc, fmt, icon, toast, tile, empty, chart, parseCsv, pmc, formState, dated, dayKey, todayKey,
-  SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor } from './core.js';
+  SUMMARY_T, BESTS_T, RIDE_T, ZONES, zoneOf, zoneColor, HR_ZONES, hrZoneOf } from './core.js';
 import { initWorkouts, showWorkouts, GEN_TYPES } from './workouts.js';
 import { initPlan, showPlan, autoSync, nextSession, readPlan } from './plan.js';
 import { initRiders, showRiders } from './riders.js';
@@ -222,8 +222,9 @@ async function rideDetail(id) {
   for (const p of pts) if (p.power_w != null) pz[zoneOf(p.power_w / ftp)]++;
   $('#ride-zones').innerHTML = zoneBars(pz, ZONES.map((z, i) => `Z${i + 1} ${z.name}`), (i) => zoneColor(i));
   const hrmax = s.user_max_hr, hz = new Array(5).fill(0);
-  if (hrmax) for (const p of pts) if (p.hr_bpm > 0) hz[Math.min(4, Math.max(0, Math.floor((p.hr_bpm / hrmax - 0.5) * 10)))]++;
-  $('#ride-hr-zones').innerHTML = hz.some(Boolean) ? zoneBars(hz, ['Z1 < 60 %', 'Z2 60–70 %', 'Z3 70–80 %', 'Z4 80–90 %', 'Z5 > 90 %'],
+  if (hrmax) for (const p of pts) if (p.hr_bpm > 0) hz[hrZoneOf(p.hr_bpm, hrmax)]++;
+  const hzLabel = (z, i) => `Z${i + 1} ${i === 0 ? '< 60' : i === 4 ? '> 90' : `${z.lo * 100}–${z.hi * 100}`} %`;
+  $('#ride-hr-zones').innerHTML = hz.some(Boolean) ? zoneBars(hz, HR_ZONES.map(hzLabel),
     (i) => `var(--h${i + 1})`) : '<p class="muted small">No heart-rate data.</p>';
   $('#ride-zones-sub').textContent = `FTP ${ftp} W at the time of the ride`;
   $('#ride-hr-sub').textContent = hrmax ? `% of max HR ${hrmax}` : '';

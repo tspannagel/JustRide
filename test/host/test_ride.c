@@ -475,6 +475,53 @@ static void test_adaptive_hr(void)
     CHECK_EQ(erg_target(), 110);
 }
 
+// An HR zone (% of max HR) becomes bpm from the rider's max HR, so one file fits every rider
+static void test_adaptive_hr_zone(void)
+{
+    uint32_t now = 1000;
+    adaptive_workout((goal_t){.hr_lo = 70, .hr_hi = 80, .hr_pct = true});  // zone 3
+    ride_config_t c = cfg;
+    c.max_hr = 200;
+    ride_init(&r, &c);
+    ride_start(&r, &awo, now, 0);
+    ride_hr(&now, 60, 130, 900, 150);
+    ride_view_t v;
+    ride_view(&r, &v);
+    CHECK(v.adaptive);
+    CHECK_EQ(v.hr_lo, 140);
+    CHECK_EQ(v.hr_hi, 160);
+    CHECK_EQ(v.hr_goal_zone, 2);
+    CHECK_EQ(v.hr_zone, 2);       // 150 of 200 = 75 %
+    CHECK_EQ(v.hr_zone_s, 60);
+    CHECK_EQ(erg_target(), 130);  // in range
+
+    // Same file, a rider with a lower max HR: 150 bpm is above their zone 3
+    c.max_hr = 170;               // 119-136 bpm
+    ride_init(&r, &c);
+    ride_start(&r, &awo, now, 0);
+    ride_hr(&now, 20, 130, 900, 150);
+    CHECK_EQ(erg_target(), 120);  // more than 5 bpm above: big step
+    ride_view(&r, &v);
+    CHECK_EQ(v.hr_hi, 136);
+
+    // A custom % range isn't a zone; no max HR in the config falls back to the default
+    adaptive_workout((goal_t){.hr_lo = 72, .hr_hi = 85, .hr_pct = true});
+    c.max_hr = 0;
+    ride_init(&r, &c);
+    ride_start(&r, &awo, now, 0);
+    ride_view(&r, &v);
+    CHECK_EQ(v.hr_goal_zone, -1);
+    CHECK_EQ(v.hr_lo, 133);       // 72 % of 185
+    CHECK_EQ(v.hr_hi, 157);
+
+    // A fixed workout part: no goal zone
+    ride_init(&r, &cfg);
+    ride_start(&r, NULL, now, 0);
+    ride_view(&r, &v);
+    CHECK_EQ(v.hr_goal_zone, -1);
+    CHECK_EQ(v.hr_zone, -1);
+}
+
 static void test_adaptive_hold_average(void)
 {
     uint32_t now = 1000;
@@ -652,6 +699,7 @@ int main(void)
     test_route_ride();
     test_race_ghost();
     test_adaptive_hr();
+    test_adaptive_hr_zone();
     test_adaptive_hold_average();
     test_adaptive_hold_average_stop_and_rise();
     test_adaptive_cadence_cue();

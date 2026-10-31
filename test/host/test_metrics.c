@@ -127,9 +127,57 @@ static void test_zones(void)
     CHECK_EQ(metrics_zone(1500, 200), 6);
 }
 
+static void test_hr_zones_and_peak(void)
+{
+    CHECK_EQ(metrics_hr_zone(-1, 190), -1);
+    CHECK_EQ(metrics_hr_zone(100, 0), -1);
+    CHECK_EQ(metrics_hr_zone(113, 190), 0);  // 59.5 %
+    CHECK_EQ(metrics_hr_zone(114, 190), 1);  // 60 %
+    CHECK_EQ(metrics_hr_zone(133, 190), 2);  // 70 %
+    CHECK_EQ(metrics_hr_zone(171, 190), 4);  // 90 %
+    CHECK_EQ(metrics_hr_zone(200, 190), 4);  // above max: still the top zone
+    uint8_t lo, hi;
+    metrics_hr_zone_pct(1, &lo, &hi);
+    CHECK_EQ(lo, 60);
+    CHECK_EQ(hi, 70);
+    metrics_hr_zone_pct(9, &lo, &hi);
+    CHECK_EQ(hi, 100);
+    CHECK_EQ(metrics_hr_of_pct(60, 185), 111);  // 111.0
+    CHECK_EQ(metrics_hr_of_pct(70, 185), 130);  // 129.5 rounds up
+
+    // Peak: one bad reading isn't a peak, 10 s in a row are; a gap restarts the window
+    metrics_t m;
+    metrics_init(&m);
+    ride_sample_t s = {.power_w = 150, .cadence_rpm10 = 900, .speed_kmh100 = -1, .hr_bpm = 150};
+    for (int i = 0; i < 30; i++) {
+        s.hr_bpm = i == 5 ? 230 : 150;  // a spike
+        metrics_add(&m, &s);
+    }
+    metrics_summary_t sum;
+    metrics_summary(&m, 200, &sum);
+    CHECK_EQ(sum.max_hr, 230);
+    CHECK_EQ(sum.max_hr_peak, 158);  // (9 x 150 + 230) / 10
+    for (int i = 0; i < 9; i++) {
+        s.hr_bpm = 190;
+        metrics_add(&m, &s);
+    }
+    s.hr_bpm = -1;
+    metrics_add(&m, &s);
+    s.hr_bpm = 190;
+    for (int i = 0; i < 9; i++) {
+        metrics_add(&m, &s);
+    }
+    metrics_summary(&m, 200, &sum);
+    CHECK_EQ(sum.max_hr_peak, 186);  // 150 + 9 x 190 in one window; never 10 x 190 across the gap
+    metrics_add(&m, &s);
+    metrics_summary(&m, 200, &sum);
+    CHECK_EQ(sum.max_hr_peak, 190);
+}
+
 int main(void)
 {
     test_zones();
+    test_hr_zones_and_peak();
     test_one_hour_at_ftp();
     test_intervals_np_above_avg();
     test_unknown_and_stopped();
