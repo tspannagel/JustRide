@@ -22,7 +22,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WWW = os.path.join(ROOT, 'www', 'stats')
 MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'application/javascript', '.css': 'text/css',
         '.wasm': 'application/wasm', '.json': 'application/json', '.csv': 'text/csv', '.zwo': 'application/xml',
-        '.route': 'text/plain'}
+        '.route': 'text/plain', '.png': 'image/png', '.svg': 'image/svg+xml',
+        '.webmanifest': 'application/manifest+json'}
 
 
 def sample(data):
