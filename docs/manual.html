@@ -552,7 +552,7 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
 
 <!-- ------------------------------------------------------------------ -->
 <h2 id="updates">8. Updates</h2>
-<p>New versions are published as releases on GitHub: <a href="https://github.com/tspannagel/JustRide/releases">github.com/tspannagel/JustRide/releases</a>. The device shows its firmware version at the bottom of <span class="btn">Settings</span>, next to <span class="btn">Forget paired devices</span>. Version numbers follow <a href="https://semver.org">SemVer</a> (<code>1.2.0</code>); a version with a dash, like <code>1.3.0-alpha.1</code> or <code>1.3.0-rc.1</code>, is a <b>pre-release</b> for testing and is marked as such on GitHub. The web app doesn't check for new versions yet: look at the releases page.</p>
+<p>New versions are published as releases on GitHub: <a href="https://github.com/tspannagel/JustRide/releases">github.com/tspannagel/JustRide/releases</a>. The device shows its firmware version at the bottom of <span class="btn">Settings</span>, next to <span class="btn">Forget paired devices</span>; the web app shows the firmware and web app versions on the <span class="btn">Device</span> page. Version numbers follow <a href="https://semver.org">SemVer</a> (<code>1.2.0</code>); a version with a dash, like <code>1.3.0-alpha.1</code> or <code>1.3.0-rc.1</code>, is a <b>pre-release</b> for testing and is marked as such on GitHub. The web app doesn't check for new versions yet: look at the releases page.</p>
 <p>Each release has these files (the names carry the version):</p>
 <table>
   <tr><th>File</th><th>For</th></tr>
@@ -565,10 +565,11 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
 
 <h3 id="update-fw">8.1 Firmware over Wi-Fi</h3>
 <ol>
-  <li>Download <code>justride-&lt;version&gt;.bin</code> from the release, or build it yourself: <code>idf.py build</code> → <code>build/justride.bin</code>.</li>
+  <li>Download <code>justride-&lt;version&gt;.bin</code> from the release (<b>not</b> the <code>-full.bin</code>: that one is only for USB, and the web app refuses it), or build it yourself: <code>idf.py build</code> → <code>build/justride.bin</code>.</li>
   <li>On the device: <span class="btn">Wi-Fi → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
   <li>In the web app open <span class="btn">Device → Choose firmware</span> and pick the <code>.bin</code>. Don't unplug the board while it says “Uploading”.</li>
-  <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one.</li>
+  <li>The web app shows the version in the file and the installed one before it uploads, and refuses if you haven't tapped <span class="btn">Allow firmware update</span>.</li>
+  <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one. The web app waits for the restart and says which version is running then: “Done: firmware … is running”, or that the device went back.</li>
 </ol>
 <p>Your riders, settings, rides and workouts are on the SD card and stay as they are; paired devices are kept too.</p>
 

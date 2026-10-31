@@ -144,7 +144,8 @@ static const char *mime(const char *path)
         {".html", "text/html"},  {".js", "application/javascript"}, {".mjs", "application/javascript"},
         {".css", "text/css"},    {".wasm", "application/wasm"},     {".json", "application/json"},
         {".csv", "text/csv"},    {".svg", "image/svg+xml"},         {".zwo", "application/xml"},
-        {".route", "text/plain"}, {".png", "image/png"},           {".webmanifest", "application/manifest+json"},
+        {".route", "text/plain"}, {".txt", "text/plain"},           {".png", "image/png"},
+        {".webmanifest", "application/manifest+json"},
     };
     const char *dot = strrchr(path, '.');
     for (size_t i = 0; dot && i < sizeof(map) / sizeof(map[0]); i++) {
@@ -451,6 +452,25 @@ static esp_err_t h_api_time(httpd_req_t *req)
         return httpd_resp_sendstr(req, "set");
     }
     return httpd_resp_sendstr(req, "kept");
+}
+
+// {"project":"justride","version":"1.0.0","idf":"v5.3.2","upload_s":0}: the running
+// firmware (the web app shows it and checks an update file against it) and the
+// seconds left in the "Allow firmware update" window, so the web app can say "tap
+// Allow first" before sending megabytes the device would refuse.
+static esp_err_t h_api_info(httpd_req_t *req)
+{
+    if (!allowed(req)) {
+        return ESP_OK;
+    }
+    const esp_app_desc_t *d = esp_app_get_description();
+    int64_t left = web_ota_allowed() ? (s_ota_until - esp_timer_get_time()) / 1000000 : 0;
+    char out[160];
+    snprintf(out, sizeof(out), "{\"project\":\"%.32s\",\"version\":\"%.32s\",\"idf\":\"%.32s\",\"upload_s\":%d}",
+             d->project_name, d->version, d->idf_ver, (int)left);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    return httpd_resp_sendstr(req, out);
 }
 
 // Request body -> path, via a temp file so a broken upload never replaces a good file
@@ -836,6 +856,7 @@ static void http_start(void)
         {.uri = "/api/users", .method = HTTP_GET, .handler = h_api_users},
         {.uri = "/api/users", .method = HTTP_POST, .handler = h_api_users_post},
         {.uri = "/api/time", .method = HTTP_POST, .handler = h_api_time},
+        {.uri = "/api/info", .method = HTTP_GET, .handler = h_api_info},
         {.uri = "/api/workout.ics", .method = HTTP_GET, .handler = h_workout_ics},
         {.uri = "/rides/*", .method = HTTP_GET, .handler = h_rides_file},
         {.uri = "/api/workouts", .method = HTTP_GET, .handler = h_api_workouts},
