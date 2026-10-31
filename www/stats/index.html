@@ -32,6 +32,7 @@
     <a href="#riders" data-view="riders" data-icon="user"><span>Riders</span></a>
     <a href="#device" data-view="device" data-icon="cpu"><span>Device</span></a>
   </nav>
+  <a class="rail-link" href="manual/index.html" target="_blank" rel="noopener" data-icon="book"><span>Manual</span></a>
   <label class="rider" data-icon="user"><select id="user" aria-label="Rider"></select></label>
 </aside>
 
@@ -205,11 +206,12 @@
     <div id="riders-list" class="riders"></div>
   </section>
   <section id="device" class="view" hidden>
-    <header class="page-head"><div><span class="eyebrow">Head unit</span><h1>Device</h1></div></header>
+    <header class="page-head"><div><span class="eyebrow">Head unit</span><h1>Device</h1></div>
+      <div class="actions"><a class="btn ghost" href="manual/index.html" target="_blank" rel="noopener" data-icon="book">Manual</a></div></header>
     <div class="grid-2">
       <div class="card"><h2>Upload workouts</h2><p class="small muted">Zwift .zwo files, up to 64 KB each. They appear on the device under Workouts.</p>
         <label class="btn ghost file-btn" data-icon="upload">Choose .zwo files<input type="file" id="up-zwo" accept=".zwo" multiple hidden></label></div>
-      <div class="card"><h2>Firmware update</h2><p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the <code>build/justride.bin</code> file within 5 minutes.</p>
+      <div class="card"><h2>Firmware update</h2><p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the firmware file (<code>justride-&lt;version&gt;.bin</code> from a release, or <code>build/justride.bin</code>) within 5 minutes.</p>
         <label class="btn ghost file-btn" data-icon="cpu">Choose firmware<input type="file" id="up-ota" accept=".bin" hidden></label>
         <p class="small" id="ota-status"></p></div>
     </div>

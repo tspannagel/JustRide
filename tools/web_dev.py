@@ -174,6 +174,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if path.startswith('/stats/'):
             rel = path[len('/stats/'):] or 'index.html'
+            if rel.startswith('manual/'):  # deploy scripts copy docs/ there
+                rel = rel[len('manual/'):] or 'index.html'
+                rel = 'manual.html' if rel == 'index.html' else rel
+                return self.file(os.path.join(ROOT, 'docs', os.path.normpath(rel).lstrip('./')))
             return self.file(os.path.join(WWW, os.path.normpath(rel).lstrip('./')))
         body = self.rfile.read(int(self.headers.get('Content-Length') or 0)) if self.command in ('POST',) else None
         if self.device:

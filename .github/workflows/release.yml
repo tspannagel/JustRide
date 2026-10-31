@@ -79,6 +79,9 @@ jobs:
           tools/vendor_stats.sh
           mkdir -p out/www
           cp -R www/stats out/www/stats
+          mkdir -p out/www/stats/manual
+          cp docs/manual.html out/www/stats/manual/index.html
+          cp -R docs/img out/www/stats/manual/img
           find out/www -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) -exec gzip -9 -n {} \;
           printf '%s\n' "$VERSION" > out/www/stats/version.txt
 
