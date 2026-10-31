@@ -144,7 +144,7 @@ static const char *mime(const char *path)
         {".html", "text/html"},  {".js", "application/javascript"}, {".mjs", "application/javascript"},
         {".css", "text/css"},    {".wasm", "application/wasm"},     {".json", "application/json"},
         {".csv", "text/csv"},    {".svg", "image/svg+xml"},         {".zwo", "application/xml"},
-        {".route", "text/plain"},
+        {".route", "text/plain"}, {".png", "image/png"},           {".webmanifest", "application/manifest+json"},
     };
     const char *dot = strrchr(path, '.');
     for (size_t i = 0; dot && i < sizeof(map) / sizeof(map[0]); i++) {

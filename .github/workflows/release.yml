@@ -1,0 +1,116 @@
+name: Release
+
+# Push a tag to publish a release:
+#   git tag v1.2.0 && git push origin v1.2.0            -> normal release
+#   git tag v1.0.0-alpha.1 && git push origin v1.0.0-alpha.1  -> pre-release
+# The tag must be SemVer with a leading "v" (v1.2.3, v1.2.3-rc.1, v1.2.3-alpha, v1.2.3+build.5).
+# Anything after "-" makes it a GitHub pre-release.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Check tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! printf '%s' "$TAG" | grep -Eq "$semver"; then
+            echo "::error::Tag '$TAG' is not SemVer (expected v1.2.3 or v1.2.3-alpha.1)"; exit 1
+          fi
+          version=${TAG#v}
+          # esp_app_desc_t.version holds 31 characters
+          if [ ${#version} -gt 31 ]; then echo "::error::Version '$version' is longer than 31 characters"; exit 1; fi
+          core=${version%%+*}
+          case "$core" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "Version $version, pre-release: $pre"
+
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S test/host -B test/host/build
+      - run: cmake --build test/host/build -j
+      - run: ctest --test-dir test/host/build --output-on-failure
+      - run: python3 -m unittest discover -s test/tools -v
+
+  release:
+    name: Build and publish
+    needs: [version, host-tests]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ESP-IDF takes the app version (shown on the device, checked by the web app) from version.txt
+      - run: printf '%s' "$VERSION" > version.txt
+
+      - name: Firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.3.2
+          target: esp32s3
+          command: >-
+            idf.py build &&
+            cd build &&
+            python -m esptool --chip esp32s3 merge_bin -o justride-full.bin @flash_args
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Web app (gzipped, same layout as tools/sd_deploy.sh)
+        run: |
+          tools/vendor_stats.sh
+          mkdir -p out/www
+          cp -R www/stats out/www/stats
+          find out/www -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) -exec gzip -9 -n {} \;
+          printf '%s\n' "$VERSION" > out/www/stats/version.txt
+
+      - name: Assets
+        run: |
+          d=dist
+          mkdir -p $d
+          cp build/justride.bin "$d/justride-$VERSION.bin"
+          cp build/justride-full.bin "$d/justride-$VERSION-full.bin"
+          (cd out && zip -qr -X "../$d/justride-www-$VERSION.zip" www)
+          (cd $d && sha256sum * > SHA256SUMS)
+          cat $d/SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          | File | Use |
+          |---|---|
+          | \`justride-$VERSION.bin\` | Firmware update: web app → Device → Choose firmware (tap "Allow firmware update" on the device first) |
+          | \`justride-$VERSION-full.bin\` | First install over USB: \`esptool.py --chip esp32s3 write_flash 0x0 justride-$VERSION-full.bin\` (also forgets the paired Bluetooth devices; the SD card is untouched) |
+          | \`justride-www-$VERSION.zip\` | Web app: unzip onto the SD card root (replaces \`/www/stats\`), or \`tools/web_deploy.sh\` |
+          | \`SHA256SUMS\` | Checksums |
+
+          Power the board from a plain 5 V USB supply or a computer, never a fast charger.
+
+          EOF
+          flags=(--title "JustRide $VERSION" --notes-file notes.md --generate-notes --verify-tag)
+          [ "$PRE" = true ] && flags+=(--prerelease)
+          gh release create "$TAG" "${flags[@]}" dist/*
