@@ -14,6 +14,9 @@ trap 'rm -rf "$TMP"' EXIT
 # Same layout as tools/sd_deploy.sh: text and wasm gzipped, served with Content-Encoding
 cp -R "$ROOT/www/stats/." "$TMP/"
 [ "$SKIP_VENDOR" = --no-vendor ] && rm -rf "$TMP/vendor"
+mkdir -p "$TMP/manual"
+cp "$ROOT/docs/manual.html" "$TMP/manual/index.html"
+cp -R "$ROOT/docs/img" "$TMP/manual/img"
 find "$TMP" -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) -exec gzip -9 -f {} \;
 find "$TMP" -name '._*' -delete
 

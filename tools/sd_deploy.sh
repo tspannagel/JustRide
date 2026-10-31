@@ -11,6 +11,10 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 rm -rf "$SD/www/stats"
 mkdir -p "$SD/www/stats" "$SD/workouts" "$SD/rides" "$SD/config"
 cp -R "$ROOT/www/stats/." "$SD/www/stats/"
+# The manual, served as /stats/manual/index.html (linked from the web app)
+mkdir -p "$SD/www/stats/manual"
+cp "$ROOT/docs/manual.html" "$SD/www/stats/manual/index.html"
+cp -R "$ROOT/docs/img" "$SD/www/stats/manual/img"
 find "$SD/www/stats" -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) \
     -exec gzip -9 -f {} \;
 for f in "$ROOT"/tools/workouts/*.zwo "$ROOT"/tools/workouts/*.route; do

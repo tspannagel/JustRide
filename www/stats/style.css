@@ -100,6 +100,9 @@ code { font: 13px var(--mono); background: var(--surface-3); padding: 1px 6px; b
 .nav a:hover { background: var(--surface-2); color: var(--text); }
 .nav a.active { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
 .nav a.active .i { color: var(--accent); }
+.rail-link { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; color: var(--text-3); font-weight: 550; }
+.rail-link:hover { background: var(--surface-2); color: var(--text); }
+.rail-link + .rider { margin-top: 0; }
 .rider { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px;
   background: var(--surface-2); color: var(--text-3); border: 1px solid var(--line); }
 .rider select { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; outline: none; }
@@ -113,7 +116,8 @@ main { padding: 28px clamp(16px, 3vw, 40px) 80px; max-width: 1240px; width: 100%
   body { grid-template-columns: minmax(0, 1fr); }
   .rail { position: fixed; z-index: 20; top: auto; bottom: 0; left: 0; right: 0; height: auto; flex-direction: row; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
     border-right: 0; border-top: 1px solid var(--line); gap: 0; background: color-mix(in srgb, var(--bg) 82%, transparent); }
-  .brand { display: none; }
+  .brand, .rail-link { display: none; }
+  .page-head > .actions, .page-head > .btn { width: 100%; }  /* below the title: the rider picker sits top right */
   .rail { backdrop-filter: none; background: color-mix(in srgb, var(--surface-solid) 94%, transparent); }
   .rider { position: fixed; top: 14px; right: 16px; margin: 0; padding: 6px 10px; z-index: 21; background: var(--surface-solid); }
   .rider select { max-width: 120px; }

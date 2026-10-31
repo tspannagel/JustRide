@@ -525,6 +525,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <div class="shots"><figure class="wide"><img src="img/web-riders.png" alt="Riders page: a card per rider with name, W/kg, FTP, Max ERG, weight and max HR, Save and Delete; the active rider is marked"><figcaption>Riders in the web app.</figcaption></figure></div>
 
 <h3 id="webapp-update">7.8 Device page, updating the web app</h3>
+<p>This manual comes with the web app: <span class="btn">Manual</span> in the sidebar (on a phone: on the <span class="btn">Device</span> page) opens the copy on the SD card, which matches the installed version and works without internet.</p>
 <p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) over <code>summary</code> and <code>bests</code>; it loads 34 MB the first time you run a query.</p>
 <p>The ready-made web app from a release goes onto the card as in <a href="#update-www">8.2</a>. To update the web app over Wi-Fi, without taking out the card: on the device tap <span class="btn">Wi-Fi → Allow firmware update</span>, then on your computer run</p>
 <pre><code>tools/web_deploy.sh trainer.local              <span class="c"># or the IP address; ~1 minute</span>
