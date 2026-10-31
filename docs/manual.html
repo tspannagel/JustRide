@@ -529,6 +529,24 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 tools/web_deploy.sh trainer.local --no-vendor  <span class="c"># app files only, a few seconds</span></code></pre>
 <p>The screenshots show generated sample rides (<code>tools/web_dev.py</code> runs the web app on your computer with sample data, or with <code>--device &lt;address&gt;</code> against your head unit).</p>
 
+<h3 id="mcp">7.9 Ask Claude about your training (MCP)</h3>
+<p>Claude Desktop or Claude Code can read your rides and put new workouts on the head unit, so you can ask things like <i>"How did my VO2max intervals on Tuesday go?"</i>, <i>"Am I fresh enough for a hard session?"</i> or <i>"Make me a 45-minute sweet-spot workout for tomorrow."</i> A small program on your computer (<code>tools/mcp_server.py</code>) connects Claude to the device's web API, just like the web app does. The head unit must be switched on and not riding (Wi-Fi is off during a ride).</p>
+<p><b>What Claude can do:</b> read riders, ride summaries, best efforts, one ride's data (zones, intervals, a 10-second series), fitness/fatigue/form, the workouts on the card and your training plan; save <b>new</b> workouts. <b>What it can't do:</b> change riders, FTP or Max ERG, delete files, change the plan or update firmware. Every workout is checked with the device's own <code>.zwo</code> reader and against the rider's Max ERG before it's saved. It won't overwrite an existing file unless you ask, and names starting with <i>Plan</i> are left to the training plan.</p>
+<p><b>Setup</b> (once, on the Mac): install <a href="https://docs.astral.sh/uv/">uv</a> with <code>brew install uv</code>. It fetches the MCP library by itself. You already have a C compiler from the ESP-IDF setup; the server uses it the first time to build the <code>.zwo</code> checker.</p>
+<p><b>Claude Code:</b></p>
+<pre><code>claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py   <span class="c"># path to your copy of the repo</span>
+claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.168.1.5   <span class="c"># if trainer.local isn't found</span></code></pre>
+<p><b>Claude Desktop:</b> Settings → Developer → Edit Config, then add the server to <code>claude_desktop_config.json</code> and restart Claude. Use full paths (<code>which uv</code> shows the one for uv):</p>
+<pre><code>{
+  "mcpServers": {
+    "justride": {
+      "command": "/opt/homebrew/bin/uv",
+      "args": ["run", "/Users/you/JustRide/tools/mcp_server.py"]
+    }
+  }
+}</code></pre>
+<p class="note">To try it without the head unit, run <code>tools/web_dev.py</code> and point the server at <code>--device localhost:8080</code>: it then sees the sample rides.</p>
+
 <!-- ------------------------------------------------------------------ -->
 <h2 id="updates">8. Firmware updates</h2>
 <p><b>Over USB:</b> <code>idf.py -p /dev/cu.usbmodem* flash</code> as in <a href="#build">3.3</a>.</p>

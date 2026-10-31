@@ -14,6 +14,8 @@ jobs:
       - run: cmake -S test/host -B test/host/build
       - run: cmake --build test/host/build -j
       - run: ctest --test-dir test/host/build --output-on-failure
+      # tools/mcp_server.py against tools/web_dev.py's sample backend (stdlib only)
+      - run: python3 -m unittest discover -s test/tools -v
 
   firmware:
     name: Firmware build (ESP-IDF 5.3)
