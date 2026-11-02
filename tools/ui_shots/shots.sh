@@ -12,7 +12,7 @@ out="$repo/docs/img"
 cmake -S "$here" -B "$build" -DCMAKE_BUILD_TYPE=Release "$@" >/dev/null
 cmake --build "$build" -j >/dev/null
 mkdir -p "$out"
-"$build/ui_shots" "$build" >/dev/null
+(cd "$repo/tools" && "$build/ui_shots" "$build" >/dev/null)
 for bmp in "$build"/*.bmp; do
     png="$out/$(basename "$bmp" .bmp).png"
     if command -v sips >/dev/null; then

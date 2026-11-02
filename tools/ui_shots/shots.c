@@ -206,8 +206,32 @@ int main(int argc, char **argv)
     lv_textarea_set_text(name_ta, "Anna");
     save("rider-name");
 
+    // The web app's plan files: Sam's today and tomorrow, Anna's today (only Sam's today is listed)
+    char today[11], plan[3][160];
+    today_key(&g_settings, today);
+    time_t tomorrow = time(NULL) + 86400 + tz_offset(g_settings.tz, (uint32_t)time(NULL));
+    char day2[11];
+    strftime(day2, sizeof(day2), "%Y-%m-%d", gmtime(&tomorrow));
+    snprintf(plan[0], sizeof(plan[0]), BSP_SD_MOUNT "/workouts/Plan %s Sam - Sweet spot.zwo", today);
+    snprintf(plan[1], sizeof(plan[1]), BSP_SD_MOUNT "/workouts/Plan %s Sam - Endurance.zwo", day2);
+    snprintf(plan[2], sizeof(plan[2]), BSP_SD_MOUNT "/workouts/Plan %s Anna - VO2max.zwo", today);
+    for (int i = 0; i < 3; i++) {
+        static char xml[ZWO_MAX_BYTES];
+        FILE *in = fopen(BSP_SD_MOUNT "/workouts/sweet_spot_3x10.zwo", "rb"), *out = fopen(plan[i], "wb");
+        size_t len = in ? fread(xml, 1, sizeof(xml), in) : 0;
+        if (out) {
+            fwrite(xml, 1, len, out);
+            fclose(out);
+        }
+        if (in) {
+            fclose(in);
+        }
+    }
     open_workouts(NULL);
     save("workouts");
+    for (int i = 0; i < 3; i++) {
+        remove(plan[i]);
+    }
 
     open_adapt(NULL);
     save("adaptive-setup");
