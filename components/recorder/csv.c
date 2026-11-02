@@ -67,6 +67,23 @@ bool csv_has_ride(const char *path, const char *ride_id)
     return found;
 }
 
+bool csv_redate_line(char *out, size_t size, const char *line, const char *old_id, const char *new_id,
+                     uint32_t new_start)
+{
+    size_t n = strlen(old_id);
+    if (strncmp(line, old_id, n) != 0 || line[n] != ',') {
+        return snprintf(out, size, "%s", line) < (int)size;
+    }
+    const char *rest = line + n + 1;
+    if (!new_start) {
+        return snprintf(out, size, "%s,%s", new_id, rest) < (int)size;
+    }
+    const char *comma = strchr(rest, ',');  // after the old start time
+    char iso[21];
+    csv_iso_utc(iso, new_start);
+    return comma && snprintf(out, size, "%s,%s%s", new_id, iso, comma) < (int)size;
+}
+
 // Fixed-point value with `dec` decimals and a trailing comma; empty if unknown
 static int fmt_fixed(char *buf, size_t size, long v, int dec, bool unknown)
 {

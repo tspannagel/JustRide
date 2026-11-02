@@ -379,6 +379,13 @@ dialog[open] { animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .cal-day b { font-size: 12.5px; line-height: 1.25; }
 .cal-meta, .cal-extra { color: var(--text-3); font-size: 11.5px; display: flex; align-items: center; gap: 4px; }
 .cal-extra .i { width: 12px; height: 12px; color: var(--good); }
+.cal-day.tap { cursor: pointer; }
+.cal-day.tap:hover { border-color: var(--line-2); }
+.cal-day.avail-off { border-style: dashed; border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.cal-day.avail-on { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.cal-tag { margin-left: auto; padding: 0 6px; border-radius: 6px; font-size: 10.5px; font-weight: 650; background: var(--surface-3); color: var(--text-2); }
+.avail-off .cal-tag { color: var(--warn); }
+.avail-on .cal-tag { color: var(--accent); }
 .cal-load { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
 .bar { position: relative; height: 18px; border-radius: 5px; background: var(--surface-2); }
 .bar::before { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); border-radius: 5px; background: var(--bc); opacity: 0.85; }

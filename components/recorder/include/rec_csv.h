@@ -29,6 +29,12 @@ size_t csv_format_bests(char *buf, size_t size, const char *ride_id, const int16
 // can write a ride's outputs more than once).
 bool csv_has_ride(const char *path, const char *ride_id);
 
+// One summary/bests line with a ride's new id (a ride recorded before the clock was set).
+// new_start: also replace the start time (summary rows); 0 for bests rows. Lines of other
+// rides are copied unchanged. False if out is too small or the row is malformed.
+bool csv_redate_line(char *out, size_t size, const char *line, const char *old_id, const char *new_id,
+                     uint32_t new_start);
+
 // "2026-10-26T12:00:00Z"; buf >= 21 bytes
 void csv_iso_utc(char *buf, uint32_t t);
 // "2026-10-26_1200" (ride id / file stem, from local time); buf >= 16 bytes

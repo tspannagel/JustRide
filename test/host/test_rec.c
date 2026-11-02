@@ -141,6 +141,27 @@ static void test_has_ride(void)
     CHECK(!csv_has_ride(path, "2026-10-26_1200"));  // missing file
 }
 
+static void test_redate_line(void)
+{
+    char out[128];
+    const char *old = "1970-01-01_0105", *id = "2026-11-02_1928";
+    CHECK(csv_redate_line(out, sizeof(out), "1970-01-01_0105,1970-01-01T00:05:12Z,1086,\"x\"\n", old, id,
+                          1793644080));
+    CHECK(strcmp(out, "2026-11-02_1928,2026-11-02T18:28:00Z,1086,\"x\"\n") == 0);
+    CHECK(csv_redate_line(out, sizeof(out), "1970-01-01_0105,60,245\n", old, id, 0));
+    CHECK(strcmp(out, "2026-11-02_1928,60,245\n") == 0);
+    // Other rides, a longer id with the same prefix and the header stay as they are
+    CHECK(csv_redate_line(out, sizeof(out), "2026-10-31_0930,60,245\n", old, id, 0));
+    CHECK(strcmp(out, "2026-10-31_0930,60,245\n") == 0);
+    CHECK(csv_redate_line(out, sizeof(out), "1970-01-01_01051,60\n", old, id, 0));
+    CHECK(strcmp(out, "1970-01-01_01051,60\n") == 0);
+    CHECK(csv_redate_line(out, sizeof(out), CSV_BESTS_HEADER, old, id, 0));
+    CHECK(strcmp(out, CSV_BESTS_HEADER) == 0);
+    // No start time field, or no room
+    CHECK(!csv_redate_line(out, sizeof(out), "1970-01-01_0105,1970\n", old, id, 1793644080));
+    CHECK(!csv_redate_line(out, 10, "1970-01-01_0105,60,245\n", old, id, 0));
+}
+
 int main(void)
 {
     test_time();
@@ -148,5 +169,6 @@ int main(void)
     test_summary_and_bests();
     test_fit();
     test_has_ride();
+    test_redate_line();
     return test_summary("rec");
 }

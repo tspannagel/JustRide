@@ -298,7 +298,8 @@ class JustRide:
         if plan is None:
             return {'rider': u['name'], 'plan': None, 'note': 'no plan; the web app (Plan view) creates one'}
         return {'rider': u['name'], 'plan': plan,
-                'note': 'read-only here: the web app owns the plan and rewrites its "Plan ..." workouts'}
+                'note': 'read-only here: the web app owns the plan and rewrites its "Plan ..." workouts. sessions are the plan as made; '
+                        'the web app moves missed sessions and those on away days (avail) - the "Plan <date>" workouts on the device are the current schedule'}
 
     # -- workouts --
     @staticmethod

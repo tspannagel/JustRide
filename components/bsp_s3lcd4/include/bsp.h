@@ -47,3 +47,5 @@ esp_lcd_panel_handle_t bsp_panel(void);
 uint16_t *bsp_framebuffer(void);
 
 bool bsp_sd_mounted(void);
+// Card size and free space in bytes. False if no card is mounted.
+bool bsp_sd_space(uint64_t *total, uint64_t *free);

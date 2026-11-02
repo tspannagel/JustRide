@@ -409,6 +409,11 @@ static esp_err_t sd_init(void)
 
 bool bsp_sd_mounted(void) { return s_card != NULL; }
 
+bool bsp_sd_space(uint64_t *total, uint64_t *free)
+{
+    return s_card && esp_vfs_fat_info(BSP_SD_MOUNT, total, free) == ESP_OK;
+}
+
 // ---- Bring-up ---------------------------------------------------------------
 
 esp_err_t bsp_init(void)

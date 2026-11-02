@@ -30,6 +30,7 @@ target_include_directories(ui_shots PRIVATE
     ${REPO}/components/vshift/include ${REPO}/components/workout/include ${REPO}/components/settings/include
     ${REPO}/components/web/include ${REPO}/components/input_map/include ${REPO}/components/tz/include
     ${REPO}/components/route/include)
-# The workouts screen lists BSP_SD_MOUNT/workouts: use the sample workouts
-target_compile_definitions(ui_shots PRIVATE BSP_SD_MOUNT="${REPO}/tools")
+# The workouts screen lists BSP_SD_MOUNT/workouts: the sample workouts (shots.sh runs it in tools/;
+# a short path, as on the device: ui.c keeps paths in 80 bytes)
+target_compile_definitions(ui_shots PRIVATE BSP_SD_MOUNT=".")
 target_link_libraries(ui_shots lvgl m)

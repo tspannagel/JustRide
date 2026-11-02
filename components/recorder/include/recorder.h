@@ -29,6 +29,10 @@ void recorder_add(const ride_sample_t *s);
 // bests: the ride's best efforts (metrics_bests), also when the SD card failed;
 // all -1 if the ride was too short.
 bool recorder_finish(int16_t bests[METRICS_N_BESTS]);
+// The clock was set after the last ride (recorded without the time): move it by delta_s
+// (new name, CSV, FIT, summary and bests rows). Only once, only while its samples are
+// still in memory (no ride since, no restart).
+bool recorder_redate(int64_t delta_s, int32_t utc_offset_s);
 // The rider's fastest earlier ride over a whole route (summary.csv: same name, at least
 // len_m), loaded into g. Measures up to RECORDER_GHOST_TRIES rides with the best average
 // speed from their per-second CSV. False if there is none.

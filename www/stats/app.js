@@ -114,7 +114,7 @@ async function today() {
       <a class="btn ghost" href="#riders">Enter a known FTP instead</a>`
     : next ? `<span class="eyebrow">${icon('calendar')} Next in your plan</span>
       <b>${esc(GEN_TYPES[next.type].label)} · ${next.minutes} min</b>
-      <span class="muted small">${fmt.date(new Date(next.date + 'T12:00:00'))} · on the device under Workouts</span>
+      <span class="muted small">${fmt.date(new Date(next.date + 'T12:00:00'))}${next.date !== next.base ? ' (moved)' : ''}${next.eased ? ' · a step easier after the break' : ''} · on the device under Workouts</span>
       <a class="btn ghost" href="#plan">Open plan</a>`
     : `<span class="eyebrow">${icon('sparkles')} No plan yet</span><b>Train with a plan</b>
       <span class="muted small">Pick a goal and your days; the next week's workouts appear on the device, adapted to your form.</span>

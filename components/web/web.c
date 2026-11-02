@@ -35,7 +35,9 @@ static const char *TAG = "web";
 
 #define HOSTNAME "trainer"
 #define AP_SSID "JustRide"
+#define AP_IP "192.168.4.1"  // ESP-IDF default for the access point
 #define STA_TIMEOUT_US (15 * 1000000)
+#define STA_RETRY_US (30 * 1000000)  // home Wi-Fi retries while our own access point runs
 #define CHUNK 4096
 #define OTA_WINDOW_US (5 * 60 * 1000000LL)
 #define PLAN_MAX_BYTES (32 * 1024)
@@ -49,7 +51,7 @@ static const char *TAG = "web";
 
 static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
-static esp_timer_handle_t s_fallback;
+static esp_timer_handle_t s_fallback, s_retry;
 static bool s_running, s_is_ap, s_got_ip, s_sntp, s_ntp_synced;
 static const web_users_t *s_users;
 static char s_ip[16];
@@ -882,7 +884,9 @@ static void on_time_sync(struct timeval *tv)
     bsp_rtc_set(tv->tv_sec);
 }
 
-static void start_ap(void)
+// keep_sta: the home Wi-Fi didn't answer in time; keep trying it next to the access
+// point, so the clock still gets set (NTP from the router) once it's there
+static void start_ap(bool keep_sta)
 {
     if (strlen(s_ap_pass) < 8) {
         ESP_LOGE(TAG, "AP password too short, not starting the access point");
@@ -892,11 +896,11 @@ static void start_ap(void)
                                .authmode = WIFI_AUTH_WPA2_PSK}};
     snprintf((char *)ap.ap.password, sizeof(ap.ap.password), "%s", s_ap_pass);
     esp_wifi_stop();
-    esp_wifi_set_mode(WIFI_MODE_AP);
+    esp_wifi_set_mode(keep_sta ? WIFI_MODE_APSTA : WIFI_MODE_AP);  // STA config stays set
     esp_wifi_set_config(WIFI_IF_AP, &ap);
-    esp_wifi_start();
+    esp_wifi_start();  // STA_START connects again
     s_is_ap = true;
-    strcpy(s_ip, "192.168.4.1");
+    strcpy(s_ip, AP_IP);
     ESP_LOGI(TAG, "access point %s started", AP_SSID);
 }
 
@@ -910,7 +914,19 @@ static void fallback_cb(void *arg)
     }
     if (s_running && !s_got_ip) {
         ESP_LOGW(TAG, "home Wi-Fi not reachable, starting own access point");
-        start_ap();
+        start_ap(true);
+    }
+    xSemaphoreGive(s_lock);
+}
+
+// Each home Wi-Fi attempt scans all channels, which interrupts the access point briefly
+static void retry_cb(void *arg)
+{
+    if (xSemaphoreTake(s_lock, 0) != pdTRUE) {
+        return;
+    }
+    if (s_running && !s_got_ip) {
+        esp_wifi_connect();
     }
     xSemaphoreGive(s_lock);
 }
@@ -919,12 +935,17 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
-    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && s_running && !s_is_ap) {
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && s_running) {
         // 201 no AP found (wrong name, 5 GHz only), 15/204/210 wrong password
         wifi_event_sta_disconnected_t *e = data;
         ESP_LOGW(TAG, "home Wi-Fi: disconnected, reason %d", e->reason);
         s_got_ip = false;
-        esp_wifi_connect();
+        if (s_is_ap) {
+            esp_timer_stop(s_retry);
+            esp_timer_start_once(s_retry, STA_RETRY_US);
+        } else {
+            esp_wifi_connect();
+        }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "access point: device joined");
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STADISCONNECTED) {
@@ -959,6 +980,8 @@ void web_init(void)
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
     esp_timer_create_args_t t = {.callback = fallback_cb, .name = "wifi_fb"};
     esp_timer_create(&t, &s_fallback);
+    esp_timer_create_args_t r = {.callback = retry_cb, .name = "wifi_retry"};
+    esp_timer_create(&r, &s_retry);
     s_lock = xSemaphoreCreateMutex();
 }
 
@@ -993,7 +1016,7 @@ void web_start(const settings_t *s)
         sntp.sync_cb = on_time_sync;
         s_sntp = esp_netif_sntp_init(&sntp) == ESP_OK;
     } else {
-        start_ap();
+        start_ap(false);
     }
     http_start();
     if (mdns_init() == ESP_OK) {
@@ -1013,6 +1036,7 @@ void web_stop(void)
     s_running = false;
     s_ota_until = 0;
     esp_timer_stop(s_fallback);
+    esp_timer_stop(s_retry);
     if (s_http) {
         httpd_stop(s_http);
         s_http = NULL;
@@ -1074,10 +1098,10 @@ void web_status(char *buf, size_t size)
 {
     if (!s_running) {
         snprintf(buf, size, "Wi-Fi off");
-    } else if (s_is_ap) {
-        snprintf(buf, size, "Wi-Fi: %s  Password: %s\nhttp://%s/", AP_SSID, s_ap_pass, s_ip);
     } else if (s_got_ip) {
         snprintf(buf, size, "http://" HOSTNAME ".local/\nhttp://%s/", s_ip);
+    } else if (s_is_ap) {
+        snprintf(buf, size, "Wi-Fi: %s  Password: %s\nhttp://%s/", AP_SSID, s_ap_pass, AP_IP);
     } else {
         snprintf(buf, size, "Connecting to Wi-Fi...");
     }

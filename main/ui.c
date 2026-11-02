@@ -4,6 +4,7 @@
 
 #include "ui.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -87,7 +88,7 @@ static struct {
     int min, watts, hr_zone;  // hr_zone 1..5 (% of max HR, metrics_hr_zone_pct), 0: no HR goal
     bool hold_avg;
 } s_adapt;
-static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
+static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr, *set_info;
 static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label, *wifi_tz, *wifi_time;
 static lv_obj_t *r_profile;
 static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_hr_cap, *r_speed,
@@ -559,7 +560,7 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
     }
     lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
-                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: open the web app");
+                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: waiting for Wi-Fi");
     show(home_warn, !st->sd_ok || !st->clock_ok);
     show(home_test, !settings_user(&s)->ftp_known);
 }
@@ -866,6 +867,82 @@ static int cmp_workout(const void *a, const void *b)
     return px != py ? py - px : strcasecmp(x, y);
 }
 
+// The web app writes the plan's next 7 days as "Plan <YYYY-MM-DD> [<rider> - ]<session>.zwo".
+// The list shows the active rider's next one in its own section, the coming days behind "More
+// plan days" (to ride one early); earlier days and other riders' plans are left out.
+
+// A rider's name as the web app puts it into file names: only A-Z a-z 0-9 space . _ -, single
+// spaces, trimmed
+static void file_label(char *out, size_t n, const char *name)
+{
+    size_t j = 0;
+    for (const char *c = name; *c && j + 1 < n; c++) {
+        bool ok = isalnum((unsigned char)*c) || *c == ' ' || *c == '.' || *c == '_' || *c == '-';
+        if (ok && !(*c == ' ' && (j == 0 || out[j - 1] == ' '))) {
+            out[j++] = *c;
+        }
+    }
+    while (j > 0 && out[j - 1] == ' ') {
+        j--;
+    }
+    out[j] = 0;
+}
+
+static bool is_plan(const char *file)
+{
+    return strncmp(file, "Plan ", 5) == 0 && strlen(file) > 16 && isdigit((unsigned char)file[5]) && file[9] == '-' &&
+           file[12] == '-' && file[15] == ' ';
+}
+
+// file: a plan workout of the active rider? Then its day in date and the session ("Sweet spot.zwo")
+// in *what. A file without a rider name was written while there was only one rider: ours.
+static bool plan_file(const char *file, const settings_t *s, char date[11], const char **what)
+{
+    if (!is_plan(file)) {
+        return false;
+    }
+    memcpy(date, file + 5, 10);
+    date[10] = 0;
+    *what = file + 16;
+    char lab[SETTINGS_NAME_LEN];
+    for (int i = 0; s->n_users > 1 && i < s->n_users; i++) {
+        file_label(lab, sizeof(lab), s->users[i].name);
+        size_t n = strlen(lab);
+        if (n && strncmp(*what, lab, n) == 0 && strncmp(*what + n, " - ", 3) == 0) {
+            *what += n + 3;
+            return i == s->user;
+        }
+    }
+    return true;
+}
+
+// Local date as YYYY-MM-DD; empty while the clock isn't set (then every plan day is coming)
+static void today_key(const settings_t *s, char out[11])
+{
+    time_t now = time(NULL);
+    out[0] = 0;
+    if (now > 1735689600) {
+        time_t local = now + tz_offset(s->tz, (uint32_t)now);
+        struct tm tm;
+        gmtime_r(&local, &tm);
+        strftime(out, 11, "%Y-%m-%d", &tm);
+    }
+}
+
+// "Today" or "Wed 4" for a YYYY-MM-DD
+static void day_label(char *out, size_t n, const char *date, const char *today)
+{
+    static const char *const wd[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    int y = atoi(date), m = atoi(date + 5), d = atoi(date + 8);
+    if (strcmp(date, today) == 0 || m < 1 || m > 12) {
+        snprintf(out, n, "Today");
+        return;
+    }
+    y -= m < 3;
+    snprintf(out, n, "%s %d", wd[(y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7], d);  // Sakamoto
+}
+
 // One row of the workout list: name, length and a small profile in zone colours
 // (routes: distance, climbing and the elevation in gradient colours).
 #define MINI_W 104
@@ -990,7 +1067,9 @@ static void load_item(wo_item_t *it, const char *path)
     }
 }
 
-// Solid columns (no gradients on the dark surface: RGB565 bands), a full-colour top pixel
+// Solid columns (no gradients on the dark surface: RGB565 bands), a full-colour top pixel.
+// Neighbouring columns of the same height and colour are one rectangle: every rectangle is a
+// draw task, redrawn for each strip of the screen while the list scrolls.
 static void draw_mini(lv_event_t *e)
 {
     const wo_item_t *it = lv_event_get_user_data(e);
@@ -1002,11 +1081,19 @@ static void draw_mini(lv_event_t *e)
     if (width <= 0 || height <= 1) {
         return;
     }
-    for (int x = 0; x < width; x++) {
-        int i = x * MINI_W / width;
-        int y = a.y2 - (it->h[i] * (height - 1) + 127) / 255;
-        fill(layer, a.x1 + x, y, a.x1 + x, a.y2, ZONE_RGB[it->c[i]], LV_OPA_50);
-        fill(layer, a.x1 + x, y, a.x1 + x, y, ZONE_RGB[it->c[i]], LV_OPA_COVER);
+    int x = 0, i = 0, y = a.y2 - (it->h[0] * (height - 1) + 127) / 255;
+    while (x < width) {
+        int end = x, j = i, yj = y;
+        while (++end < width) {
+            j = end * MINI_W / width;
+            yj = a.y2 - (it->h[j] * (height - 1) + 127) / 255;
+            if (yj != y || it->c[j] != it->c[i]) {
+                break;
+            }
+        }
+        fill(layer, a.x1 + x, y, a.x1 + end - 1, a.y2, ZONE_RGB[it->c[i]], LV_OPA_50);
+        fill(layer, a.x1 + x, y, a.x1 + end - 1, y, ZONE_RGB[it->c[i]], LV_OPA_COVER);
+        x = end, i = j, y = yj;
     }
 }
 
@@ -1036,8 +1123,19 @@ static void wo_row(const char *icon, const char *name, const char *info, const w
     }
 }
 
+// "More plan days": the list again with every coming plan day, until the screen is opened anew
+static bool s_plan_more;
+static void on_plan_more(lv_event_t *e)
+{
+    s_plan_more = true;
+    open_workouts(NULL);
+}
+
 static void open_workouts(lv_event_t *e)
 {
+    if (e) {
+        s_plan_more = false;
+    }
     lv_obj_clean(wo_list);
     lv_label_set_text(wo_msg, "");
     DIR *d = opendir(WORKOUT_DIR);
@@ -1057,6 +1155,41 @@ static void open_workouts(lv_event_t *e)
     }
     qsort(s_paths, n, sizeof(s_paths[0]), cmp_workout);
 
+    settings_t s;
+    app_get_settings(&s);
+    char today[11], date[11];
+    today_key(&s, today);
+    const char *what;
+    bool shown[MAX_LIST] = {false};
+    char more[40] = "";  // the days behind "More plan days"
+    int n_plan = 0;
+    for (int i = 0; i < n; i++) {
+        if (!plan_file(strrchr(s_paths[i], '/') + 1, &s, date, &what) || strcmp(date, today) < 0) {
+            continue;
+        }
+        char day[12], name[80];
+        day_label(day, sizeof(day), date, today);
+        if (n_plan++ && !s_plan_more) {
+            size_t k = strlen(more);
+            snprintf(more + k, sizeof(more) - k, "%s%s", k ? ", " : "", day);
+            continue;
+        }
+        if (n_plan == 1) {
+            caption(wo_list, "TRAINING PLAN", C_MUTED);
+        }
+        load_item(&s_items[i], s_paths[i]);
+        snprintf(name, sizeof(name), "%s: %s", day, what);
+        name[strlen(name) - 4] = 0;  // without ".zwo"
+        wo_row(LV_SYMBOL_PLAY, name, s_items[i].info, &s_items[i], on_workout, s_paths[i]);
+        shown[i] = true;
+    }
+    if (more[0]) {
+        wo_row(LV_SYMBOL_DOWN, "More plan days", more, NULL, on_plan_more, NULL);
+    }
+    if (n_plan) {
+        caption(wo_list, "WORKOUTS", C_MUTED);
+    }
+
     wo_item_t *ramp = &s_items[MAX_LIST];
     memset(ramp, 0, sizeof(*ramp));
     app_ramp_test(&s_preview);  // this rider's steps
@@ -1065,6 +1198,12 @@ static void open_workouts(lv_event_t *e)
     wo_row(LV_SYMBOL_CHARGE, "FTP ramp test", ramp->info, ramp, open_ramp_test, NULL);
     wo_row(LV_SYMBOL_SHUFFLE, "Zone ride", "HR zone, power or average: you choose", NULL, open_adapt, NULL);
     for (int i = 0; i < n; i++) {
+        if (is_plan(strrchr(s_paths[i], '/') + 1)) {  // the next one is above, the others hidden
+            if (!shown[i]) {
+                memset(&s_items[i], 0, sizeof(s_items[i]));  // not read: nothing for the cache
+            }
+            continue;
+        }
         load_item(&s_items[i], s_paths[i]);
         char name[64];
         snprintf(name, sizeof(name), "%s", strrchr(s_paths[i], '/') + 1);
@@ -1102,6 +1241,15 @@ static void update_settings(void)
     lv_label_set_text_fmt(set_erg, "%u W", u->max_erg_w);
     lv_label_set_text_fmt(set_weight, "%u kg", u->weight_kg);
     lv_label_set_text_fmt(set_hr, "%u bpm", u->max_hr);
+    // Firmware version and free space on the card (GB as printed on cards, one decimal)
+    uint64_t total, free;
+    if (bsp_sd_space(&total, &free)) {
+        unsigned f = (unsigned)(free / 100000000), t = (unsigned)(total / 100000000);
+        lv_label_set_text_fmt(set_info, "%s\nSD %u.%u of %u.%u GB free", esp_app_get_description()->version, f / 10,
+                              f % 10, t / 10, t % 10);
+    } else {
+        lv_label_set_text_fmt(set_info, "%s\nNo SD card", esp_app_get_description()->version);
+    }
 }
 
 // One handler for all +/- buttons: user data = field * 1000 + 500 + step
@@ -1164,7 +1312,8 @@ static void build_settings(void)
     stepper(scr_settings, &set_hr, "MAX HEART RATE", on_step, F_HR, 1);
     lv_obj_t *r = row(scr_settings);
     grow(button(r, "Forget paired devices", 0, 52, on_forget, NULL));
-    muted(r, &lv_font_montserrat_14, esp_app_get_description()->version);
+    set_info = muted(r, &lv_font_montserrat_14, "");
+    lv_obj_set_style_text_align(set_info, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
 // ---- Zone ride (adaptive quick start) ---------------------------------------------
