@@ -868,8 +868,8 @@ static int cmp_workout(const void *a, const void *b)
 }
 
 // The web app writes the plan's next 7 days as "Plan <YYYY-MM-DD> [<rider> - ]<session>.zwo".
-// The list shows only the active rider's next one, in its own section; earlier days and other
-// riders' plans are left out.
+// The list shows the active rider's next one in its own section, the coming days behind "More
+// plan days" (to ride one early); earlier days and other riders' plans are left out.
 
 // A rider's name as the web app puts it into file names: only A-Z a-z 0-9 space . _ -, single
 // spaces, trimmed
@@ -1067,7 +1067,9 @@ static void load_item(wo_item_t *it, const char *path)
     }
 }
 
-// Solid columns (no gradients on the dark surface: RGB565 bands), a full-colour top pixel
+// Solid columns (no gradients on the dark surface: RGB565 bands), a full-colour top pixel.
+// Neighbouring columns of the same height and colour are one rectangle: every rectangle is a
+// draw task, redrawn for each strip of the screen while the list scrolls.
 static void draw_mini(lv_event_t *e)
 {
     const wo_item_t *it = lv_event_get_user_data(e);
@@ -1079,11 +1081,19 @@ static void draw_mini(lv_event_t *e)
     if (width <= 0 || height <= 1) {
         return;
     }
-    for (int x = 0; x < width; x++) {
-        int i = x * MINI_W / width;
-        int y = a.y2 - (it->h[i] * (height - 1) + 127) / 255;
-        fill(layer, a.x1 + x, y, a.x1 + x, a.y2, ZONE_RGB[it->c[i]], LV_OPA_50);
-        fill(layer, a.x1 + x, y, a.x1 + x, y, ZONE_RGB[it->c[i]], LV_OPA_COVER);
+    int x = 0, i = 0, y = a.y2 - (it->h[0] * (height - 1) + 127) / 255;
+    while (x < width) {
+        int end = x, j = i, yj = y;
+        while (++end < width) {
+            j = end * MINI_W / width;
+            yj = a.y2 - (it->h[j] * (height - 1) + 127) / 255;
+            if (yj != y || it->c[j] != it->c[i]) {
+                break;
+            }
+        }
+        fill(layer, a.x1 + x, y, a.x1 + end - 1, a.y2, ZONE_RGB[it->c[i]], LV_OPA_50);
+        fill(layer, a.x1 + x, y, a.x1 + end - 1, y, ZONE_RGB[it->c[i]], LV_OPA_COVER);
+        x = end, i = j, y = yj;
     }
 }
 
@@ -1113,8 +1123,19 @@ static void wo_row(const char *icon, const char *name, const char *info, const w
     }
 }
 
+// "More plan days": the list again with every coming plan day, until the screen is opened anew
+static bool s_plan_more;
+static void on_plan_more(lv_event_t *e)
+{
+    s_plan_more = true;
+    open_workouts(NULL);
+}
+
 static void open_workouts(lv_event_t *e)
 {
+    if (e) {
+        s_plan_more = false;
+    }
     lv_obj_clean(wo_list);
     lv_label_set_text(wo_msg, "");
     DIR *d = opendir(WORKOUT_DIR);
@@ -1139,20 +1160,34 @@ static void open_workouts(lv_event_t *e)
     char today[11], date[11];
     today_key(&s, today);
     const char *what;
-    int next = -1;
+    bool shown[MAX_LIST] = {false};
+    char more[40] = "";  // the days behind "More plan days"
+    int n_plan = 0;
     for (int i = 0; i < n; i++) {
-        if (plan_file(strrchr(s_paths[i], '/') + 1, &s, date, &what) && strcmp(date, today) >= 0) {
-            load_item(&s_items[i], s_paths[i]);
-            char day[12], name[80];
-            day_label(day, sizeof(day), date, today);
-            snprintf(name, sizeof(name), "%s: %s", day, what);
-            name[strlen(name) - 4] = 0;  // without ".zwo"
-            caption(wo_list, "TRAINING PLAN", C_MUTED);
-            wo_row(LV_SYMBOL_PLAY, name, s_items[i].info, &s_items[i], on_workout, s_paths[i]);
-            caption(wo_list, "WORKOUTS", C_MUTED);
-            next = i;
-            break;
+        if (!plan_file(strrchr(s_paths[i], '/') + 1, &s, date, &what) || strcmp(date, today) < 0) {
+            continue;
         }
+        char day[12], name[80];
+        day_label(day, sizeof(day), date, today);
+        if (n_plan++ && !s_plan_more) {
+            size_t k = strlen(more);
+            snprintf(more + k, sizeof(more) - k, "%s%s", k ? ", " : "", day);
+            continue;
+        }
+        if (n_plan == 1) {
+            caption(wo_list, "TRAINING PLAN", C_MUTED);
+        }
+        load_item(&s_items[i], s_paths[i]);
+        snprintf(name, sizeof(name), "%s: %s", day, what);
+        name[strlen(name) - 4] = 0;  // without ".zwo"
+        wo_row(LV_SYMBOL_PLAY, name, s_items[i].info, &s_items[i], on_workout, s_paths[i]);
+        shown[i] = true;
+    }
+    if (more[0]) {
+        wo_row(LV_SYMBOL_DOWN, "More plan days", more, NULL, on_plan_more, NULL);
+    }
+    if (n_plan) {
+        caption(wo_list, "WORKOUTS", C_MUTED);
     }
 
     wo_item_t *ramp = &s_items[MAX_LIST];
@@ -1164,7 +1199,7 @@ static void open_workouts(lv_event_t *e)
     wo_row(LV_SYMBOL_SHUFFLE, "Zone ride", "HR zone, power or average: you choose", NULL, open_adapt, NULL);
     for (int i = 0; i < n; i++) {
         if (is_plan(strrchr(s_paths[i], '/') + 1)) {  // the next one is above, the others hidden
-            if (i != next) {
+            if (!shown[i]) {
                 memset(&s_items[i], 0, sizeof(s_items[i]));  // not read: nothing for the cache
             }
             continue;

@@ -229,6 +229,9 @@ int main(int argc, char **argv)
     }
     open_workouts(NULL);
     save("workouts");
+    on_plan_more(NULL);
+    save("workouts-plan-days");
+    s_plan_more = false;
     for (int i = 0; i < 3; i++) {
         remove(plan[i]);
     }

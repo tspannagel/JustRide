@@ -108,9 +108,10 @@ export const readPlan = async (user) => cleanPlan(await api.plan(user));
 //   the least important session they can (ramp test > key session > long ride > easy; for "Build
 //   endurance" the long ride comes before the key sessions); if possible not right next to another
 //   hard day, then the nearest.
-// - A ride on a day without a session counts as the most important session missed so far this
-//   week, or moved off an away day (rode on Tuesday instead of Monday). Rides of RIDE_MIN_S or
-//   more count.
+// - A ride of a plan workout ("Plan <date> ..." in the ride's workout name) counts as the session
+//   of that day, also when ridden early. Any other ride on a day without a session counts as the
+//   most important session missed so far this week, or moved off an away day (rode on Tuesday
+//   instead of Monday). Rides of RIDE_MIN_S or more count.
 // - A key session with no day left moves into the next week once, where it only replaces an easy
 //   ride (a ramp test also a key session); others are dropped.
 // - After EASE_DAYS or more without riding, the sessions in the 7 days after the break are a step
@@ -131,13 +132,15 @@ function rank(plan, s, wk) {
   return isHard(s) ? 3 : long ? 2 : 1;
 }
 
-// Rides by local day: Map(date key -> {tss, secs})
+// Rides by local day: Map(date key -> {tss, secs, plans: days of the plan workouts ridden})
 export function rideDays(rides) {
   const m = new Map();
   for (const r of rides.filter(dated)) {
     const k = dayKey(new Date(r.start_utc.getTime() - r.start_utc.getTimezoneOffset() * 60e3));
-    const o = m.get(k) || { tss: 0, secs: 0 };
+    const o = m.get(k) || { tss: 0, secs: 0, plans: [] };
     o.tss += r.tss || 0; o.secs += r.duration_s || 0;
+    const p = String(r.workout || '').match(/^Plan (\d{4}-\d{2}-\d{2}) /);
+    if (p && (r.duration_s || 0) >= RIDE_MIN_S) o.plans.push(p[1]);
     m.set(k, o);
   }
   return m;
@@ -207,7 +210,8 @@ export function replan(plan, ridden, today) {
   const open = (also) => ss.filter((s) => !done.has(s) && !also?.has(s));
   for (let t = plan.start; t <= today && t <= last; t = addDays(t, 1)) {
     const wk = monday(t), at = placeWeek(plan, wk, t, open(), doneOn);
-    let s = at.get(t);
+    // The plan workout of another day, ridden early
+    let s = rode(ridden, t) && ridden.get(t).plans.map((d) => d !== t && at.get(d)).find(Boolean) || at.get(t);
     if (!s && rode(ridden, t)) {   // a ride on another day: the most important session it stands in for
       const prev = addDays(wk, -7);
       s = open().filter((x) => (monday(x.date) === wk && (x.date < t || !isAvail(plan, x.date))) ||
