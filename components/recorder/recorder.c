@@ -23,6 +23,7 @@ static FILE *s_csv;
 static char s_pending[PENDING_SIZE];
 static size_t s_pending_len;
 static bool s_write_error;
+static bool s_saved;  // the last ride is finished and complete on the card, samples still in s_buf
 
 static struct {
     char id[16];
@@ -71,6 +72,24 @@ static void flush(void)
     s_pending_len = 0;
 }
 
+// Ride ids are local time: after a DST change (or a clock fix) the same
+// minute can come round again. Never reuse the name of an existing ride.
+static void choose_id(void)
+{
+    int64_t local = (int64_t)s_meta.start_utc + s_meta.info.utc_offset_s;
+    char p[64];
+    for (int i = 0; i < 60; i++, local += 60) {
+        struct stat st;
+        csv_ride_id(s_meta.id, (uint32_t)local);
+        path(p, sizeof(p), "csv");
+        bool taken = stat(p, &st) == 0;
+        path(p, sizeof(p), "fit");
+        if (!taken && stat(p, &st) != 0) {
+            break;
+        }
+    }
+}
+
 bool recorder_start(uint32_t start_utc, const rec_info_t *info)
 {
     if (!s_buf || !valid_user_id(info->user_id)) {
@@ -85,22 +104,11 @@ bool recorder_start(uint32_t start_utc, const rec_info_t *info)
     char p[64];
     snprintf(p, sizeof(p), RIDES_DIR "/%s", s_meta.info.user_id);
     mkdir(p, 0775);
-    // Ride ids are local time: after a DST change (or a clock fix) the same
-    // minute can come round again. Never reuse the name of an existing ride.
-    int64_t local = (int64_t)start_utc + info->utc_offset_s;
-    for (int i = 0; i < 60; i++, local += 60) {
-        struct stat st;
-        csv_ride_id(s_meta.id, (uint32_t)local);
-        path(p, sizeof(p), "csv");
-        bool taken = stat(p, &st) == 0;
-        path(p, sizeof(p), "fit");
-        if (!taken && stat(p, &st) != 0) {
-            break;
-        }
-    }
+    choose_id();
     s_n = 0;
     s_pending_len = 0;
     s_write_error = false;
+    s_saved = false;
 
     path(p, sizeof(p), "csv");
     s_csv = fopen(p, "w");
@@ -151,6 +159,39 @@ static bool append(const char *file, const char *header, const char *text)
     return fclose(f) == 0 && ok;
 }
 
+// The whole per-second CSV from memory
+static bool write_csv(void)
+{
+    char p[64];
+    path(p, sizeof(p), "csv");
+    FILE *f = fopen(p, "w");
+    if (!f) {
+        return false;
+    }
+    bool ok = fputs(CSV_RIDE_HEADER, f) >= 0;
+    char row[CSV_ROW_MAX];
+    for (size_t i = 0; i < s_n; i++) {
+        if (csv_format_row(row, sizeof(row), &s_buf[i])) {
+            ok = fputs(row, f) >= 0 && ok;
+        }
+    }
+    return fclose(f) == 0 && ok;
+}
+
+static bool write_fit(void)
+{
+    char p[64];
+    path(p, sizeof(p), "fit");
+    FILE *f = fopen(p, "wb");
+    const rec_info_t *info = &s_meta.info;
+    fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100, .utc_offset_s = info->utc_offset_s};
+    bool ok = f && fit_write_activity(fit_sink, f, s_buf, s_n, &meta);
+    if (f) {
+        ok = fclose(f) == 0 && ok;
+    }
+    return ok;
+}
+
 static void discard(void)
 {
     char p[64];
@@ -169,14 +210,8 @@ static bool write_outputs(void)
     }
     const esp_app_desc_t *app = esp_app_get_description();
     char p[64];
-    path(p, sizeof(p), "fit");
-    FILE *f = fopen(p, "wb");
     const rec_info_t *info = &s_meta.info;
-    fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100, .utc_offset_s = info->utc_offset_s};
-    bool ok = f && fit_write_activity(fit_sink, f, s_buf, s_n, &meta);
-    if (f) {
-        ok = fclose(f) == 0 && ok;
-    }
+    bool ok = write_fit();
 
     metrics_t m;
     metrics_init(&m);
@@ -221,27 +256,69 @@ bool recorder_finish(int16_t bests[METRICS_N_BESTS])
         return false;
     }
     if (s_write_error && s_n >= RECORDER_MIN_S) {
-        // Rewrite the whole CSV from memory in case the card came back
-        char p[64];
-        path(p, sizeof(p), "csv");
-        FILE *f = fopen(p, "w");
-        if (f) {
-            fputs(CSV_RIDE_HEADER, f);
-            char row[CSV_ROW_MAX];
-            for (size_t i = 0; i < s_n; i++) {
-                if (csv_format_row(row, sizeof(row), &s_buf[i])) {
-                    fputs(row, f);
-                }
-            }
-            fclose(f);
-        }
+        write_csv();  // the whole CSV from memory in case the card came back
     }
     bool saved = write_outputs();
+    s_saved = saved;
     if (s_n >= RECORDER_MIN_S) {
         // Even if the SD card failed: an FTP test's result is still worth offering
         memcpy(bests, s_meta.bests, sizeof(s_meta.bests));
     }
     return saved;
+}
+
+// summary.csv / bests.csv with the ride's rows under its new id (via a temporary file:
+// FAT's rename doesn't replace)
+static bool redate_rows(const char *name, const char *old_id, uint32_t new_start)
+{
+    char p[64], tmp[72];
+    user_path(p, sizeof(p), name);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", p);
+    FILE *in = fopen(p, "r"), *out = in ? fopen(tmp, "w") : NULL;
+    bool ok = out != NULL;
+    char line[256], row[256];
+    while (ok && fgets(line, sizeof(line), in)) {
+        ok = csv_redate_line(row, sizeof(row), line, old_id, s_meta.id, new_start) && fputs(row, out) >= 0;
+    }
+    if (in) {
+        fclose(in);
+    }
+    if (out) {
+        ok = fflush(out) == 0 && fsync(fileno(out)) == 0 && ok;
+        ok = fclose(out) == 0 && ok;
+    }
+    ok = ok && remove(p) == 0 && rename(tmp, p) == 0;
+    if (!ok) {
+        remove(tmp);
+    }
+    return ok;
+}
+
+bool recorder_redate(int64_t delta_s, int32_t utc_offset_s)
+{
+    if (!s_saved || s_meta.start_utc + delta_s <= 0) {
+        return false;
+    }
+    s_saved = false;  // once
+    char old_id[sizeof(s_meta.id)], old_csv[64], old_fit[64];
+    snprintf(old_id, sizeof(old_id), "%s", s_meta.id);
+    path(old_csv, sizeof(old_csv), "csv");
+    path(old_fit, sizeof(old_fit), "fit");
+    s_meta.start_utc += delta_s;
+    s_meta.info.utc_offset_s = utc_offset_s;
+    for (size_t i = 0; i < s_n; i++) {
+        s_buf[i].ts_utc += delta_s;
+    }
+    choose_id();
+    // New files first: if this fails halfway, the ride is on the card twice, never lost
+    bool ok = write_csv() && write_fit() && redate_rows("summary.csv", old_id, s_meta.start_utc) &&
+              redate_rows("bests.csv", old_id, 0);
+    if (ok) {
+        remove(old_csv);
+        remove(old_fit);
+    }
+    ESP_LOGI(TAG, "ride %s/%s is now %s%s", s_meta.info.user_id, old_id, s_meta.id, ok ? "" : " (FAILED)");
+    return ok;
 }
 
 void recorder_recover(void)

@@ -50,6 +50,8 @@ static bool s_start_pending;             // a ride starts once Wi-Fi is off
 static const workout_t *s_start_wo;      // NULL: free ride (or route)
 static const route_t *s_start_route;     // NULL: no route
 static settings_t s_web_cfg;             // copy for web_start(), task only
+static bool s_undated;                   // the last ride started before the clock was set
+static int64_t s_unset_off;              // time() - uptime while the clock is not set
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static uint32_t utc_now(void) { return (uint32_t)time(NULL); }
@@ -89,6 +91,7 @@ static void start_ride(const workout_t *wo, const route_t *route)
                        .utc_offset_s = tz_offset(s_settings.tz, utc_now())};
     snprintf(info.user_id, sizeof(info.user_id), "%s", u->id);
     snprintf(info.workout, sizeof(info.workout), "%s", wo ? wo->name : route ? route->name : "");
+    s_undated = utc_now() <= CLOCK_VALID_AFTER;
     if (!recorder_start(utc_now(), &info)) {
         ESP_LOGE(TAG, "recorder not started: this ride is not saved");
     }
@@ -201,6 +204,16 @@ static void task(void *arg)
             ble_srv_update(s_view.power_w, s_view.cadence_rpm10, now);
         }
         s_status.clock_ok = utc_now() > CLOCK_VALID_AFTER;
+        // Clock set (NTP, web app) after a ride recorded without it: the jump dates that ride
+        int64_t off = (int64_t)time(NULL) - esp_timer_get_time() / 1000000, jump = 0;
+        int32_t utc_offset = 0;
+        if (!s_status.clock_ok) {
+            s_unset_off = off;
+        } else if (s_undated && s_ride.state == RIDE_IDLE && !s_start_pending) {
+            s_undated = false;
+            jump = off - s_unset_off;
+            utc_offset = tz_offset(s_settings.tz, utc_now());
+        }
         bool finish = s_finish_pending;
         s_finish_pending = false;
         bool start = s_start_pending;
@@ -274,6 +287,9 @@ static void task(void *arg)
                 }
             }
             unlock();
+        }
+        if (jump) {
+            recorder_redate(jump, utc_offset);  // SD writes, without the lock like the finish
         }
     }
 }

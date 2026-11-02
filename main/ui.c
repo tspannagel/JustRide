@@ -88,7 +88,7 @@ static struct {
     int min, watts, hr_zone;  // hr_zone 1..5 (% of max HR, metrics_hr_zone_pct), 0: no HR goal
     bool hold_avg;
 } s_adapt;
-static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr;
+static lv_obj_t *set_title, *set_ftp, *set_erg, *set_weight, *set_hr, *set_info;
 static lv_obj_t *wifi_status, *wifi_btn, *wifi_btn_label, *wifi_ota_btn, *wifi_ota_label, *wifi_tz, *wifi_time;
 static lv_obj_t *r_profile;
 static lv_obj_t *r_time, *r_info, *r_power_card, *r_power_cap, *r_power, *r_target, *r_cad, *r_hr, *r_hr_cap, *r_speed,
@@ -560,7 +560,7 @@ static void update_home(const ride_view_t *v, const app_status_t *st)
     }
     lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
-                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: open the web app");
+                          st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: waiting for Wi-Fi");
     show(home_warn, !st->sd_ok || !st->clock_ok);
     show(home_test, !settings_user(&s)->ftp_known);
 }
@@ -1241,6 +1241,15 @@ static void update_settings(void)
     lv_label_set_text_fmt(set_erg, "%u W", u->max_erg_w);
     lv_label_set_text_fmt(set_weight, "%u kg", u->weight_kg);
     lv_label_set_text_fmt(set_hr, "%u bpm", u->max_hr);
+    // Firmware version and free space on the card (GB as printed on cards, one decimal)
+    uint64_t total, free;
+    if (bsp_sd_space(&total, &free)) {
+        unsigned f = (unsigned)(free / 100000000), t = (unsigned)(total / 100000000);
+        lv_label_set_text_fmt(set_info, "%s\nSD %u.%u of %u.%u GB free", esp_app_get_description()->version, f / 10,
+                              f % 10, t / 10, t % 10);
+    } else {
+        lv_label_set_text_fmt(set_info, "%s\nNo SD card", esp_app_get_description()->version);
+    }
 }
 
 // One handler for all +/- buttons: user data = field * 1000 + 500 + step
@@ -1303,7 +1312,8 @@ static void build_settings(void)
     stepper(scr_settings, &set_hr, "MAX HEART RATE", on_step, F_HR, 1);
     lv_obj_t *r = row(scr_settings);
     grow(button(r, "Forget paired devices", 0, 52, on_forget, NULL));
-    muted(r, &lv_font_montserrat_14, esp_app_get_description()->version);
+    set_info = muted(r, &lv_font_montserrat_14, "");
+    lv_obj_set_style_text_align(set_info, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
 // ---- Zone ride (adaptive quick start) ---------------------------------------------
