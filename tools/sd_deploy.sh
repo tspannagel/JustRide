@@ -12,9 +12,9 @@ rm -rf "$SD/www/stats"
 mkdir -p "$SD/www/stats" "$SD/workouts" "$SD/rides" "$SD/config"
 cp -R "$ROOT/www/stats/." "$SD/www/stats/"
 # The manual, served as /stats/manual/index.html (linked from the web app)
-mkdir -p "$SD/www/stats/manual"
+mkdir -p "$SD/www/stats/manual/img"
 cp "$ROOT/docs/manual.html" "$SD/www/stats/manual/index.html"
-cp -R "$ROOT/docs/img" "$SD/www/stats/manual/img"
+cp "$ROOT"/docs/img/*.png "$SD/www/stats/manual/img/"
 # Shown on the Device page (releases write the tag here)
 (git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev) > "$SD/www/stats/version.txt"
 find "$SD/www/stats" -type f \( -name '*.html' -o -name '*.js' -o -name '*.mjs' -o -name '*.css' -o -name '*.wasm' \) \
