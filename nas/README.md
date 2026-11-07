@@ -39,6 +39,10 @@ If a plan was changed on both sides, the NAS copy wins and the head unit's copy 
 On Synology/QNAP you can do steps 5 and 6 in Container Manager / Container Station with
 "Create project" and this `compose.yaml`.
 
+With Podman instead of Docker, build with `podman build --format docker -t justride-nas nas/`
+(otherwise the health check in the Dockerfile is dropped) and run it with the same port and
+volumes as in `compose.yaml`.
+
 ## Updating
 
 - Web app: unzip the new release zip over `www/` (the head unit gets its copy separately,
