@@ -28,7 +28,7 @@ If a plan was changed on both sides, the NAS copy wins and the head unit's copy 
    From the repo instead of a release (no gzip needed, the service serves plain files too):
 
    ```sh
-   tools/vendor_stats.sh
+   ../tools/vendor_stats.sh   # run these in nas/
    mkdir -p www && cp -R ../www/stats www/
    mkdir -p www/stats/manual && cp ../docs/manual.html www/stats/manual/index.html
    cp -R ../docs/img www/stats/manual/img
