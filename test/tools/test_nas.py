@@ -140,6 +140,35 @@ class NasTest(unittest.TestCase):
         rides = sorted(r['name'] for r in json.loads(self.req('GET', '/api/rides')[1]))
         self.assertEqual(rides, sorted(f'u1/{f}' for f in os.listdir(self.dev.path('rides', 'u1'))))
 
+    def test_workouts_mirrored_before_rides(self):
+        """A failing ride download must not keep the workouts out of the mirror."""
+        shutil.rmtree(os.path.join(self.tmp, 'data', 'mirror', 'workouts'))
+        self.sync.store.state['meta'].clear()
+        orig = self.sync.dev.request
+
+        def flaky(method, path, *a, **kw):
+            if path.startswith('/rides/'):
+                raise nas.DeviceError('timed out')
+            return orig(method, path, *a, **kw)
+        self.sync.dev.request = flaky
+        self.sync.run_once()
+        names = {w['name'] for w in json.loads(self.req('GET', '/api/workouts')[1])}
+        self.assertEqual(names, set(os.listdir(self.dev.path('workouts'))))
+
+    def test_unexpected_error_keeps_syncing(self):
+        orig = self.sync.store.write
+        self.sync.store.write = lambda rel, data: (_ for _ in ()).throw(PermissionError(13, 'Permission denied'))
+        self.sync.run_once()  # must not raise: it would end the sync thread for good
+        n = self.info()
+        self.assertTrue(n['online'])
+        self.assertIn('PermissionError', n['last_error'])
+        self.sync.store.write = orig
+        with open(self.dev.path('workouts', 'New one.zwo'), 'wb') as f:
+            f.write(ZWO)
+        self.sync.run_once()
+        self.assertIsNone(self.info()['last_error'])
+        self.assertIn('New one.zwo', {w['name'] for w in json.loads(self.req('GET', '/api/workouts')[1])})
+
     # ---- offline ----------------------------------------------------------------------------
 
     def test_offline_reads_and_queued_writes(self):

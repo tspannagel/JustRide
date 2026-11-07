@@ -31,6 +31,7 @@ import re
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -210,7 +211,7 @@ class Sync:
     def status(self):
         st = self.store.state
         return {'online': st['online'], 'device': self.dev.addr, 'last_sync': st['last_sync'],
-                'pending': len(self.store.outbox), 'errors': st['errors']}
+                'pending': len(self.store.outbox), 'errors': st['errors'], 'last_error': st.get('last_error')}
 
     # ---- one round: push the outbox, then pull --------------------------------------------
 
@@ -236,6 +237,10 @@ class Sync:
             except DeviceError as e:
                 with self.lock:
                     self.offline(str(e))
+            except Exception as e:  # a bug or a full/read-only /data: keep the loop alive, retry next round
+                traceback.print_exc()
+                with self.lock:
+                    st['last_error'] = f'{type(e).__name__}: {e}'
             finally:
                 with self.lock:
                     self.store.save()
@@ -305,16 +310,7 @@ class Sync:
         with self.lock:
             s.write('users.json', body)
 
-        # Rides: the device's listing is the truth (a re-dated ride changes its file names)
-        status, body = self.dev.request('GET', '/api/rides')
-        if status != 200:
-            raise DeviceError(f'/api/rides: {status}')
-        listed = {}
-        for f in json.loads(body):
-            if ride_name_ok(f['name']):
-                listed['rides/' + f['name']] = [f['size'], f.get('mtime', 0)]
-        self._mirror_listing('rides', listed)
-
+        # Workouts and plans first: small, and what the builder and the plan need; rides can take a while
         status, body = self.dev.request('GET', '/api/workouts')
         if status != 200:
             raise DeviceError(f'/api/workouts: {status}')
@@ -338,6 +334,16 @@ class Sync:
                 elif status == 404:
                     s.delete(rel)
                     s.state['base'].pop(rel, None)
+
+        # Rides: the device's listing is the truth (a re-dated ride changes its file names)
+        status, body = self.dev.request('GET', '/api/rides')
+        if status != 200:
+            raise DeviceError(f'/api/rides: {status}')
+        listed = {}
+        for f in json.loads(body):
+            if ride_name_ok(f['name']):
+                listed['rides/' + f['name']] = [f['size'], f.get('mtime', 0)]
+        self._mirror_listing('rides', listed)
 
     def _mirror_listing(self, sub, listed, track_base=False):
         s = self.store
