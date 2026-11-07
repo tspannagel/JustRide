@@ -22,8 +22,17 @@ If a plan was changed on both sides, the NAS copy wins and the head unit's copy 
    head unit (its address is on the device's Wi-Fi screen). Example: `192.168.1.50`.
 2. **Copy this folder to the NAS**, e.g. `/volume1/docker/justride/`.
 3. **Add the web app.** Download `justride-www-<version>.zip` from the GitHub release and
-   unzip it in that folder, so you have `www/stats/index.html.gz`. Use the same version as
-   on the head unit.
+   unzip it in that folder, so you have `www/stats/index.html.gz` and the manual in
+   `www/stats/manual/`. Use the same version as on the head unit.
+
+   From the repo instead of a release (no gzip needed, the service serves plain files too):
+
+   ```sh
+   tools/vendor_stats.sh
+   mkdir -p www && cp -R ../www/stats www/
+   mkdir -p www/stats/manual && cp ../docs/manual.html www/stats/manual/index.html
+   cp -R ../docs/img www/stats/manual/img
+   ```
 4. **Set the address** in `compose.yaml` (`JR_DEVICE`). If you open the NAS by a name
    (e.g. `nas.local`) rather than its IP address, add that name to `JR_HOSTS`.
 5. **Start it:**
