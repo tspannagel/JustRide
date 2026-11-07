@@ -61,9 +61,10 @@ CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 
-# LVGL: system malloc (internal RAM, then PSRAM) instead of the fixed 64 KB pool,
-# which all screens built at start-up overflow (as in Waveshare's V4 examples)
-CONFIG_LV_USE_CLIB_MALLOC=y
+# LVGL: its own allocator in PSRAM (main/lv_mem_psram.c) instead of the fixed 64 KB pool,
+# which all screens built at start-up overflow. Not the system malloc: that puts small
+# blocks in internal RAM first and left the SD card without DMA memory.
+CONFIG_LV_USE_CUSTOM_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
 

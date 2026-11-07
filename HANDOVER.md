@@ -35,6 +35,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Web app | Served by the device from SD (no internet): statistics, workout builder + generator, training plans; DuckDB-WASM only for the SQL console |
 | Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
 | Out of scope | 3D world, multiplayer, ANT+ |
+| LVGL memory | Own allocator in PSRAM (`main/lv_mem_psram.c`), 2026-11-07: with the system malloc LVGL used ~88 KB internal RAM, DMA memory fell to 2.4 KB at boot and SD reads failed until a reboot (rides list empty, "Could not load this route", uploads "SD not writable"). Now ~97 KB DMA free; the screen still has to be checked for drift/flicker on the device |
 | Visual design | "Instrument" for device and web app (2026-11-07): black ground, solid grey surfaces without borders, colour only for data (metric labels, zones, status), the primary action white with black text (black on light), no gradients or glass. Device greys are multiples of 8 (neutral in RGB565). Home: rider, clock, connection icons + Wi-Fi signal icon, next plan session, this week's rides (summary.csv), three tiles |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
 
@@ -48,7 +49,6 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 - `pattern 0` bars in the right order and colours (picture itself looks right).
 - Backlight PWM polarity (`diag bl 0` / `bl 255`); then dim/off via `bsp_backlight_pwm()`.
 - USB console silent after flashing with a card inserted (re-plug fixes it): find out why.
-- **SD reads fail until reboot (seen 2026-11-07, Instrument firmware):** in 2 of ~12 boots `esp_dma_capable_malloc: Not enough heap memory` → `sdmmc_read_blocks failed (0x101)` from ~4 s (Wi-Fi connecting), or during a `web_deploy.sh` upload ("SD not writable" after 3 files). Afterwards every SD read fails (rides list empty, web app 404, "Could not load this route") until a reboot. Internal free ~13–15.8 KB on good boots. FATFS buffers are in PSRAM (`FATFS_ALLOC_PREFER_EXTRAM`), so each sector read needs a 512 B internal DMA bounce buffer. Next: log `heap_caps_get_free_size/largest_free_block(MALLOC_CAP_DMA)` and the minimum in `diag mem`, find who holds the DMA pool at the failure, compare with the main firmware; consider internal FATFS buffers or LVGL objects in PSRAM. Opening the USB port resets the board.
 - Touch: taps land on the right tiles (user: "taps seem to work"); corners not checked for swap/mirror.
 - Zwift Ride: connects (service 0xFC82, MTU exchange first), handshake ok, button table fixed from a capture (2026-10-29). Still to try: shifting and long presses during a ride, whether a keep-alive is needed on long rides.
 - KICKR Core: connects over FTMS (0x2AD2/0x2AD9 etc. found, MTU 75). Data and ERG/SIM response not checked yet.
