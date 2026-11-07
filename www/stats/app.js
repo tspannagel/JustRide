@@ -305,8 +305,29 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function showVersions() {
   const [info, www] = await Promise.all([deviceInfo(), api.text('version.txt').catch(() => null)]);
   $('#versions').innerHTML = `Installed: firmware <b>${esc(info?.version || 'unknown')}</b> · web app <b>${
-    esc((www || '').trim() || 'development build')}</b>`;
+    esc((www || '').trim() || 'development build')}</b>${info?.nas ? `<br>This page comes from the NAS. Firmware and
+    web-app updates go to the head unit itself: <a class="link" href="http://${esc(info.nas.device)}/stats/#device">open it</a>.` : ''}`;
   return info;
+}
+
+// ---- Served by the NAS (nas/justride_nas.py): head unit on or off, writes waiting -----------
+// The device's own /api/info has no "nas" block, so on the device the bar never shows.
+let nasErrSeen = null;
+async function nasStatus() {
+  const n = (await deviceInfo())?.nas;
+  const bar = $('#nas-bar');
+  if (!n) { bar.hidden = true; return; }
+  const when = n.last_sync ? `${fmt.date(new Date(n.last_sync * 1000))} ${fmt.time(new Date(n.last_sync * 1000))}` : 'never';
+  const waiting = n.pending ? ` ${n.pending} change${n.pending === 1 ? '' : 's'} waiting for it.` : '';
+  bar.hidden = n.online && !n.pending;
+  bar.className = `nas-bar${n.online ? '' : ' off'}`;
+  bar.innerHTML = n.online
+    ? `${icon('upload')}<span>Sending changes to the head unit…</span>`
+    : `${icon('alert')}<span><b>Head unit off.</b> You see its data from ${esc(when)}. Plans and workouts you change go to it
+       when it's on; rider settings need it.${esc(waiting)}</span>`;
+  const last = n.errors?.at(-1);
+  if (last && nasErrSeen !== null && last.time > nasErrSeen) toast(`The head unit refused ${last.path}: ${last.message}`, 'bad');
+  nasErrSeen = last ? last.time : 0;
 }
 
 // The app image starts with esp_image_header_t (magic 0xE9) + one segment header, then
@@ -460,6 +481,8 @@ async function main() {
   initDevice();
   $('#boot').remove();
   document.body.classList.add('ready');
+  nasStatus();
+  setInterval(nasStatus, 30000);
   await go(location.hash.slice(1) || 'today');
   // Keep the active rider's next week of plan workouts on the device
   const active = S.users.find((u) => u.active) || S.users[0];

@@ -554,6 +554,17 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
 }</code></pre>
 <p class="note">To try it without the head unit, run <code>tools/web_dev.py</code> and point the server at <code>--device localhost:8080</code>: it then sees the sample rides.</p>
 
+<h3 id="nas">7.10 Stats and plans while the head unit is off (NAS)</h3>
+<p>If you have a NAS with Docker (Synology, QNAP, Unraid, …), it can keep a copy of the head unit's data and serve the same web app. You can then look at your rides and edit plans and workouts while the head unit is switched off. Setup steps are in <code>nas/README.md</code>: give the head unit a fixed address in your router, unzip the release's web app zip next to <code>compose.yaml</code>, set the address and run <code>docker compose up -d</code>. Then open <code>http://&lt;nas-address&gt;:8080/</code>.</p>
+<ul>
+  <li>The NAS checks for the head unit about every minute and copies new rides, riders, workouts and plans.</li>
+  <li>While the head unit is off, a bar at the top of the web app says so and how old the data is. Plan and workout changes are kept on the NAS and sent when the head unit is back on.</li>
+  <li>Rider changes (FTP, weight, Max ERG) need the head unit to be on.</li>
+  <li>If a plan was changed in both places, the NAS version wins; the head unit's version is kept in the NAS's <code>data/conflicts/</code> folder.</li>
+  <li>Firmware and web-app updates are done from the head unit's own page (they need the tap on the head unit). The Device page on the NAS links to it.</li>
+  <li>Keep it on your home network: don't forward the port on your router; use a VPN to reach it from outside.</li>
+</ul>
+
 <!-- ------------------------------------------------------------------ -->
 <h2 id="updates">8. Updates</h2>
 <p>New versions are published as releases on GitHub: <a href="https://github.com/tspannagel/JustRide/releases">github.com/tspannagel/JustRide/releases</a>. The device shows its firmware version at the bottom of <span class="btn">Settings</span>, next to <span class="btn">Forget paired devices</span>; the web app shows the firmware and web app versions on the <span class="btn">Device</span> page. Version numbers follow <a href="https://semver.org">SemVer</a> (<code>1.2.0</code>); a version with a dash, like <code>1.3.0-alpha.1</code> or <code>1.3.0-rc.1</code>, is a <b>pre-release</b> for testing and is marked as such on GitHub. The web app doesn't check for new versions yet: look at the releases page.</p>

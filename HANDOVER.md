@@ -34,6 +34,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Recording | FIT + per-second CSV + summary/bests CSV, all local |
 | Web app | Served by the device from SD (no internet): statistics, workout builder + generator, training plans; DuckDB-WASM only for the SQL console |
 | Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
+| NAS (optional, `nas/`) | Stdlib Python service in Docker: mirror + outbox, sync ~60 s via `/api/info`. Rides and riders belong to the device (rider edits refused while it's off); queued plan/workout writes win over a device copy changed meanwhile, which is kept in `data/conflicts/`; a copy changed only on the device is taken. OTA and web-app uploads only on the device (409 + link). Fixed device IP via DHCP reservation; LAN only. Defaults chosen by Claude 2026-11-07, user may change them |
 | Out of scope | 3D world, multiplayer, ANT+ |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
 

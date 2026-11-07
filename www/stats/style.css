@@ -393,6 +393,13 @@ dialog[open] { animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .bar.done { --bc: var(--good); }
 .bar span { display: block; position: relative; font-size: 11px; font-weight: 650; padding-left: 6px; line-height: 18px; }
 
+/* Served by the NAS: head unit off / changes waiting */
+.nas-bar { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; margin-bottom: 18px; border-radius: var(--r-s);
+  background: var(--surface); color: var(--text-2); font-size: 13.5px; }
+.nas-bar .i { color: var(--info); margin-top: 1px; }
+.nas-bar.off .i { color: var(--warn); }
+.nas-bar b { color: var(--text); }
+
 /* Empty, boot, toasts */
 .empty { text-align: center; padding: 40px 20px; color: var(--text-3); border: 1px dashed var(--line-2); border-radius: var(--r); }
 .empty .i { width: 28px; height: 28px; color: var(--accent); }
