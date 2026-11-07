@@ -206,7 +206,7 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *cache
 static const char INDEX_HTML[] =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
     "<title>JustRide</title><style>body{font:16px/1.5 system-ui;max-width:36em;margin:3em auto;padding:0 1em;"
-    "background:#0b0d12;color:#e7e9ee}code{background:#1b1f29;padding:2px 6px;border-radius:6px}</style>"
+    "background:#000;color:#fff}a{color:#409cff}code{background:#1c1c1e;padding:2px 6px;border-radius:6px}</style>"
     "<h1>JustRide</h1><p>The web app is not on the SD card. Put the card in your computer and run "
     "<code>tools/sd_deploy.sh /Volumes/JUSTRIDE</code>, then put it back and reload this page.</p>"
     "<p>Ride files: <a href='/api/rides'>/api/rides</a></p>";
@@ -1093,6 +1093,29 @@ void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
 bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
+
+web_link_t web_link(int *bars)
+{
+    static web_link_t link = WEB_LINK_OFF;
+    static int last_bars;
+    static int64_t next_rssi_us;
+    if (s_lock && xSemaphoreTake(s_lock, 0) == pdTRUE) {  // the UI starts before web_init()
+        link = !s_running ? WEB_LINK_OFF : s_got_ip ? WEB_LINK_JOINED : s_is_ap ? WEB_LINK_AP : WEB_LINK_CONNECTING;
+        int64_t now = esp_timer_get_time();
+        if (link != WEB_LINK_JOINED) {
+            last_bars = 0;
+            next_rssi_us = 0;
+        } else if (now >= next_rssi_us) {
+            wifi_ap_record_t ap;
+            int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : -100;
+            last_bars = rssi >= -60 ? 3 : rssi >= -72 ? 2 : 1;
+            next_rssi_us = now + 5000000;
+        }
+        xSemaphoreGive(s_lock);
+    }
+    *bars = last_bars;
+    return link;
+}
 
 void web_status(char *buf, size_t size)
 {

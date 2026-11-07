@@ -1,0 +1,17 @@
+# JustRide on a NAS. Setup: nas/README.md
+services:
+  justride:
+    build: .
+    container_name: justride
+    restart: unless-stopped
+    ports:
+      - "8080:8080"            # LAN only: no port forwarding on the router, use a VPN from outside
+    environment:
+      JR_DEVICE: "192.168.1.50"   # the head unit's fixed address (DHCP reservation on the router)
+      # JR_HOSTS: "nas.local,justride.home.lan"   # names you open the NAS by (IPv4 addresses always work)
+      # JR_INTERVAL: "60"
+    volumes:
+      - ./data:/data           # mirror, outbox, conflicts: back this up with the NAS
+      - ./www:/app/www:ro      # the web app: unzip the release's www zip here (-> ./www/stats/)
+    # network_mode: host       # only if JR_DEVICE must be "trainer.local" (mDNS doesn't cross Docker's bridge);
+                               # then drop "ports:" and the service listens on the NAS's port 8080

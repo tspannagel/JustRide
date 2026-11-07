@@ -210,8 +210,12 @@ static int cmd_zap(int argc, char **argv)
 
 static int cmd_mem(int argc, char **argv)
 {
-    printf("internal free %u, PSRAM free %u\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    // DMA: what the SD card needs for every sector read (512 B bounce buffers, FATFS buffers are in PSRAM)
+    printf("internal free %u (lowest %u), DMA free %u (largest block %u, lowest %u), PSRAM free %u\n",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
+           (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_DMA), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     return 0;
 }
 

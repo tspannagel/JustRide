@@ -1,6 +1,7 @@
 // Touch UI: home, riders, workouts, settings, Wi-Fi, ride, summary. LVGL 9.
 // Everything here runs in the LVGL task; ride state comes from app_get_view().
-// Look: dark background, numbers on cards, one colour per metric, flat buttons.
+// Look ("Instrument", same as the web app): black ground, solid grey surfaces without borders,
+// colour only for data (metrics, zones, status), the primary action white with black text.
 
 #include "ui.h"
 
@@ -21,6 +22,7 @@
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "input_map.h"
+#include "rec_csv.h"
 #include "tz.h"
 #include "web.h"
 
@@ -32,25 +34,31 @@ static const char *TAG = "ui";
 #define PAD 12
 #define GAP 10
 
-// Palette (matches the web app's dark theme)
-// No gradients on dark surfaces: RGB565 has too few dark steps, they band
-#define C_BG 0x0A0B12
-#define C_CARD 0x151823
-#define C_LINE 0x262A38      // 1 px card and button border
-#define C_BTN 0x1E2230
-#define C_TEXT 0xEEF0F6
-#define C_MUTED 0x8A90A3
-#define C_ACCENT 0x6574F5    // primary gradient, left to right
-#define C_ACCENT_2 0x9A5BF0
-#define C_FOCUS 0x58A6FF  // controller highlight, a different hue than the primary so a focused primary shows
-#define C_OK 0x3DDC97
-#define C_WARN 0xF5B94A
-#define C_DANGER 0xE5484D
-#define C_DANGER_2 0xB8304F
-#define C_POWER 0xF5B83D
-#define C_HR 0xF85149
-#define C_CAD 0x39C5BB
-#define C_SPEED 0xA371F7
+// Palette (the web app's www/stats/style.css tokens, greys rounded for the panel)
+// No gradients: RGB565 has too few dark steps, they band. Greys are multiples of 8 so red,
+// green and blue stay equal in RGB565 (green has one bit more: #1C1C1E turns greenish).
+#define C_BG 0x000000
+#define C_CARD 0x202020      // surfaces: cards and buttons, no borders
+#define C_BTN 0x202020
+#define C_RAISED 0x303030    // a button on a card
+#define C_LINE 0x303030      // hairline above a value
+#define C_TEXT 0xFFFFFF
+#define C_MUTED 0x909090
+#define C_DIM 0x484848       // off / not connected
+#define C_ACCENT 0xFFFFFF    // primary action: white, black text
+#define C_ACCENT_INK 0x000000
+#define C_FOCUS 0x0A84FF     // controller highlight (and the LVGL theme's widgets)
+#define C_OK 0x30D158
+#define C_WARN 0xFF9F0A
+#define C_DANGER 0xFF453A
+#define C_DANGER_BG 0x2A1110 // hold-to buttons: dark red, red text
+#define C_DANGER_TEXT 0xFF6961
+#define C_POWER 0xFFB340     // metrics
+#define C_HR 0xFF375F
+#define C_CAD 0x40C8E0
+#define C_SPEED 0x409CFF     // speed and distance
+#define C_LOAD 0x30D158      // TSS, IF
+#define C_TIME 0xA8A8A8
 
 // Montserrat Medium 100 px, only "-0123456789" (generated with lv_font_conv, see font_digits_100.c)
 LV_FONT_DECLARE(font_digits_100);
@@ -66,13 +74,17 @@ LV_FONT_DECLARE(font_icons_18);
 #define I_BARS "\xEF\x82\x80"
 #define I_PERCENT "\xEF\x8A\x95"
 #define I_LINE "\xEF\x88\x81"
+#define I_BIKE "\xEF\x88\x86"
+#define I_GAMEPAD "\xEF\x84\x9B"
 
 static lv_style_t st_screen, st_card, st_btn, st_primary, st_danger, st_focus;
 
 static lv_obj_t *scr_home, *scr_users, *scr_name, *scr_workouts, *scr_adapt, *scr_preview, *scr_settings, *scr_wifi, *scr_ride,
     *scr_summary;
 
-static lv_obj_t *home_user, *home_dot[4], *home_state[4], *home_warn, *home_test;
+static lv_obj_t *home_user, *home_clock, *home_date, *home_dev[4], *home_dot[4], *home_wifi, *home_warn, *home_test;
+static lv_obj_t *home_plan, *home_plan_when, *home_plan_meta, *home_plan_title, *home_week, *home_week_sum, *home_bar[7],
+    *home_day[7];
 static lv_obj_t *users_list, *users_msg;
 static lv_obj_t *name_title, *name_ta;
 static bool s_name_add;  // name screen: add a rider (true) or rename the active one
@@ -113,37 +125,34 @@ static void styles_init(void)
     lv_style_init(&st_card);
     lv_style_set_bg_color(&st_card, rgb(C_CARD));
     lv_style_set_bg_opa(&st_card, LV_OPA_COVER);
-    lv_style_set_radius(&st_card, 18);
-    lv_style_set_pad_all(&st_card, 10);
+    lv_style_set_radius(&st_card, 20);
+    lv_style_set_pad_all(&st_card, 12);
     lv_style_set_pad_row(&st_card, 4);
     lv_style_set_pad_column(&st_card, 8);
-    lv_style_set_border_color(&st_card, rgb(C_LINE));
-    lv_style_set_border_width(&st_card, 1);
+    lv_style_set_border_width(&st_card, 0);
 
     lv_style_init(&st_btn);
     lv_style_set_bg_color(&st_btn, rgb(C_BTN));
     lv_style_set_radius(&st_btn, 14);
     lv_style_set_shadow_width(&st_btn, 0);
-    lv_style_set_border_color(&st_btn, rgb(C_LINE));
-    lv_style_set_border_width(&st_btn, 1);
+    lv_style_set_border_width(&st_btn, 0);
     lv_style_set_text_color(&st_btn, rgb(C_TEXT));
 
     lv_style_init(&st_primary);
     lv_style_set_bg_color(&st_primary, rgb(C_ACCENT));
-    lv_style_set_bg_grad_color(&st_primary, rgb(C_ACCENT_2));
-    lv_style_set_bg_grad_dir(&st_primary, LV_GRAD_DIR_HOR);
+    lv_style_set_text_color(&st_primary, rgb(C_ACCENT_INK));
     lv_style_set_border_width(&st_primary, 0);
 
     lv_style_init(&st_danger);
-    lv_style_set_bg_color(&st_danger, rgb(C_DANGER));
-    lv_style_set_bg_grad_color(&st_danger, rgb(C_DANGER_2));
-    lv_style_set_bg_grad_dir(&st_danger, LV_GRAD_DIR_HOR);
+    lv_style_set_bg_color(&st_danger, rgb(C_DANGER_BG));
+    lv_style_set_text_color(&st_danger, rgb(C_DANGER_TEXT));
     lv_style_set_border_width(&st_danger, 0);
 
-    // Controller highlight (LV_STATE_FOCUS_KEY): blue fill plus outline
+    // Controller highlight (LV_STATE_FOCUS_KEY): blue fill plus outline, white text (also on a white primary)
     lv_style_init(&st_focus);
     lv_style_set_bg_color(&st_focus, rgb(C_FOCUS));
-    lv_style_set_bg_grad_dir(&st_focus, LV_GRAD_DIR_NONE);
+    lv_style_set_bg_opa(&st_focus, LV_OPA_COVER);
+    lv_style_set_text_color(&st_focus, rgb(C_TEXT));
     lv_style_set_outline_color(&st_focus, rgb(C_TEXT));
     lv_style_set_outline_width(&st_focus, 3);
     lv_style_set_outline_pad(&st_focus, 3);
@@ -266,8 +275,14 @@ static lv_obj_t *icon_caption(lv_obj_t *parent, const char *icon, const char *na
 static lv_obj_t *metric_font(lv_obj_t *parent, const char *icon, const char *name, uint32_t color, const char *unit,
                              const lv_font_t *font)
 {
-    lv_obj_t *c = grow(card(parent, LV_FLEX_FLOW_COLUMN));
+    // A flat cell: hairline on top, coloured icon + caption, white value (no box around it)
+    lv_obj_t *c = grow(box(parent, LV_FLEX_FLOW_COLUMN));
     lv_obj_set_width(c, 0);  // with grow: equal widths
+    lv_obj_set_style_border_side(c, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(c, 1, 0);
+    lv_obj_set_style_border_color(c, rgb(C_LINE), 0);
+    lv_obj_set_style_pad_top(c, 8, 0);
+    lv_obj_set_style_pad_row(c, 2, 0);
     icon_caption(c, icon, name, color);
     lv_obj_t *r = row(c);
     lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
@@ -288,7 +303,7 @@ static lv_obj_t *metric(lv_obj_t *parent, const char *icon, const char *name, ui
 
 // Zone colours by % of FTP, same zones and colours as the web app; the last one is
 // for free-ride parts in the workout list
-static const uint32_t ZONE_RGB[8] = {0x6B7385, 0x3987E5, 0x1FB57F, 0xE8B100, 0xEB6834, 0xE34948, 0xA07CF0, C_MUTED};
+static const uint32_t ZONE_RGB[8] = {C_MUTED, 0x0A84FF, 0x30D158, 0xFFD60A, 0xFF9F0A, 0xFF453A, 0xFFFFFF, C_DIM};
 #define ZONE_FREE 7
 
 static uint8_t zone_of(uint16_t pm)
@@ -481,9 +496,14 @@ static void show(lv_obj_t *o, bool on)
 
 static void nav_clear(void);
 
+static void home_load(void);
+
 static void go(lv_obj_t *scr)
 {
     nav_clear();
+    if (scr == scr_home) {
+        home_load();  // rides or plan files may have changed meanwhile
+    }
     lv_screen_load(scr);
 }
 
@@ -497,72 +517,380 @@ static void open_users(lv_event_t *e);
 static void open_workouts(lv_event_t *e);
 static void open_settings(lv_event_t *e);
 static void open_wifi(lv_event_t *e);
+static void open_preview(const char *path);
+static bool plan_file(const char *file, const settings_t *s, char date[11], const char **what);
+static void today_key(const settings_t *s, char out[11]);
+static void day_label(char *out, size_t n, const char *date, const char *today);
 static void open_ramp_test(lv_event_t *e);
 
+// Top bar: rider, clock, connections (trainer, HR strap, controller, re-broadcast receivers)
+// and Wi-Fi. Below: the active rider's next plan session (the web app's plan files), this
+// week's rides (summary.csv) and three tiles. home_load() reads the SD card: when home opens
+// and when the rider or the day changes, never on the refresh tick.
+
+static profile_t s_home_prof;
+EXT_RAM_BSS_ATTR static workout_t s_home_wo;  // the next plan session (PSRAM)
+static char s_home_path[80];                   // its file; empty: none
+static char s_home_key[24];                    // rider id + local date the cards were loaded for
+static bool s_week_ok;                         // week strip loaded (needs the clock)
+static web_link_t s_wifi_link;
+static int s_wifi_bars;
+
+// Tile: icon top left, name bottom left
 static lv_obj_t *tile(lv_obj_t *parent, const char *icon, const char *text, lv_event_cb_t cb, void *data)
 {
     lv_obj_t *b = grow(button(parent, "", 0, LV_PCT(100), cb, data));
     lv_obj_clean(b);
     lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(b, 8, 0);
-    label(b, &lv_font_montserrat_28, icon);
+    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_all(b, 14, 0);
+    lv_obj_set_style_radius(b, 20, 0);
+    label(b, &lv_font_montserrat_20, icon);
     label(b, &lv_font_montserrat_20, text);
     return b;
+}
+
+// Connection icon with a status dot at its lower right
+static void dev_icon(lv_obj_t *parent, const lv_font_t *font, const char *glyph, int i)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, 26, 26);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(o, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    home_dev[i] = label(o, font, glyph);
+    lv_obj_center(home_dev[i]);
+    home_dot[i] = lv_obj_create(o);
+    lv_obj_remove_style_all(home_dot[i]);
+    lv_obj_set_size(home_dot[i], 10, 10);
+    lv_obj_set_style_radius(home_dot[i], LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(home_dot[i], LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(home_dot[i], 2, 0);
+    lv_obj_set_style_border_color(home_dot[i], rgb(C_BG), 0);
+    lv_obj_align(home_dot[i], LV_ALIGN_BOTTOM_RIGHT, 3, 3);
+}
+
+// Wi-Fi icon: three arcs and a dot. Joined: lit arcs = signal; own access point: all
+// orange; connecting: the dot only; off: grey with a red slash.
+static void draw_wifi(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_target_obj(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(o, &a);
+    int cx = (a.x1 + a.x2) / 2, cy = (a.y1 + a.y2) / 2 + 8;
+    int lit = s_wifi_link == WEB_LINK_JOINED ? s_wifi_bars : s_wifi_link == WEB_LINK_AP ? 3 : 0;
+    uint32_t on = s_wifi_link == WEB_LINK_AP ? C_WARN : C_TEXT;
+    for (int i = 0; i < 3; i++) {
+        lv_draw_arc_dsc_t d;
+        lv_draw_arc_dsc_init(&d);
+        d.center.x = cx;
+        d.center.y = cy;
+        d.radius = (uint16_t)(8 + 6 * i);
+        d.start_angle = 225;
+        d.end_angle = 315;
+        d.width = 3;
+        d.rounded = 1;
+        d.color = rgb(i < lit ? on : C_DIM);
+        lv_draw_arc(layer, &d);
+    }
+    lv_draw_rect_dsc_t dot;
+    lv_draw_rect_dsc_init(&dot);
+    dot.bg_color = rgb(s_wifi_link == WEB_LINK_OFF ? C_DIM : on);
+    dot.radius = LV_RADIUS_CIRCLE;
+    lv_area_t da = {cx - 2, cy - 3, cx + 2, cy + 1};
+    lv_draw_rect(layer, &dot, &da);
+    if (s_wifi_link == WEB_LINK_OFF) {
+        lv_draw_line_dsc_t l;
+        lv_draw_line_dsc_init(&l);
+        l.p1.x = cx - 12;
+        l.p1.y = cy - 21;
+        l.p2.x = cx + 12;
+        l.p2.y = cy + 3;
+        l.width = 3;
+        l.round_start = l.round_end = 1;
+        l.color = rgb(C_DANGER);
+        lv_draw_line(layer, &l);
+    }
+}
+
+static void on_home_start(lv_event_t *e)
+{
+    if (s_home_path[0] && !app_start_workout(s_home_path)) {
+        ESP_LOGW(TAG, "could not start %s", s_home_path);
+    }
+}
+
+static void on_home_preview(lv_event_t *e)
+{
+    if (s_home_path[0]) {
+        open_preview(s_home_path);
+        s_preview_from = scr_home;
+    }
 }
 
 static void build_home(void)
 {
     scr_home = screen(NULL, false);
     lv_obj_t *top = row(scr_home);
-    grow(label(top, &lv_font_montserrat_28, "JustRide"));
     lv_obj_t *u = button(top, "", LV_SIZE_CONTENT, 44, open_users, NULL);
     lv_obj_set_style_pad_hor(u, 16, 0);
+    lv_obj_set_style_radius(u, 22, 0);
     home_user = lv_obj_get_child(u, 0);
+    lv_label_set_long_mode(home_user, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_max_width(home_user, 130, 0);
 
-    static const char *const names[4] = {"Trainer", "Heart rate", "Zwift Ride", "Watch"};
-    lv_obj_t *c = card(scr_home, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(c, 6, 0);
-    for (int i = 0; i < 4; i++) {
-        lv_obj_t *r = row(c);
-        home_dot[i] = lv_obj_create(r);
-        lv_obj_remove_style_all(home_dot[i]);
-        lv_obj_set_size(home_dot[i], 10, 10);
-        lv_obj_set_style_radius(home_dot[i], LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_opa(home_dot[i], LV_OPA_COVER, 0);
-        grow(label(r, &lv_font_montserrat_20, names[i]));
-        home_state[i] = muted(r, &lv_font_montserrat_16, "");
-    }
-    home_warn = label(c, &lv_font_montserrat_16, "");
+    lv_obj_t *clk = grow(box(top, LV_FLEX_FLOW_COLUMN));
+    lv_obj_set_flex_align(clk, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(clk, 0, 0);
+    home_clock = label(clk, &lv_font_montserrat_20, "");
+    home_date = muted(clk, &lv_font_montserrat_14, "");
+
+    lv_obj_t *dev = row(top);
+    lv_obj_set_size(dev, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_column(dev, 10, 0);
+    dev_icon(dev, &font_icons_18, I_BIKE, 0);
+    dev_icon(dev, &font_icons_18, I_HEART, 1);
+    dev_icon(dev, &font_icons_18, I_GAMEPAD, 2);
+    dev_icon(dev, &lv_font_montserrat_16, LV_SYMBOL_BLUETOOTH, 3);  // watch / bike computer receiving
+    lv_obj_t *sep = lv_obj_create(top);
+    lv_obj_remove_style_all(sep);
+    lv_obj_set_size(sep, 1, 24);
+    lv_obj_set_style_bg_color(sep, rgb(C_LINE), 0);
+    lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
+    home_wifi = button(top, "", 44, 44, open_wifi, NULL);
+    lv_obj_clean(home_wifi);
+    lv_obj_set_style_bg_opa(home_wifi, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_opa(home_wifi, LV_OPA_COVER, LV_STATE_FOCUS_KEY);
+    lv_obj_add_event_cb(home_wifi, draw_wifi, LV_EVENT_DRAW_MAIN_END, NULL);
+
+    home_warn = label(scr_home, &lv_font_montserrat_16, "");
     lv_obj_set_style_text_color(home_warn, rgb(C_WARN), 0);
     // New riders: FTP is only a guess until the first test
     home_test = button(scr_home, LV_SYMBOL_CHARGE "  FTP not tested yet: take the ramp test", LV_PCT(100), 52, open_ramp_test, NULL);
 
-    lv_obj_t *r1 = grow(row(scr_home)), *r2 = grow(row(scr_home));  // tiles fill the rest of the screen
-    lv_obj_add_flag(primary(tile(r1, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE)), NAV_START);
-    tile(r1, LV_SYMBOL_LIST, "Workouts", open_workouts, NULL);
-    tile(r2, LV_SYMBOL_SETTINGS, "Settings", open_settings, NULL);
-    tile(r2, LV_SYMBOL_WIFI, "Wi-Fi", open_wifi, NULL);
+    // Next plan session
+    home_plan = card(scr_home, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(home_plan, 14, 0);
+    lv_obj_set_style_pad_row(home_plan, 6, 0);
+    lv_obj_t *h = row(home_plan);
+    home_plan_when = grow(caption(h, "", C_MUTED));
+    home_plan_meta = muted(h, &lv_font_montserrat_14, "");
+    home_plan_title = label(home_plan, &lv_font_montserrat_20, "");
+    lv_obj_set_width(home_plan_title, LV_PCT(100));
+    lv_label_set_long_mode(home_plan_title, LV_LABEL_LONG_DOT);
+    lv_obj_t *prof = profile(home_plan, &s_home_prof, 30);
+    lv_obj_set_style_bg_opa(prof, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(prof, 0, 0);
+    lv_obj_t *b = row(home_plan);
+    lv_obj_add_flag(primary(grow(button(b, LV_SYMBOL_PLAY "  Start", 0, 48, on_home_start, NULL))), NAV_START);
+    lv_obj_set_style_bg_color(button(b, "Preview", 116, 48, on_home_preview, NULL), rgb(C_RAISED), 0);
+
+    // This week, Monday first: white = ridden (height = TSS), outline = planned, line = nothing
+    home_week = card(scr_home, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_hor(home_week, 14, 0);
+    lv_obj_set_style_pad_row(home_week, 6, 0);
+    h = row(home_week);
+    grow(caption(h, "THIS WEEK", C_MUTED));
+    home_week_sum = muted(h, &lv_font_montserrat_14, "");
+    lv_obj_t *days = row(home_week);
+    lv_obj_set_flex_align(days, LV_FLEX_ALIGN_SPACE_AROUND, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    static const char *const dn[7] = {"M", "T", "W", "T", "F", "S", "S"};
+    for (int i = 0; i < 7; i++) {
+        lv_obj_t *col = box(days, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_size(col, 28, 62);  // fixed: tallest bar 40 + gap + day letter
+        lv_obj_set_flex_align(col, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        home_bar[i] = lv_obj_create(col);
+        lv_obj_remove_style_all(home_bar[i]);
+        lv_obj_set_size(home_bar[i], 20, 3);
+        lv_obj_set_style_radius(home_bar[i], 4, 0);
+        home_day[i] = label(col, &lv_font_montserrat_14, dn[i]);
+    }
+
+    lv_obj_t *t = grow(row(scr_home));  // tiles fill the rest of the screen
+    lv_obj_set_flex_align(t, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_add_flag(tile(t, LV_SYMBOL_PLAY, "Free ride", on_action, (void *)ACT_START_FREE), NAV_START);
+    tile(t, LV_SYMBOL_LIST, "Workouts", open_workouts, NULL);
+    tile(t, LV_SYMBOL_SETTINGS, "Settings", open_settings, NULL);
+}
+
+static void home_load(void)
+{
+    settings_t s;
+    app_get_settings(&s);
+    if (s.n_users == 0) {
+        return;
+    }
+    char today[11];
+    today_key(&s, today);
+    snprintf(s_home_key, sizeof(s_home_key), "%s %s", settings_user(&s)->id, today);
+
+    // This week's local dates, Monday first (needs the clock)
+    char days[7][11] = {{0}};
+    int today_i = -1;
+    int64_t first = 0;
+    if (today[0]) {
+        time_t now = time(NULL);
+        int64_t day = ((int64_t)now + tz_offset(s.tz, (uint32_t)now)) / 86400;
+        today_i = (int)((day + 3) % 7);  // 1970-01-01 was a Thursday
+        first = day - today_i;
+        for (int i = 0; i < 7; i++) {
+            time_t t = (time_t)((first + i) * 86400);
+            struct tm tm;
+            gmtime_r(&t, &tm);
+            strftime(days[i], sizeof(days[i]), "%Y-%m-%d", &tm);
+        }
+    }
+
+    // The next plan session (today or later) and the planned days left this week
+    bool planned[7] = {false};
+    char best[11] = "";
+    s_home_path[0] = 0;
+    DIR *dir = opendir(WORKOUT_DIR);
+    struct dirent *e;
+    while (dir && (e = readdir(dir))) {
+        char date[11];
+        const char *what;
+        if (!plan_file(e->d_name, &s, date, &what) || (today[0] && strcmp(date, today) < 0) ||
+            strlen(e->d_name) + sizeof(WORKOUT_DIR) + 1 > sizeof(s_home_path)) {
+            continue;
+        }
+        for (int i = 0; i < 7; i++) {
+            planned[i] |= strcmp(date, days[i]) == 0;
+        }
+        int c = best[0] ? strcmp(date, best) : -1;
+        if (c < 0 || (c == 0 && strcmp(e->d_name, strrchr(s_home_path, '/') + 1) < 0)) {
+            memcpy(best, date, sizeof(best));
+            snprintf(s_home_path, sizeof(s_home_path), WORKOUT_DIR "/%s", e->d_name);
+        }
+    }
+    if (dir) {
+        closedir(dir);
+    }
+    bool plan = s_home_path[0] && app_read_workout(s_home_path, &s_home_wo);
+    if (plan) {
+        char when[24];
+        day_label(when, sizeof(when), best, today);
+        for (char *c = when; *c; c++) {
+            *c = (char)toupper((unsigned char)*c);
+        }
+        lv_label_set_text_fmt(home_plan_when, "%s  -  TRAINING PLAN", when);
+        workout_est_t est;
+        workout_estimate(&s_home_wo, &est);
+        lv_label_set_text_fmt(home_plan_meta, "%lu min  -  TSS %u", (unsigned long)((est.total_s + 30) / 60),
+                              (est.tss10 + 5) / 10);
+        lv_label_set_text(home_plan_title, s_home_wo.name[0] ? s_home_wo.name : "Plan session");
+        s_home_prof = (profile_t){.w = &s_home_wo, .pos_s = -1};
+        lv_obj_invalidate(home_plan);
+    } else {
+        s_home_path[0] = 0;
+    }
+    show(home_plan, plan);
+
+    // The week's rides from summary.csv, by local start day
+    s_week_ok = today[0] != 0;
+    if (!s_week_ok) {
+        return;
+    }
+    uint32_t tss10[7] = {0}, sum10 = 0, top = 1;
+    bool rode[7] = {false};
+    int rides = 0, left = 0;
+    char path[64], line[256];
+    snprintf(path, sizeof(path), BSP_SD_MOUNT "/rides/%s/summary.csv", settings_user(&s)->id);
+    FILE *f = fopen(path, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        uint32_t start;
+        uint16_t t;
+        if (!csv_parse_summary(line, &start, &t)) {
+            continue;
+        }
+        int64_t d = ((int64_t)start + tz_offset(s.tz, start)) / 86400 - first;
+        if (d >= 0 && d < 7) {
+            tss10[d] += t;
+            sum10 += t;
+            rode[d] = true;
+            rides++;
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+    for (int i = 0; i < 7; i++) {
+        top = tss10[i] > top ? tss10[i] : top;
+    }
+    for (int i = 0; i < 7; i++) {
+        bool plan_left = planned[i] && !rode[i] && i >= today_i;
+        left += plan_left;
+        lv_obj_t *bar = home_bar[i];
+        lv_obj_set_height(bar, rode[i] ? 6 + (int)(34 * tss10[i] / top) : plan_left ? 24 : 3);
+        lv_obj_set_style_bg_opa(bar, plan_left ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(bar, rgb(rode[i] ? C_TEXT : C_DIM), 0);
+        lv_obj_set_style_border_width(bar, plan_left ? 2 : 0, 0);
+        lv_obj_set_style_border_color(bar, rgb(i == today_i ? C_TEXT : C_MUTED), 0);
+        lv_obj_set_style_text_color(home_day[i], rgb(i == today_i ? C_TEXT : C_MUTED), 0);
+    }
+    if (left) {
+        lv_label_set_text_fmt(home_week_sum, "%d %s  -  %lu TSS  -  %d planned", rides, rides == 1 ? "ride" : "rides",
+                              (unsigned long)((sum10 + 5) / 10), left);
+    } else {
+        lv_label_set_text_fmt(home_week_sum, "%d %s  -  %lu TSS", rides, rides == 1 ? "ride" : "rides",
+                              (unsigned long)((sum10 + 5) / 10));
+    }
 }
 
 static void update_home(const ride_view_t *v, const app_status_t *st)
 {
     settings_t s;
     app_get_settings(&s);
-    lv_label_set_text_fmt(home_user, "%s  " LV_SYMBOL_DOWN, settings_user(&s)->name);
+    if (s.n_users == 0) {
+        return;
+    }
+    const user_t *u = settings_user(&s);
+    lv_label_set_text_fmt(home_user, "%s  " LV_SYMBOL_DOWN, u->name);
+
+    char today[11], key[24];
+    today_key(&s, today);
+    if (today[0]) {
+        static const char *const wd[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+        static const char *const mo[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+        time_t now = time(NULL);
+        time_t local = now + tz_offset(s.tz, (uint32_t)now);
+        struct tm tm;
+        gmtime_r(&local, &tm);
+        lv_label_set_text_fmt(home_clock, "%02d:%02d", tm.tm_hour, tm.tm_min);
+        lv_label_set_text_fmt(home_date, "%s %d %s", wd[tm.tm_wday], tm.tm_mday, mo[tm.tm_mon]);
+    } else {
+        lv_label_set_text(home_clock, "--:--");
+        lv_label_set_text(home_date, "");
+    }
+
     const bool on[4] = {st->trainer, st->hr, st->controller, st->receivers > 0};
     for (int i = 0; i < 4; i++) {
-        lv_obj_set_style_bg_color(home_dot[i], rgb(on[i] ? C_OK : C_MUTED), 0);
-        lv_label_set_text(home_state[i], on[i] ? "Connected" : i == 0 ? "Searching..." : "Not connected");
+        lv_obj_set_style_text_color(home_dev[i], rgb(on[i] ? C_TEXT : C_DIM), 0);
+        lv_obj_set_style_bg_color(home_dot[i], rgb(on[i] ? C_OK : C_DIM), 0);
     }
-    if (st->receivers > 1) {
-        lv_label_set_text_fmt(home_state[3], "%u connected", st->receivers);  // watch + bike computer
+    int bars;
+    web_link_t link = web_link(&bars);
+    if (link != s_wifi_link || bars != s_wifi_bars) {
+        s_wifi_link = link;
+        s_wifi_bars = bars;
+        lv_obj_invalidate(home_wifi);
     }
+
     lv_label_set_text_fmt(home_warn, "%s%s%s", st->sd_ok ? "" : LV_SYMBOL_WARNING " No SD card: rides are not saved",
                           !st->sd_ok && !st->clock_ok ? "\n" : "",
                           st->clock_ok ? "" : LV_SYMBOL_WARNING " Clock not set: waiting for Wi-Fi");
-    show(home_warn, !st->sd_ok || !st->clock_ok);
-    show(home_test, !settings_user(&s)->ftp_known);
+    bool warn = !st->sd_ok || !st->clock_ok, test = !u->ftp_known;
+    show(home_warn, warn);
+    show(home_test, test);
+
+    snprintf(key, sizeof(key), "%s %s", u->id, today);
+    if (strcmp(key, s_home_key) != 0) {
+        home_load();  // other rider or a new day
+    }
+    // The week strip gives way to warnings and the test button (one screen, no scrolling)
+    show(home_week, s_week_ok && !warn && !test);
 }
 
 // ---- Riders -------------------------------------------------------------------
@@ -638,12 +966,12 @@ static lv_obj_t *list(lv_obj_t *parent, int h)
     return l;
 }
 
-// List row styled like a button, icon in the accent colour
+// List row styled like a button, white icon
 static lv_obj_t *list_item(lv_obj_t *l, const char *icon, const char *text, lv_event_cb_t cb, void *data)
 {
     lv_obj_t *b = lv_list_add_button(l, icon, text);
     lv_obj_add_style(b, &st_btn, 0);
-    lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_ACCENT), 0);  // the icon
+    lv_obj_set_style_text_color(lv_obj_get_child(b, 0), rgb(C_TEXT), 0);  // the icon
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, data);
     navigable(b);
     return b;
@@ -727,17 +1055,21 @@ static void open_ramp_test(lv_event_t *e)
     show_preview();
 }
 
-static void preview_captions(const char *const names[4], const char *const icons[4], const char *start)
+static void preview_captions(const char *const names[4], const char *const icons[4], const uint32_t colors[4],
+                             const char *start)
 {
     for (int i = 0; i < 4; i++) {
         lv_label_set_text(pv_cap[i], names[i]);
         lv_label_set_text(pv_icon[i], icons[i]);
+        lv_obj_set_style_text_color(pv_cap[i], rgb(colors[i]), 0);
+        lv_obj_set_style_text_color(pv_icon[i], rgb(colors[i]), 0);
     }
     lv_label_set_text(pv_start, start);
 }
 
 static const char *const PV_NAMES[4] = {"TIME", "AVG", "IF", "TSS"};
 static const char *const PV_ICONS[4] = {I_TIME, I_BOLT, I_PERCENT, I_BARS};
+static const uint32_t PV_COLORS[4] = {C_TIME, C_POWER, C_LOAD, C_LOAD};
 
 // A .route: elevation profile, distance, climbing, steepest 100 m, highest point
 static void open_route_preview(const char *path)
@@ -748,7 +1080,8 @@ static void open_route_preview(const char *path)
     }
     static const char *const names[4] = {"DISTANCE", "CLIMBING", "STEEPEST", "HIGHEST"};
     static const char *const icons[4] = {I_ROAD, I_LINE, I_PERCENT, I_BARS};
-    preview_captions(names, icons, LV_SYMBOL_PLAY " Start route");
+    static const uint32_t colors[4] = {C_SPEED, C_SPEED, C_SPEED, C_SPEED};  // all distance/elevation
+    preview_captions(names, icons, colors, LV_SYMBOL_PLAY " Start route");
     route_info_t i;
     route_info(&s_route_pv, &i);
     lv_label_set_text(pv_title, s_route_pv.name);
@@ -771,7 +1104,7 @@ static void open_route_preview(const char *path)
 static void show_preview(void)
 {
     s_pv_route = false;
-    preview_captions(PV_NAMES, PV_ICONS, LV_SYMBOL_PLAY " Start workout");
+    preview_captions(PV_NAMES, PV_ICONS, PV_COLORS, LV_SYMBOL_PLAY " Start workout");
     settings_t s;
     app_get_settings(&s);
     uint32_t ftp = settings_user(&s)->ftp_w;
@@ -843,7 +1176,7 @@ static void build_preview(void)
     pv_profile = profile(scr_preview, &s_pv_prof, 190);
     lv_obj_t *r = row(scr_preview);
     for (int i = 0; i < 4; i++) {
-        pv_val[i] = metric_font(r, PV_ICONS[i], PV_NAMES[i], i == 1 ? C_POWER : C_MUTED, NULL, &lv_font_montserrat_20);
+        pv_val[i] = metric_font(r, PV_ICONS[i], PV_NAMES[i], PV_COLORS[i], NULL, &lv_font_montserrat_20);
         // Card: icon + caption row, then the value row (metric_font)
         lv_obj_t *cap_row = lv_obj_get_child(lv_obj_get_parent(lv_obj_get_parent(pv_val[i])), 0);
         pv_icon[i] = lv_obj_get_child(cap_row, 0);
@@ -1548,6 +1881,7 @@ static void build_ride(void)
     r_target = muted(r_power_card, &lv_font_montserrat_20, "");
     lv_obj_set_style_pad_ver(r_power_card, 6, 0);
     lv_obj_set_style_pad_row(r_power_card, 2, 0);
+    lv_obj_set_style_bg_opa(r_power_card, LV_OPA_TRANSP, 0);  // the hero number stands on the black ground
 
     lv_obj_t *mid = row(scr_ride);
     r_cad = metric(mid, I_CADENCE, "CADENCE", C_CAD, "rpm");
@@ -1561,7 +1895,7 @@ static void build_ride(void)
 
     lv_obj_t *b1 = row(scr_ride);
     grow(button(b1, LV_SYMBOL_MINUS, 0, 60, on_action, (void *)ACT_MINUS));
-    lv_obj_t *pause = grow(button(b1, "", 0, 60, on_action, (void *)ACT_PAUSE_TOGGLE));
+    lv_obj_t *pause = primary(grow(button(b1, "", 0, 60, on_action, (void *)ACT_PAUSE_TOGGLE)));
     lv_obj_set_flex_grow(pause, 2);
     r_pause_label = lv_obj_get_child(pause, 0);
     grow(button(b1, "Lap", 0, 60, on_action, (void *)ACT_LAP));
@@ -1652,8 +1986,8 @@ static void update_ride(const ride_view_t *v)
     }
     lv_obj_set_style_text_color(r_power_cap, rgb(paused ? C_WARN : C_POWER), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(lv_obj_get_parent(r_power_cap), 0), rgb(paused ? C_WARN : C_POWER), 0);
-    lv_obj_set_style_border_width(r_power_card, paused ? 3 : 1, 0);
-    lv_obj_set_style_border_color(r_power_card, rgb(paused ? C_WARN : C_LINE), 0);
+    lv_obj_set_style_border_width(r_power_card, paused ? 3 : 0, 0);
+    lv_obj_set_style_border_color(r_power_card, rgb(C_WARN), 0);
 
     // ERG: the number turns green when within 5 % (at least 5 W) of the target
     uint32_t color = C_TEXT;
@@ -1777,7 +2111,7 @@ static void build_summary(void)
 
     static const char *const names[9] = {"TIME", "DISTANCE", "ENERGY", "AVG POWER", "NP",
                                          "MAX POWER", "TSS", "IF", "AVG HR"};
-    static const uint32_t colors[9] = {C_MUTED, C_SPEED, C_POWER, C_POWER, C_POWER, C_POWER, C_MUTED, C_MUTED, C_HR};
+    static const uint32_t colors[9] = {C_TIME, C_SPEED, C_POWER, C_POWER, C_POWER, C_POWER, C_LOAD, C_LOAD, C_HR};
     static const char *const icons[9] = {I_TIME, I_ROAD, I_FIRE, I_BOLT, I_LINE, I_BOLT, I_BARS, I_PERCENT, I_HEART};
     for (int r = 0; r < 3; r++) {
         lv_obj_t *rw = row(scr_summary);
@@ -2017,7 +2351,7 @@ static void refresh(lv_timer_t *t)
 
 static void build_all(lv_display_t *disp)
 {
-    lv_theme_default_init(disp, rgb(C_ACCENT), rgb(C_WARN), true, &lv_font_montserrat_20);
+    lv_theme_default_init(disp, rgb(C_FOCUS), rgb(C_WARN), true, &lv_font_montserrat_20);
     styles_init();
     build_home();
     build_users();

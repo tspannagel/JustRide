@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the web app's home-screen icons (lightning bolt on the accent gradient).
+"""Render the web app's home-screen icons (white lightning bolt on black).
 
 Writes www/stats/apple-touch-icon.png (180), icon-192.png and icon-512.png.
 Pure standard library (no Pillow): the bolt is filled by scanline with 8 subrows per
@@ -12,8 +12,8 @@ import struct
 import zlib
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'www', 'stats')
-# Same colours and bolt as the rail logo in style.css / core.js (24x24 viewBox)
-C0, C1 = (0x7c, 0x8c, 0xff), (0xb3, 0x7c, 0xff)
+# Same colours and bolt as the rail logo in style.css / core.js (24x24 viewBox): white on black
+BG = (0, 0, 0)
 BOLT = [(13, 2), (3, 14), (12, 14), (11, 22), (21, 10), (12, 10)]
 SCALE = 0.56  # bolt height as a share of the icon (maskable safe zone: 80 % circle)
 SUB = 8
@@ -39,10 +39,8 @@ def render(n):
     for py in range(n):
         raw.append(0)
         for px in range(n):
-            t = (px + py) / (2 * (n - 1))  # 135deg gradient, top left to bottom right
-            bg = [c0 + (c1 - c0) * t for c0, c1 in zip(C0, C1)]
             a = min(1.0, cov[py][px])
-            raw += bytes(round(c + (255 - c) * a) for c in bg)
+            raw += bytes(round(c + (255 - c) * a) for c in BG)
     return raw
 
 

@@ -22,6 +22,9 @@ bool csv_parse_row(const char *line, ride_sample_t *s);
 size_t csv_format_summary(char *buf, size_t size, const char *ride_id, uint32_t start_utc, const char *workout,
                           uint16_t ftp_w, const metrics_summary_t *m, const char *fw, uint8_t weight_kg,
                           uint8_t max_hr);
+// Start time and TSS (0.1) of one summary.csv row (the home screen's week). The workout
+// name is quoted and may hold commas. False for the header or a malformed row.
+bool csv_parse_summary(const char *line, uint32_t *start_utc, uint16_t *tss10);
 // All best-effort rows for one ride (skips durations longer than the ride).
 size_t csv_format_bests(char *buf, size_t size, const char *ride_id, const int16_t bests[METRICS_N_BESTS]);
 

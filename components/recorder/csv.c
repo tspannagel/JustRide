@@ -219,6 +219,46 @@ size_t csv_format_summary(char *buf, size_t size, const char *ride_id, uint32_t 
     return n > 0 && (size_t)n < size ? (size_t)n : 0;
 }
 
+bool csv_parse_summary(const char *line, uint32_t *start_utc, uint16_t *tss10)
+{
+    char f[24];
+    const char *p = field(line, f, sizeof(f));  // ride id
+    if (!p || f[0] < '0' || f[0] > '9') {
+        return false;  // header or garbage
+    }
+    int y, mo, d, h, mi, sec;
+    p = field(p, f, sizeof(f));
+    if (!p || sscanf(f, "%d-%d-%dT%d:%d:%dZ", &y, &mo, &d, &h, &mi, &sec) != 6 || y < 1970 || mo < 1 || mo > 12 ||
+        d < 1 || d > 31) {
+        return false;
+    }
+    for (int i = 0; i < 2 && p; i++) {  // duration_s, moving_s
+        p = field(p, f, sizeof(f));
+    }
+    if (!p || *p != '"') {
+        return false;
+    }
+    p = strchr(p + 1, '"');  // the name has no quotes inside (csv_format_summary drops them)
+    if (!p || p[1] != ',') {
+        return false;
+    }
+    p += 2;
+    for (int i = 0; i < 4 && p; i++) {  // ftp_w, avg_w, np_w, if
+        p = field(p, f, sizeof(f));
+    }
+    if (!p) {
+        return false;
+    }
+    field(p, f, sizeof(f));
+    long tss = parse_fixed(f, 10, -1);
+    if (tss < 0 || tss > 65535) {
+        return false;
+    }
+    *start_utc = (uint32_t)(days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec);
+    *tss10 = (uint16_t)tss;
+    return true;
+}
+
 size_t csv_format_bests(char *buf, size_t size, const char *ride_id, const int16_t bests[METRICS_N_BESTS])
 {
     size_t n = 0;

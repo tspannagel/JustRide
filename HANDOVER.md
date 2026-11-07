@@ -34,7 +34,10 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Recording | FIT + per-second CSV + summary/bests CSV, all local |
 | Web app | Served by the device from SD (no internet): statistics, workout builder + generator, training plans; DuckDB-WASM only for the SQL console |
 | Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
+| NAS (optional, `nas/`) | Stdlib Python service in Docker: mirror + outbox, sync ~60 s via `/api/info`. Rides and riders belong to the device (rider edits refused while it's off); queued plan/workout writes win over a device copy changed meanwhile, which is kept in `data/conflicts/`; a copy changed only on the device is taken. OTA and web-app uploads only on the device (409 + link). Fixed device IP via DHCP reservation; LAN only. Defaults chosen by Claude 2026-11-07, user may change them |
 | Out of scope | 3D world, multiplayer, ANT+ |
+| LVGL memory | Own allocator in PSRAM (`main/lv_mem_psram.c`), 2026-11-07: with the system malloc LVGL used ~88 KB internal RAM, DMA memory fell to 2.4 KB at boot and SD reads failed until a reboot (rides list empty, "Could not load this route", uploads "SD not writable"). Now ~97 KB DMA free; the screen still has to be checked for drift/flicker on the device |
+| Visual design | "Instrument" for device and web app (2026-11-07): black ground, solid grey surfaces without borders, colour only for data (metric labels, zones, status), the primary action white with black text (black on light), no gradients or glass. Device greys are multiples of 8 (neutral in RGB565). Home: rider, clock, connection icons + Wi-Fi signal icon, next plan session, this week's rides (summary.csv), three tiles |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
 
 ## Open questions (ask the user)
