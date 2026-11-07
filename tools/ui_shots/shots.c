@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "../../main/ui.c"
 
@@ -78,6 +80,13 @@ void web_stop(void) {}
 bool web_running(void) { return g_web_on; }
 bool web_ota_allowed(void) { return false; }
 void web_allow_ota(void) {}
+static web_link_t g_link = WEB_LINK_JOINED;
+static int g_bars = 3;
+web_link_t web_link(int *bars)
+{
+    *bars = g_link == WEB_LINK_JOINED ? g_bars : 0;
+    return g_link;
+}
 void web_status(char *buf, size_t size)
 {
     snprintf(buf, size, g_web_on ? "http://trainer.local/\nhttp://192.168.1.42/" : "Wi-Fi off");
@@ -188,24 +197,6 @@ int main(int argc, char **argv)
     snprintf(g_settings.tz, sizeof(g_settings.tz), "%s", "CET-1CEST,M3.5.0,M10.5.0/3");
     g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
 
-    go(scr_home);
-    refresh(NULL);
-    save("home");
-
-    g_status = (app_status_t){.sd_ok = true};  // first start: nothing paired, clock not set
-    g_settings.users[0].ftp_known = false;    // and no FTP test yet
-    refresh(NULL);
-    save("home-first-start");
-    g_settings.users[0].ftp_known = true;
-    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
-
-    open_users(NULL);
-    save("riders");
-
-    open_name(true);
-    lv_textarea_set_text(name_ta, "Anna");
-    save("rider-name");
-
     // The web app's plan files: Sam's today and tomorrow, Anna's today (only Sam's today is listed)
     char today[11], plan[3][160];
     today_key(&g_settings, today);
@@ -227,14 +218,53 @@ int main(int argc, char **argv)
             fclose(in);
         }
     }
+    // Sam's week so far: rides on Monday, Wednesday and yesterday (summary.csv, as the recorder writes it)
+    mkdir(BSP_SD_MOUNT "/rides", 0755);
+    mkdir(BSP_SD_MOUNT "/rides/u1", 0755);
+    FILE *sum = fopen(BSP_SD_MOUNT "/rides/u1/summary.csv", "w");
+    if (sum) {
+        fputs(CSV_SUMMARY_HEADER, sum);
+        time_t now = time(NULL);
+        int64_t day = ((int64_t)now + tz_offset(g_settings.tz, (uint32_t)now)) / 86400, wd = (day + 3) % 7;
+        static const struct { int back; uint32_t tss10; } r[] = {{1, 612}, {3, 784}, {5, 525}};
+        for (int i = 0; i < 3; i++) {
+            if (r[i].back > wd) {
+                continue;  // early in the week: only the days so far
+            }
+            metrics_summary_t m = {.duration_s = 3600, .tss10 = r[i].tss10};
+            char row[256], id[16];
+            uint32_t start = (uint32_t)((day - r[i].back) * 86400 + 16 * 3600);
+            csv_ride_id(id, start);
+            csv_format_summary(row, sizeof(row), id, start, "Endurance", 250, &m, "dev", 75, 185);
+            fputs(row, sum);
+        }
+        fclose(sum);
+    }
+    go(scr_home);
+    refresh(NULL);
+    save("home");
+
+    g_status = (app_status_t){.sd_ok = true};  // first start: nothing paired, clock not set
+    g_settings.users[0].ftp_known = false;    // and no FTP test yet
+    g_link = WEB_LINK_CONNECTING;
+    refresh(NULL);
+    save("home-first-start");
+    g_link = WEB_LINK_JOINED;
+    g_settings.users[0].ftp_known = true;
+    g_status = (app_status_t){.trainer = true, .hr = true, .controller = true, .receivers = 1, .clock_ok = true, .sd_ok = true};
+
+    open_users(NULL);
+    save("riders");
+
+    open_name(true);
+    lv_textarea_set_text(name_ta, "Anna");
+    save("rider-name");
+
     open_workouts(NULL);
     save("workouts");
     on_plan_more(NULL);
     save("workouts-plan-days");
     s_plan_more = false;
-    for (int i = 0; i < 3; i++) {
-        remove(plan[i]);
-    }
 
     open_adapt(NULL);
     save("adaptive-setup");
@@ -377,5 +407,11 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("summary-route");
 
+    for (int i = 0; i < 3; i++) {
+        remove(plan[i]);
+    }
+    remove(BSP_SD_MOUNT "/rides/u1/summary.csv");
+    rmdir(BSP_SD_MOUNT "/rides/u1");
+    rmdir(BSP_SD_MOUNT "/rides");
     return 0;
 }

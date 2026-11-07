@@ -63,6 +63,14 @@ static void test_summary_and_bests(void)
     CHECK(strcmp(buf, "2026-10-26_1200,2026-10-26T12:00:00Z,3600,3590,\"Sweet Spot, 3x10\",250,200,210,0.840,70.6,"
                       "720,140,170,88.7,32.050,0.1.0,75,185\n") == 0);
 
+    uint32_t start = 0;
+    uint16_t tss = 0;
+    CHECK(csv_parse_summary(buf, &start, &tss) && start == T0 && tss == 706);  // the row just written, name with a comma
+    CHECK(!csv_parse_summary(CSV_SUMMARY_HEADER, &start, &tss));
+    CHECK(!csv_parse_summary("2026-10-26_1200,2026-10-26T12:00:00Z,3600,3590,\"open", &start, &tss));
+    CHECK(!csv_parse_summary("2026-10-26_1200,2026-13-26T12:00:00Z,3600,3590,\"x\",1,2,3,4,5\n", &start, &tss));
+    CHECK(!csv_parse_summary("2026-10-26_1200,2026-10-26T12:00:00Z,3600,3590,\"x\",1,2,3\n", &start, &tss));
+
     int16_t b[METRICS_N_BESTS] = {900, 700, 600, 400, 350, 320, 290, -1, -1, -1, -1};
     CHECK(csv_format_bests(buf, sizeof(buf), "r1", b) > 0);
     CHECK(strncmp(buf, "r1,1,900\nr1,5,700\n", 18) == 0);

@@ -35,6 +35,7 @@ Planning was done in a Claude chat on 26 Oct 2026. Firmware for M0–M3b and M6 
 | Web app | Served by the device from SD (no internet): statistics, workout builder + generator, training plans; DuckDB-WASM only for the SQL console |
 | Wi-Fi | On at start-up and after each ride (files, stats, OTA); off while riding |
 | Out of scope | 3D world, multiplayer, ANT+ |
+| Visual design | "Instrument" for device and web app (2026-11-07): black ground, solid grey surfaces without borders, colour only for data (metric labels, zones, status), the primary action white with black text (black on light), no gradients or glass. Device greys are multiples of 8 (neutral in RGB565). Home: rider, clock, connection icons + Wi-Fi signal icon, next plan session, this week's rides (summary.csv), three tiles |
 | Case | User designs their own from Waveshare's official STEP model (wiki → Resources → "3D STP") |
 
 ## Open questions (ask the user)

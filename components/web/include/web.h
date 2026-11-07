@@ -27,6 +27,10 @@ void web_set_users(const web_users_t *u);
 void web_time_print(void);
 // One-line status for the UI
 void web_status(char *buf, size_t size);
+// Link state for the UI's Wi-Fi icon. Joined: *bars = signal 1..3 (RSSI, refreshed every 5 s); else 0.
+// Never blocks: while web_start/web_stop hold the lock it answers from the last value.
+typedef enum { WEB_LINK_OFF, WEB_LINK_CONNECTING, WEB_LINK_AP, WEB_LINK_JOINED } web_link_t;
+web_link_t web_link(int *bars);
 
 // Firmware updates are refused unless someone at the device allowed them
 // within the last 5 minutes (physical presence instead of a password).
