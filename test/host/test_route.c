@@ -45,9 +45,9 @@ static void test_parse(void)
 static void test_too_many_points(void)
 {
     static char text[(ROUTE_MAX_PTS + 10) * 3];
-    char *t = text + sprintf(text, "JustRide route 1\nstep_m=10\n");
+    char *t = text + snprintf(text, sizeof(text), "JustRide route 1\nstep_m=10\n");
     for (int i = 0; i <= ROUTE_MAX_PTS; i++) {
-        t += sprintf(t, "0\n");
+        t += snprintf(t, sizeof(text) - (size_t)(t - text), "0\n");
     }
     CHECK(!parse(text));
 }
