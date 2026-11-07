@@ -585,11 +585,28 @@ def serve(device, www, data, port=8080, interval=60, hosts=(), bind='0.0.0.0'):
     return http.server.ThreadingHTTPServer((bind, port), Handler)
 
 
+def drop_root(data, uid, gid):
+    """Started as root (Docker): give the data folder to uid:gid, then run as that user.
+    A bind mount Docker created itself belongs to root, which the service user can't write."""
+    if os.name != 'posix' or os.getuid() != 0:
+        return
+    os.makedirs(data, exist_ok=True)
+    for root, dirs, files in os.walk(data):
+        for p in [root] + [os.path.join(root, n) for n in dirs + files]:
+            st = os.lstat(p)
+            if (st.st_uid, st.st_gid) != (uid, gid):
+                os.lchown(p, uid, gid)
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+
+
 def main():
     env = os.environ.get
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--device', default=env('JR_DEVICE'), help='head unit IPv4 address (fixed via a DHCP reservation)')
-    ap.add_argument('--www', default=env('JR_WWW', '/app/www/stats'), help='the web app folder (www/stats)')
+    ap.add_argument('--www', default=env('JR_WWW'),
+                    help='the web app folder (www/stats); default: the ./www mount if it has one, else the image\'s')
     ap.add_argument('--data', default=env('JR_DATA', '/data'), help='mirror, outbox and state')
     ap.add_argument('--port', type=int, default=int(env('JR_PORT', '8080')))
     ap.add_argument('--interval', type=int, default=int(env('JR_INTERVAL', '60')), help='seconds between syncs')
@@ -598,8 +615,15 @@ def main():
     a = ap.parse_args()
     if not a.device:
         ap.error('--device (or JR_DEVICE) is required')
-    if not os.path.isfile(os.path.join(a.www, 'index.html')) and not os.path.isfile(os.path.join(a.www, 'index.html.gz')):
-        ap.error(f'no web app in {a.www}: unzip the release\'s justride-www-*.zip there (it has www/stats/)')
+    def has_app(d):
+        return any(os.path.isfile(os.path.join(d, n)) for n in ('index.html', 'index.html.gz'))
+    if not a.www:
+        a.www = next((d for d in ('/app/www/stats', '/app/builtin/www/stats') if has_app(d)), '/app/www/stats')
+    if not has_app(a.www):
+        ap.error(f'no web app in {a.www}: unzip the release\'s justride-www-*.zip in the folder with '
+                 'compose.yaml (the zip has www/stats/, which compose mounts as /app/www)')
+    if env('JR_UID'):
+        drop_root(a.data, int(env('JR_UID')), int(env('JR_GID', env('JR_UID'))))
     httpd = serve(a.device, a.www, a.data, a.port, a.interval, a.host)
     print(f'JustRide NAS on port {a.port}: device {a.device}, web app {a.www}, data {a.data}', flush=True)
     httpd.serve_forever()
