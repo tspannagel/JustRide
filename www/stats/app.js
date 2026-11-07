@@ -408,29 +408,55 @@ const SQL_SUMMARY = 'ride_id VARCHAR, start_utc TIMESTAMP, duration_s INTEGER, m
   'avg_w INTEGER, np_w INTEGER, if DOUBLE, tss DOUBLE, kj INTEGER, avg_hr INTEGER, max_hr INTEGER, avg_cad DOUBLE, ' +
   'distance_km DOUBLE, fw VARCHAR, weight_kg INTEGER, user_max_hr INTEGER';
 const SQL_BESTS = 'ride_id VARCHAR, duration_s INTEGER, watts INTEGER';
+// Read-only for the user's text: the tables are loaded into a fresh database, then file and
+// URL access are switched off and the settings locked (read_csv/read_text/COPY/ATTACH/INSTALL
+// fail), and the text is prepared as one statement inside SELECT * FROM (...), so anything
+// that isn't a query (CREATE, DROP, SET, a second statement) doesn't parse.
+const SQL_LOCK = ['SET enable_external_access = false', 'SET autoinstall_known_extensions = false',
+  'SET autoload_known_extensions = false', 'SET lock_configuration = true'];
+const sqlWrap = (text) => {
+  const q = text.trim().replace(/;\s*$/, '');
+  if (!q) throw new Error('Type a query, e.g. SELECT * FROM summary');
+  return `SELECT * FROM (\n${q}\n) AS q LIMIT 500`;
+};
 let duck = null;
 async function runSql() {
   const out = $('#sql-out');
   try {
+    const sql = sqlWrap($('#sql-text').value);
     if (!duck) {
       out.innerHTML = '<p class="muted small">Loading DuckDB (34 MB, once per visit)…</p>';
       const duckdb = await import('./vendor/duckdb-1.32.0/duckdb.mjs');
       const base = new URL('./vendor/duckdb-1.32.0/', import.meta.url);
       const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(new URL('duckdb-browser-eh.worker.js', base)));
       await db.instantiate(new URL('duckdb-eh.wasm', base).href);
-      duck = { db, conn: await db.connect(), user: null };
+      duck = { db, conn: null, user: null };
     }
     if (duck.user !== S.user.id) {
+      duck.user = null;
+      if (duck.conn) {
+        await duck.conn.close().catch(() => {});
+        await duck.db.reset();  // a new, unlocked database
+      }
+      duck.conn = await duck.db.connect();
       for (const [t, cols] of [['summary', SQL_SUMMARY], ['bests', SQL_BESTS]]) {
         const text = (await api.text(`/rides/${S.user.id}/${t}.csv`)) || '';
         const spec = cols.split(', ').map((c) => c.split(' ')).map(([n, ty]) => `'${n}': '${ty}'`).join(', ');
         await duck.db.registerFileText(`${t}.csv`, text);
         await duck.conn.query(text.trim() ? `CREATE OR REPLACE TABLE ${t} AS SELECT * FROM read_csv('${t}.csv', header = true, columns = {${spec}})`
           : `CREATE OR REPLACE TABLE ${t} (${cols.replace(/(\w+) /g, '"$1" ')})`);
+        await duck.db.dropFile(`${t}.csv`);
       }
+      for (const q of SQL_LOCK) await duck.conn.query(q);
       duck.user = S.user.id;
     }
-    const res = await duck.conn.query($('#sql-text').value);
+    const stmt = await duck.conn.prepare(sql);  // one statement only
+    let res;
+    try {
+      res = await stmt.query();
+    } finally {
+      await stmt.close();
+    }
     const rows = res.toArray().slice(0, 500).map((r) => r.toJSON());
     const cols = res.schema.fields.map((f) => f.name);
     const times = new Set(res.schema.fields.filter((f) => /^(Date|Timestamp)/.test(String(f.type))).map((f) => f.name));
@@ -440,7 +466,12 @@ async function runSql() {
     out.innerHTML = rows.length ? `<div class="scroll"><table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${
       rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(show(r[c], c))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p class="muted small">No rows.</p>';
   } catch (err) {
-    out.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+    const m = err.message || String(err);
+    const why = /^Parser Error|multiple statements/.test(m)
+      ? `Only one read-only query can run here (SELECT, WITH, FROM, SUMMARIZE, DESCRIBE). ${m.split('\n')[0].replace(/ at or near "\)"$/, '')}`
+      : /^Permission Error/.test(m) ? 'Files and URLs can\'t be read here: query the summary and bests tables.'
+      : m.split('\nLINE ')[0];
+    out.innerHTML = `<p class="error">${esc(why)}</p>`;
   }
 }
 

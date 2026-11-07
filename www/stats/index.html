@@ -220,7 +220,7 @@
     </div>
     <div class="card"><h2>Ride files</h2><div id="files" class="scroll"></div></div>
     <details class="card">
-      <summary><h2>SQL console</h2><span class="muted small">DuckDB over <code>summary</code> and <code>bests</code> · loads 34 MB on first run</span></summary>
+      <summary><h2>SQL console</h2><span class="muted small">Read-only queries over <code>summary</code> and <code>bests</code> · DuckDB, 34 MB on first run</span></summary>
       <textarea id="sql-text" rows="5" spellcheck="false">SELECT date_trunc('month', start_utc) AS month, count(*) AS rides,
        round(sum(tss)) AS tss, round(sum(duration_s) / 3600, 1) AS hours
 FROM summary GROUP BY 1 ORDER BY 1 DESC</textarea>
