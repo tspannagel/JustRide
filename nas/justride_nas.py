@@ -31,6 +31,7 @@ import re
 import tempfile
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +43,7 @@ MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'applicat
 # The device's limits (components/web/web.c)
 ZWO_MAX, ROUTE_MAX, PLAN_MAX = 64 * 1024, 256 * 1024, 32 * 1024
 FRESH_S = 15  # a read syncs first when the last try is older than this
+PROBE_S = 10  # /api/info timeout per try
 ERRORS_KEPT = 10
 
 
@@ -210,9 +212,17 @@ class Sync:
     def status(self):
         st = self.store.state
         return {'online': st['online'], 'device': self.dev.addr, 'last_sync': st['last_sync'],
-                'pending': len(self.store.outbox), 'errors': st['errors']}
+                'pending': len(self.store.outbox), 'errors': st['errors'], 'last_error': st.get('last_error')}
 
     # ---- one round: push the outbox, then pull --------------------------------------------
+
+    def probe(self):
+        """/api/info: is the head unit there? Its Wi-Fi shares the radio with BLE, and with sensors
+        connected an answer can take several seconds or get lost: allow 10 s, ask twice."""
+        try:
+            return self.dev.request('GET', '/api/info', timeout=PROBE_S)
+        except DeviceError:
+            return self.dev.request('GET', '/api/info', timeout=PROBE_S)
 
     def run_once(self, wait=True):
         """One round. wait=False: skip it if a sync is already running (reads use the mirror)."""
@@ -222,7 +232,7 @@ class Sync:
             st = self.store.state
             st['last_try'] = time.time()
             try:
-                status, body = self.dev.request('GET', '/api/info', timeout=3)
+                status, body = self.probe()
                 if status != 200:
                     raise DeviceError(f'/api/info: {status}')
                 with self.lock:
@@ -236,6 +246,10 @@ class Sync:
             except DeviceError as e:
                 with self.lock:
                     self.offline(str(e))
+            except Exception as e:  # a bug or a full/read-only /data: keep the loop alive, retry next round
+                traceback.print_exc()
+                with self.lock:
+                    st['last_error'] = f'{type(e).__name__}: {e}'
             finally:
                 with self.lock:
                     self.store.save()
@@ -305,16 +319,7 @@ class Sync:
         with self.lock:
             s.write('users.json', body)
 
-        # Rides: the device's listing is the truth (a re-dated ride changes its file names)
-        status, body = self.dev.request('GET', '/api/rides')
-        if status != 200:
-            raise DeviceError(f'/api/rides: {status}')
-        listed = {}
-        for f in json.loads(body):
-            if ride_name_ok(f['name']):
-                listed['rides/' + f['name']] = [f['size'], f.get('mtime', 0)]
-        self._mirror_listing('rides', listed)
-
+        # Workouts and plans first: small, and what the builder and the plan need; rides can take a while
         status, body = self.dev.request('GET', '/api/workouts')
         if status != 200:
             raise DeviceError(f'/api/workouts: {status}')
@@ -338,6 +343,16 @@ class Sync:
                 elif status == 404:
                     s.delete(rel)
                     s.state['base'].pop(rel, None)
+
+        # Rides: the device's listing is the truth (a re-dated ride changes its file names)
+        status, body = self.dev.request('GET', '/api/rides')
+        if status != 200:
+            raise DeviceError(f'/api/rides: {status}')
+        listed = {}
+        for f in json.loads(body):
+            if ride_name_ok(f['name']):
+                listed['rides/' + f['name']] = [f['size'], f.get('mtime', 0)]
+        self._mirror_listing('rides', listed)
 
     def _mirror_listing(self, sub, listed, track_base=False):
         s = self.store
@@ -585,11 +600,28 @@ def serve(device, www, data, port=8080, interval=60, hosts=(), bind='0.0.0.0'):
     return http.server.ThreadingHTTPServer((bind, port), Handler)
 
 
+def drop_root(data, uid, gid):
+    """Started as root (Docker): give the data folder to uid:gid, then run as that user.
+    A bind mount Docker created itself belongs to root, which the service user can't write."""
+    if os.name != 'posix' or os.getuid() != 0:
+        return
+    os.makedirs(data, exist_ok=True)
+    for root, dirs, files in os.walk(data):
+        for p in [root] + [os.path.join(root, n) for n in dirs + files]:
+            st = os.lstat(p)
+            if (st.st_uid, st.st_gid) != (uid, gid):
+                os.lchown(p, uid, gid)
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+
+
 def main():
     env = os.environ.get
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--device', default=env('JR_DEVICE'), help='head unit IPv4 address (fixed via a DHCP reservation)')
-    ap.add_argument('--www', default=env('JR_WWW', '/app/www/stats'), help='the web app folder (www/stats)')
+    ap.add_argument('--www', default=env('JR_WWW'),
+                    help='the web app folder (www/stats); default: the ./www mount if it has one, else the image\'s')
     ap.add_argument('--data', default=env('JR_DATA', '/data'), help='mirror, outbox and state')
     ap.add_argument('--port', type=int, default=int(env('JR_PORT', '8080')))
     ap.add_argument('--interval', type=int, default=int(env('JR_INTERVAL', '60')), help='seconds between syncs')
@@ -598,8 +630,15 @@ def main():
     a = ap.parse_args()
     if not a.device:
         ap.error('--device (or JR_DEVICE) is required')
-    if not os.path.isfile(os.path.join(a.www, 'index.html')) and not os.path.isfile(os.path.join(a.www, 'index.html.gz')):
-        ap.error(f'no web app in {a.www}: unzip the release\'s justride-www-*.zip there (it has www/stats/)')
+    def has_app(d):
+        return any(os.path.isfile(os.path.join(d, n)) for n in ('index.html', 'index.html.gz'))
+    if not a.www:
+        a.www = next((d for d in ('/app/www/stats', '/app/builtin/www/stats') if has_app(d)), '/app/www/stats')
+    if not has_app(a.www):
+        ap.error(f'no web app in {a.www}: unzip the release\'s justride-www-*.zip in the folder with '
+                 'compose.yaml (the zip has www/stats/, which compose mounts as /app/www)')
+    if env('JR_UID'):
+        drop_root(a.data, int(env('JR_UID')), int(env('JR_GID', env('JR_UID'))))
     httpd = serve(a.device, a.www, a.data, a.port, a.interval, a.host)
     print(f'JustRide NAS on port {a.port}: device {a.device}, web app {a.www}, data {a.data}', flush=True)
     httpd.serve_forever()
