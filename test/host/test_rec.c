@@ -71,6 +71,19 @@ static void test_summary_and_bests(void)
     CHECK(!csv_parse_summary("2026-10-26_1200,2026-13-26T12:00:00Z,3600,3590,\"x\",1,2,3,4,5\n", &start, &tss));
     CHECK(!csv_parse_summary("2026-10-26_1200,2026-10-26T12:00:00Z,3600,3590,\"x\",1,2,3\n", &start, &tss));
 
+    // Which plan workout a ride was (the device hides ridden plan sessions)
+    char wo[64];
+    uint32_t dur = 0;
+    CHECK(csv_summary_workout(buf, &dur, wo, sizeof(wo)) && dur == 3600 && strcmp(wo, "Sweet Spot, 3x10") == 0);
+    CHECK(csv_summary_workout("2026-11-08_1636,2026-11-08T15:36:15Z,4503,4445,\"Plan 2026-11-08 Tim - Endurance\",184,109,"
+                              "112,0.609,46.3,493,132,150,86.8,39.824,v1,74,180\n", &dur, wo, sizeof(wo)) &&
+          dur == 4503 && strcmp(wo, "Plan 2026-11-08 Tim - Endurance") == 0);
+    CHECK(csv_summary_workout("r,2026-11-08T15:36:15Z,70,41,\"\",1\n", &dur, wo, sizeof(wo)) == false);  // id not a date
+    CHECK(csv_summary_workout("2026-11-08_1636,x,70,41,\"\",1\n", &dur, wo, sizeof(wo)) && dur == 70 && wo[0] == 0);
+    CHECK(!csv_summary_workout(CSV_SUMMARY_HEADER, &dur, wo, sizeof(wo)));
+    CHECK(!csv_summary_workout("2026-11-08_1636,x,70,41,\"open", &dur, wo, sizeof(wo)));
+    CHECK(!csv_summary_workout("2026-11-08_1636,x,70,41,\"too long for four\",1\n", &dur, wo, 4));
+
     int16_t b[METRICS_N_BESTS] = {900, 700, 600, 400, 350, 320, 290, -1, -1, -1, -1};
     CHECK(csv_format_bests(buf, sizeof(buf), "r1", b) > 0);
     CHECK(strncmp(buf, "r1,1,900\nr1,5,700\n", 18) == 0);

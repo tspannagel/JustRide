@@ -259,6 +259,36 @@ bool csv_parse_summary(const char *line, uint32_t *start_utc, uint16_t *tss10)
     return true;
 }
 
+bool csv_summary_workout(const char *line, uint32_t *duration_s, char *workout, size_t size)
+{
+    char f[24];
+    const char *p = field(line, f, sizeof(f));  // ride id
+    if (!p || f[0] < '0' || f[0] > '9' || size == 0) {
+        return false;
+    }
+    p = field(p, f, sizeof(f));  // start_utc
+    if (!p) {
+        return false;
+    }
+    p = field(p, f, sizeof(f));  // duration_s
+    long dur = parse_fixed(f, 1, -1);
+    if (!p || dur < 0) {
+        return false;
+    }
+    p = field(p, f, sizeof(f));  // moving_s
+    if (!p || *p != '"') {
+        return false;
+    }
+    const char *end = strchr(p + 1, '"');
+    if (!end || end[1] != ',' || (size_t)(end - p - 1) >= size) {
+        return false;
+    }
+    memcpy(workout, p + 1, (size_t)(end - p - 1));
+    workout[end - p - 1] = 0;
+    *duration_s = (uint32_t)dur;
+    return true;
+}
+
 size_t csv_format_bests(char *buf, size_t size, const char *ride_id, const int16_t bests[METRICS_N_BESTS])
 {
     size_t n = 0;
