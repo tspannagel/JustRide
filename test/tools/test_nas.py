@@ -155,6 +155,20 @@ class NasTest(unittest.TestCase):
         names = {w['name'] for w in json.loads(self.req('GET', '/api/workouts')[1])}
         self.assertEqual(names, set(os.listdir(self.dev.path('workouts'))))
 
+    def test_one_lost_answer_is_not_off(self):
+        """A head unit busy with BLE can lose one /api/info answer: that's not "off"."""
+        orig, lost = self.sync.dev.request, []
+
+        def once(method, path, *a, **kw):
+            if path == '/api/info' and not lost:
+                lost.append(path)
+                raise nas.DeviceError('timed out')
+            return orig(method, path, *a, **kw)
+        self.sync.dev.request = once
+        self.sync.run_once()
+        self.assertEqual(lost, ['/api/info'])
+        self.assertTrue(self.info()['online'])
+
     def test_unexpected_error_keeps_syncing(self):
         orig = self.sync.store.write
         self.sync.store.write = lambda rel, data: (_ for _ in ()).throw(PermissionError(13, 'Permission denied'))

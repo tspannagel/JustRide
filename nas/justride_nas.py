@@ -43,6 +43,7 @@ MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'applicat
 # The device's limits (components/web/web.c)
 ZWO_MAX, ROUTE_MAX, PLAN_MAX = 64 * 1024, 256 * 1024, 32 * 1024
 FRESH_S = 15  # a read syncs first when the last try is older than this
+PROBE_S = 10  # /api/info timeout per try
 ERRORS_KEPT = 10
 
 
@@ -215,6 +216,14 @@ class Sync:
 
     # ---- one round: push the outbox, then pull --------------------------------------------
 
+    def probe(self):
+        """/api/info: is the head unit there? Its Wi-Fi shares the radio with BLE, and with sensors
+        connected an answer can take several seconds or get lost: allow 10 s, ask twice."""
+        try:
+            return self.dev.request('GET', '/api/info', timeout=PROBE_S)
+        except DeviceError:
+            return self.dev.request('GET', '/api/info', timeout=PROBE_S)
+
     def run_once(self, wait=True):
         """One round. wait=False: skip it if a sync is already running (reads use the mirror)."""
         if not self.sync_lock.acquire(blocking=wait):
@@ -223,7 +232,7 @@ class Sync:
             st = self.store.state
             st['last_try'] = time.time()
             try:
-                status, body = self.dev.request('GET', '/api/info', timeout=3)
+                status, body = self.probe()
                 if status != 200:
                     raise DeviceError(f'/api/info: {status}')
                 with self.lock:
