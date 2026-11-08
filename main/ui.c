@@ -519,6 +519,8 @@ static void open_settings(lv_event_t *e);
 static void open_wifi(lv_event_t *e);
 static void open_preview(const char *path);
 static bool plan_file(const char *file, const settings_t *s, char date[11], const char **what);
+static void load_ridden_plans(const settings_t *s);
+static bool plan_ridden(const char *file);
 static void today_key(const settings_t *s, char out[11]);
 static void day_label(char *out, size_t n, const char *date, const char *today);
 static void open_ramp_test(lv_event_t *e);
@@ -746,12 +748,13 @@ static void home_load(void)
     bool planned[7] = {false};
     char best[11] = "";
     s_home_path[0] = 0;
+    load_ridden_plans(&s);
     DIR *dir = opendir(WORKOUT_DIR);
     struct dirent *e;
     while (dir && (e = readdir(dir))) {
         char date[11];
         const char *what;
-        if (!plan_file(e->d_name, &s, date, &what) || (today[0] && strcmp(date, today) < 0) ||
+        if (!plan_file(e->d_name, &s, date, &what) || (today[0] && strcmp(date, today) < 0) || plan_ridden(e->d_name) ||
             strlen(e->d_name) + sizeof(WORKOUT_DIR) + 1 > sizeof(s_home_path)) {
             continue;
         }
@@ -1249,6 +1252,43 @@ static bool plan_file(const char *file, const settings_t *s, char date[11], cons
     return true;
 }
 
+// Plan workouts the active rider has ridden for at least 10 min (the web app's rule): that
+// session is done, even while the web app hasn't been opened to remove its file. The newest
+// PLAN_RIDDEN_MAX rows are enough: only today's and later files are shown.
+#define PLAN_RIDDEN_MAX 16
+#define PLAN_RIDE_MIN_S 600
+EXT_RAM_BSS_ATTR static char s_ridden[PLAN_RIDDEN_MAX][64];
+static int s_n_ridden;
+
+static void load_ridden_plans(const settings_t *s)
+{
+    s_n_ridden = 0;
+    char path[64], line[256], name[64];
+    snprintf(path, sizeof(path), BSP_SD_MOUNT "/rides/%s/summary.csv", s->users[s->user].id);
+    FILE *f = fopen(path, "r");
+    while (f && fgets(line, sizeof(line), f)) {
+        uint32_t dur;
+        if (csv_summary_workout(line, &dur, name, sizeof(name)) && dur >= PLAN_RIDE_MIN_S && is_plan(name)) {
+            memcpy(s_ridden[s_n_ridden++ % PLAN_RIDDEN_MAX], name, sizeof(name));
+        }
+    }
+    if (f) {
+        fclose(f);
+    }
+}
+
+// file: "Plan 2026-11-08 Tim - Endurance.zwo"; the ride's workout name is the file name without .zwo
+static bool plan_ridden(const char *file)
+{
+    for (int i = 0; i < s_n_ridden && i < PLAN_RIDDEN_MAX; i++) {
+        size_t n = strlen(s_ridden[i]);
+        if (strncmp(file, s_ridden[i], n) == 0 && strcasecmp(file + n, ".zwo") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Local date as YYYY-MM-DD; empty while the clock isn't set (then every plan day is coming)
 static void today_key(const settings_t *s, char out[11])
 {
@@ -1496,8 +1536,10 @@ static void open_workouts(lv_event_t *e)
     bool shown[MAX_LIST] = {false};
     char more[40] = "";  // the days behind "More plan days"
     int n_plan = 0;
+    load_ridden_plans(&s);
     for (int i = 0; i < n; i++) {
-        if (!plan_file(strrchr(s_paths[i], '/') + 1, &s, date, &what) || strcmp(date, today) < 0) {
+        if (!plan_file(strrchr(s_paths[i], '/') + 1, &s, date, &what) || strcmp(date, today) < 0 ||
+            plan_ridden(strrchr(s_paths[i], '/') + 1)) {
             continue;
         }
         char day[12], name[80];

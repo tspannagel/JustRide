@@ -435,10 +435,16 @@ function renderPlan() {
 }
 
 // Tap a coming day: a riding day becomes "away", any other day an extra riding day; tap again
-// to undo. The plan rearranges and the device gets the new week.
+// to undo. The plan rearranges and the device gets the new week. "Away" asks first: a stray tap
+// on today's session would otherwise move or drop it and remove its file from the device.
 async function toggleDay(date) {
   if (ui.busy) return;
   const p = ui.plan, avail = { ...p.avail };
+  if (!avail[date] && p.days.includes(dow(date))) {
+    const s = replan(p, actualByDay(), todayKey()).find((e) => e.state === 'planned' && e.date === date);
+    const what = s ? ` ${GEN_TYPES[s.type].label} moves to a free day this week, or is dropped if there is none.` : '';
+    if (!confirm(`Mark ${date === todayKey() ? 'today' : dayName(date)} as away?${what}`)) return;
+  }
   if (avail[date]) delete avail[date];
   else avail[date] = p.days.includes(dow(date)) ? 'off' : 'on';
   p.avail = avail;
