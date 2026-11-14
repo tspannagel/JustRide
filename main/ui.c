@@ -1970,8 +1970,12 @@ static void race_text(char *buf, size_t n, const ride_view_t *v)
     }
 }
 
-static void update_ride(const ride_view_t *v)
+// Seconds at the start of each ride that the status line shows the watch reminder
+#define WATCH_HINT_S 60
+
+static void update_ride(const ride_view_t *v, const app_status_t *st)
 {
+    bool watch = st->receivers > 0;
     char t[16];
     fmt_time(t, sizeof(t), v->timer_s);
     lv_label_set_text(r_time, t);
@@ -2114,13 +2118,24 @@ static void update_ride(const ride_view_t *v)
         }
         lv_label_set_text_fmt(r_stats, "%s %u done:  %s    %d W avg%s", b->kind == BLOCK_LAP ? "Lap" : "Interval",
                               b->no, dur, b->avg_w, hr);
+    } else if (v->timer_s < WATCH_HINT_S) {
+        // Every ride starts with a reminder for the watch: the device can't tell whether it's paired
+        // or recording, only whether a receiver is connected (the watch connects once its workout runs)
+        lv_label_set_text(r_stats, watch ? LV_SYMBOL_BLUETOOTH "  Watch: start the workout there too"
+                                         : LV_SYMBOL_BLUETOOTH "  Watch: pair JustRide, start Indoor Cycle");
     } else {
         lv_label_set_text_fmt(r_stats, "%lu.%lu km    Avg %d W    NP %d W    %lu kJ    Lap %u",
                               (unsigned long)(v->sum.distance_m / 1000),
                               (unsigned long)(v->sum.distance_m % 1000 / 100), v->sum.avg_w, v->sum.np_w,
                               (unsigned long)v->sum.kj, v->lap + 1);
     }
-    lv_obj_set_style_text_color(r_stats, rgb(b->kind != BLOCK_NONE ? C_TEXT : C_MUTED), 0);
+    uint32_t stats_color = C_MUTED;
+    if (b->kind != BLOCK_NONE) {
+        stats_color = C_TEXT;
+    } else if (v->timer_s < WATCH_HINT_S) {
+        stats_color = watch ? C_TEXT : C_WARN;
+    }
+    lv_obj_set_style_text_color(r_stats, rgb(stats_color), 0);
 
     lv_label_set_text(r_pause_label, paused ? LV_SYMBOL_PLAY " Resume" : LV_SYMBOL_PAUSE " Pause");
     show(r_grade_minus, !erg && !v->route);  // a route sets the grade itself
@@ -2381,7 +2396,7 @@ static void refresh(lv_timer_t *t)
     }
 
     if (want == scr_ride) {
-        update_ride(&v);
+        update_ride(&v, &st);
     } else if (want == scr_summary) {
         update_summary(&v, &st);
     } else if (want == scr_home) {
