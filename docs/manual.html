@@ -538,7 +538,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <h3 id="webapp-update">7.8 Device page, updating the web app</h3>
 <p>This manual comes with the web app: <span class="btn">Manual</span> in the sidebar (on a phone: on the <span class="btn">Device</span> page) opens the copy on the SD card, which matches the installed version and works without internet.</p>
 <p>The <span class="btn">Device</span> page lists all ride files for download, uploads <code>.zwo</code> files, flashes firmware (<a href="#updates">8</a>) and has a <b>SQL console</b> (DuckDB) for read-only queries over <code>summary</code> and <code>bests</code> (one <code>SELECT</code>, <code>WITH</code>, <code>FROM</code>, <code>SUMMARIZE</code> or <code>DESCRIBE</code>; no files or URLs, up to 500 rows); it loads 34 MB the first time you run a query.</p>
-<p>The ready-made web app from a release goes onto the card as in <a href="#update-www">8.2</a>. To update the web app over Wi-Fi, without taking out the card, run this on your computer:</p>
+<p>A firmware update brings its web app along (<a href="#updates">8</a>). To send a newer web app between firmware updates over Wi-Fi, without taking out the card, run this on your computer (it stays until the next firmware update):</p>
 <pre><code>tools/web_deploy.sh              <span class="c"># or with an address: tools/web_deploy.sh 192.168.178.80</span>
 tools/web_deploy.sh --check      <span class="c"># only tells you whether the device is behind</span></code></pre>
 <p>It sends only the files that changed, usually in a few seconds. If the device isn't accepting uploads, the script asks you to tap <span class="btn">Wi-Fi icon → Allow firmware update</span> on the device and carries on by itself once you have. It ends by checking the version on the device. If it gets interrupted, run it again: it picks up what's missing. <code>--force</code> sends every file.</p>
@@ -584,7 +584,7 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
   <tr><td><code>justride-1.2.0-full.bin</code></td><td>First install over USB, without building (<a href="#update-usb">8.3</a>)</td></tr>
   <tr><td><code>SHA256SUMS</code></td><td>Checksums: <code>shasum -a 256 -c SHA256SUMS --ignore-missing</code> in the download folder</td></tr>
 </table>
-<p class="note">Update the firmware and the web app to the <b>same version</b>: a new web app may need a new firmware and the other way round.</p>
+<p class="note">The firmware carries its web app and this manual: on its first start, a new firmware (over Wi-Fi or USB) copies them to the SD card (about 10 seconds longer than a normal start, once). So a firmware update is all you need. Only the SQL console's DuckDB (34 MB) isn't inside: it comes with the www zip (<a href="#update-www">8.2</a>) or <code>tools/web_deploy.sh</code> and rarely changes.</p>
 
 <h3 id="update-fw">8.1 Firmware over Wi-Fi</h3>
 <ol>
@@ -594,10 +594,10 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
   <li>The web app shows the version in the file and the installed one before it uploads, and refuses if you haven't tapped <span class="btn">Allow firmware update</span>.</li>
   <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one. The web app waits for the restart and says which version is running then: “Done: firmware … is running”, or that the device went back.</li>
 </ol>
-<p>Your riders, settings, rides and workouts are on the SD card and stay as they are; paired devices are kept too.</p>
+<p>Your riders, settings, rides and workouts are on the SD card and stay as they are; paired devices are kept too. The matching web app is copied to the card on the first start, so reload the web app afterwards.</p>
 
 <h3 id="update-www">8.2 The web app</h3>
-<p>The web app lives on the SD card, not in the firmware, so it's updated separately:</p>
+<p>A firmware update already brings its web app (<a href="#updates">8</a>). The www zip is for a new SD card, or for the SQL console's DuckDB, which isn't inside the firmware:</p>
 <ol>
   <li>Download <code>justride-www-&lt;version&gt;.zip</code> and unzip it on your computer. It contains a folder <code>www</code>.</li>
   <li>Unplug the device, put the SD card into the computer and copy that <code>www</code> folder to the top level of the card, replacing the old one. Nothing else on the card is touched (rides, workouts, settings and plans live in other folders).</li>
