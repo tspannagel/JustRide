@@ -63,12 +63,19 @@ volumes as in `compose.yaml`.
 - Keep it on your home network. Don't forward the port on your router; use your NAS's or
   router's VPN to reach it from outside. HTTPS is optional through the NAS's reverse proxy.
 - The NAS talks to the head unit like the web app does and can't do anything the web app
-  couldn't: no firmware uploads, no rider changes while the head unit is off.
+  couldn't: no firmware uploads, no adding or deleting riders while the head unit is off (switching the
+  active rider and editing FTP, weight and limits are queued like plans).
 
 ## Without Docker
 
+From the repo, nothing to set:
+
 ```sh
-python3 nas/justride_nas.py --device 192.168.1.50 --www ./www/stats --data ./data
+python3 nas/justride_nas.py          # then open http://localhost:8080/
 ```
+
+It finds the head unit as `trainer.local`, serves the web app from `www/stats/` and keeps its data in
+`nas/data/`. The first sync copies every ride and takes a few minutes; the head unit answers slowly
+meanwhile. Options: `--device 192.168.1.50`, `--www`, `--data`, `--port`.
 
 Tests: `python3 -m unittest discover -s test/tools`.

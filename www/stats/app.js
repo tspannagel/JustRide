@@ -323,8 +323,8 @@ async function nasStatus() {
   bar.className = `nas-bar${n.online ? '' : ' off'}`;
   bar.innerHTML = n.online
     ? `${icon('upload')}<span>Sending changes to the head unit…</span>`
-    : `${icon('alert')}<span><b>Head unit off.</b> You see its data from ${esc(when)}. Plans and workouts you change go to it
-       when it's on; rider settings need it.${esc(waiting)}</span>`;
+    : `${icon('alert')}<span><b>Head unit off.</b> You see its data from ${esc(when)}. Plans, workouts and rider changes go to it
+       when it's on; adding or deleting a rider needs it.${esc(waiting)}</span>`;
   const last = n.errors?.at(-1);
   if (last && nasErrSeen !== null && last.time > nasErrSeen) toast(`The head unit refused ${last.path}: ${last.message}`, 'bad');
   nasErrSeen = last ? last.time : 0;

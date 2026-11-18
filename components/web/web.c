@@ -38,6 +38,7 @@ static const char *TAG = "web";
 #define AP_IP "192.168.4.1"  // ESP-IDF default for the access point
 #define STA_TIMEOUT_US (15 * 1000000)
 #define STA_RETRY_US (30 * 1000000)  // home Wi-Fi retries while our own access point runs
+#define LOCK_BUSY_US (200 * 1000)     // a timer that found the lock taken tries again this much later
 #define CHUNK 4096
 #define OTA_WINDOW_US (5 * 60 * 1000000LL)
 #define PLAN_MAX_BYTES (32 * 1024)
@@ -53,6 +54,7 @@ static esp_netif_t *s_sta, *s_ap;
 static httpd_handle_t s_http;
 static esp_timer_handle_t s_fallback, s_retry;
 static bool s_running, s_is_ap, s_got_ip, s_sntp, s_ntp_synced;
+static bool s_has_sta;  // a home Wi-Fi is configured (else the access point is all there is)
 static const web_users_t *s_users;
 static char s_ip[16];
 static char s_ap_pass[64];  // WPA2: up to 63 characters
@@ -885,7 +887,9 @@ static void on_time_sync(struct timeval *tv)
 }
 
 // keep_sta: the home Wi-Fi didn't answer in time; keep trying it next to the access
-// point, so the clock still gets set (NTP from the router) once it's there
+// point, so the clock still gets set (NTP from the router) once it's there. The access
+// point is added to the running station (no stop/start): stopping used to drop a link
+// that had just joined and was only waiting for DHCP, so a slow home Wi-Fi never made it.
 static void start_ap(bool keep_sta)
 {
     if (strlen(s_ap_pass) < 8) {
@@ -895,10 +899,14 @@ static void start_ap(bool keep_sta)
     wifi_config_t ap = {.ap = {.ssid = AP_SSID, .ssid_len = strlen(AP_SSID), .channel = 6, .max_connection = 2,
                                .authmode = WIFI_AUTH_WPA2_PSK}};
     snprintf((char *)ap.ap.password, sizeof(ap.ap.password), "%s", s_ap_pass);
-    esp_wifi_stop();
-    esp_wifi_set_mode(keep_sta ? WIFI_MODE_APSTA : WIFI_MODE_AP);  // STA config stays set
-    esp_wifi_set_config(WIFI_IF_AP, &ap);
-    esp_wifi_start();  // STA_START connects again
+    if (keep_sta) {
+        esp_wifi_set_mode(WIFI_MODE_APSTA);  // STA config and connection stay
+        esp_wifi_set_config(WIFI_IF_AP, &ap);
+    } else {
+        esp_wifi_set_mode(WIFI_MODE_AP);
+        esp_wifi_set_config(WIFI_IF_AP, &ap);
+        esp_wifi_start();
+    }
     s_is_ap = true;
     strcpy(s_ip, AP_IP);
     ESP_LOGI(TAG, "access point %s started", AP_SSID);
@@ -906,15 +914,25 @@ static void start_ap(bool keep_sta)
 
 // esp_timer task: take the lock so this can't race web_stop() and turn the
 // access point on after a ride started. Don't wait for it (that would delay
-// other timers, e.g. the buzzer off); if web_start/stop holds it, skip.
+// other timers, e.g. the buzzer off): if it's taken (web_start/stop, or the UI's
+// web_link() on every refresh), try again shortly. A skipped timer used to be
+// lost for good: no access point, or no more home Wi-Fi retries until a reboot.
+// After web_stop() the callback finds s_running false and does nothing.
 static void fallback_cb(void *arg)
 {
     if (xSemaphoreTake(s_lock, 0) != pdTRUE) {
+        esp_timer_start_once(s_fallback, LOCK_BUSY_US);
         return;
     }
-    if (s_running && !s_got_ip) {
+    if (s_running && !s_got_ip && !s_is_ap) {
         ESP_LOGW(TAG, "home Wi-Fi not reachable, starting own access point");
         start_ap(true);
+    } else if (s_running && s_got_ip && s_is_ap && s_has_sta) {
+        // Home Wi-Fi came after all: access point off again. Both at once next to Bluetooth
+        // made every HTTP request take 7..20 s. The station link stays up.
+        ESP_LOGI(TAG, "home Wi-Fi joined, access point off");
+        esp_wifi_set_mode(WIFI_MODE_STA);
+        s_is_ap = false;
     }
     xSemaphoreGive(s_lock);
 }
@@ -923,6 +941,7 @@ static void fallback_cb(void *arg)
 static void retry_cb(void *arg)
 {
     if (xSemaphoreTake(s_lock, 0) != pdTRUE) {
+        esp_timer_start_once(s_retry, LOCK_BUSY_US);
         return;
     }
     if (s_running && !s_got_ip) {
@@ -945,6 +964,11 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             esp_timer_start_once(s_retry, STA_RETRY_US);
         } else {
             esp_wifi_connect();
+            // Lost after it was joined (router restart, channel change): own access point
+            // if it isn't back in time, as at start-up, so the device stays reachable
+            if (!esp_timer_is_active(s_fallback)) {
+                esp_timer_start_once(s_fallback, STA_TIMEOUT_US);
+            }
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "access point: device joined");
@@ -955,7 +979,12 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         ip_event_got_ip_t *e = data;
         snprintf(s_ip, sizeof(s_ip), IPSTR, IP2STR(&e->ip_info.ip));
         s_got_ip = true;
-        ESP_LOGI(TAG, "got IP %s", s_ip);
+        if (s_is_ap) {  // drop the access point, under the lock (fallback_cb)
+            esp_timer_stop(s_fallback);
+            esp_timer_start_once(s_fallback, LOCK_BUSY_US);
+        }
+        wifi_ap_record_t ap;
+        ESP_LOGI(TAG, "got IP %s (signal %d dBm)", s_ip, esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0);
         // Time from the router first (home routers usually serve NTP and work
         // without internet), pool.ntp.org second. Start now that DNS and a route exist.
         if (s_sntp) {
@@ -994,6 +1023,7 @@ void web_start(const settings_t *s)
     }
     s_running = true;
     s_is_ap = s_got_ip = false;
+    s_has_sta = s->wifi_ssid[0] != 0;
     s_ip[0] = 0;
     snprintf(s_ap_pass, sizeof(s_ap_pass), "%s", s->ap_pass);
 
@@ -1093,6 +1123,8 @@ void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
 bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
+
+bool web_joining(void) { return s_running && !s_got_ip && !s_is_ap; }
 
 web_link_t web_link(int *bars)
 {

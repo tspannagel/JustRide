@@ -222,6 +222,10 @@ static void task(void *arg)
         if (web_on) {
             web_start(&s_web_cfg);
         }
+        // No Bluetooth scanning while Wi-Fi looks for the home network (shared radio; at
+        // -75 dBm the join kept failing with "no AP found"). Bounded: the access point
+        // starts after 15 s, a ride stops Wi-Fi. Connected devices are not affected.
+        ble_mgr_scan_hold(web_joining());
         if (start) {
             web_stop();  // waits for running web requests, which may need the lock
             // A route: race the best earlier ride on it. Read from the SD card without
