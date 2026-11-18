@@ -319,9 +319,12 @@ async function nasStatus() {
   if (!n) { bar.hidden = true; return; }
   const when = n.last_sync ? `${fmt.date(new Date(n.last_sync * 1000))} ${fmt.time(new Date(n.last_sync * 1000))}` : 'never';
   const waiting = n.pending ? ` ${n.pending} change${n.pending === 1 ? '' : 's'} waiting for it.` : '';
-  bar.hidden = n.online && !n.pending;
-  bar.className = `nas-bar${n.online ? '' : ' off'}`;
-  bar.innerHTML = n.online
+  const broken = n.online && n.last_error;  // head unit answers, but the NAS can't mirror it (see its log)
+  bar.hidden = n.online && !n.pending && !broken;
+  bar.className = `nas-bar${n.online && !broken ? '' : ' off'}`;
+  bar.innerHTML = broken
+    ? `${icon('alert')}<span><b>NAS sync failing</b> (${esc(n.last_error)}). You see its data from ${esc(when)}.</span>`
+    : n.online
     ? `${icon('upload')}<span>Sending changes to the head unit…</span>`
     : `${icon('alert')}<span><b>Head unit off.</b> You see its data from ${esc(when)}. Plans and workouts you change go to it
        when it's on; rider settings need it.${esc(waiting)}</span>`;
