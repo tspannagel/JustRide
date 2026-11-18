@@ -21,26 +21,23 @@ If a plan was changed on both sides, the NAS copy wins and the head unit's copy 
 1. **Give the head unit a fixed address.** In your router, add a DHCP reservation for the
    head unit (its address is on the device's Wi-Fi screen). Example: `192.168.1.50`.
 2. **Copy this folder to the NAS**, e.g. `/volume1/docker/justride/`.
-3. **Add the web app.** Download `justride-www-<version>.zip` from the GitHub release and
-   unzip it in that folder, so you have `www/stats/index.html.gz` and the manual in
-   `www/stats/manual/`. Use the same version as on the head unit.
+3. **The web app is built into the image** (the release's www zip, downloaded while the image
+   is built; `docker compose up -d --build` uses the newest version in the Dockerfile, pass
+   another with `--build-arg JR_VERSION=<version>`). Use the same version as on the head unit.
+   `nas_build_image.sh` builds it on a computer for the newest git tag and pushes it to a
+   registry on the NAS. To serve your own copy instead, put it in `./www/stats/` (the
+   `./www` mount wins when it has an `index.html` or `index.html.gz`).
 
-   From the repo instead of a release (no gzip needed, the service serves plain files too):
-
-   ```sh
-   ../tools/vendor_stats.sh   # run these in nas/
-   mkdir -p www && cp -R ../www/stats www/
-   mkdir -p www/stats/manual && cp ../docs/manual.html www/stats/manual/index.html
-   cp -R ../docs/img www/stats/manual/img
-   ```
 4. **Set the address** in `compose.yaml` (`JR_DEVICE`). If you open the NAS by a name
    (e.g. `nas.local`) rather than its IP address, add that name to `JR_HOSTS`.
 5. **Start it:**
 
    ```sh
-   mkdir -p data && sudo chown 1000:1000 data
    docker compose up -d --build
    ```
+
+   The container gives `./data` to user 1000 (`JR_UID`/`JR_GID`) at start and then runs as
+   that user, so it doesn't matter who created the folder.
 
 6. Open `http://<nas-address>:8080/`. With the head unit off, a bar at the top says so
    and how old the data is.
@@ -54,9 +51,9 @@ volumes as in `compose.yaml`.
 
 ## Updating
 
-- Web app: unzip the new release zip over `www/` (the head unit gets its copy separately,
-  `tools/web_deploy.sh` or the Device page on the head unit).
-- Service: copy the new `justride_nas.py` and run `docker compose up -d --build`.
+- Rebuild the image for the new release (`nas_build_image.sh`, then `docker compose pull &&
+  docker compose up -d` on the NAS). The head unit gets its web app separately
+  (`tools/web_deploy.sh` or the Device page on the head unit).
 
 ## Safety and access
 

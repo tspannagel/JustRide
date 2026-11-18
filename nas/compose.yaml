@@ -12,6 +12,6 @@ services:
       # JR_INTERVAL: "60"
     volumes:
       - ./data:/data           # mirror, outbox, conflicts: back this up with the NAS
-      - ./www:/app/www:ro      # the web app: unzip the release's www zip here (-> ./www/stats/)
+      - ./www:/app/www:ro      # optional: your own web app in ./www/stats/ (the image has the release's built in)
     # network_mode: host       # only if JR_DEVICE must be "trainer.local" (mDNS doesn't cross Docker's bridge);
                                # then drop "ports:" and the service listens on the NAS's port 8080
