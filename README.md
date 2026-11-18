@@ -5,6 +5,25 @@ Standalone ESP32-S3 head unit for a Wahoo KICKR Core: free rides with virtual ge
 - **Manual (setup and operation):** [docs/manual.html](docs/manual.html) (open in a browser; screenshots in `docs/img/`)
 - Project overview and rules: [CLAUDE.md](CLAUDE.md) · status: [HANDOVER.md](HANDOVER.md) · plan: `docs/plan.html`
 
+## Deploy everything (3 steps)
+
+From the repo on `main`, head unit on USB, idle (not riding) and on your Wi-Fi:
+
+```sh
+# 1. Firmware: build and flash over USB (the head unit restarts)
+. ~/esp/esp-idf/export.sh && idf.py build && idf.py -p /dev/cu.usbmodem* flash
+
+# 2. Web app: over Wi-Fi, changed files only; tap Wi-Fi -> Allow firmware update on the device when asked
+[ -d www/stats/vendor ] || tools/vendor_stats.sh   # first time only
+tools/web_deploy.sh
+
+# 3. NAS (optional): on the NAS `docker compose up -d --build` in nas/ (see nas/README.md),
+#    or on this computer, then open http://localhost:8080/
+python3 nas/justride_nas.py
+```
+
+Flashing doesn't update the web app and vice versa: do both. `tools/web_deploy.sh --check` says whether the device's web app is behind. First time only: `idf.py set-target esp32s3`, and the SD card set up as in the manual.
+
 ## Build (ESP-IDF ≥ 5.3)
 
 ```sh
