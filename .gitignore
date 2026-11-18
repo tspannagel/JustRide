@@ -99,3 +99,4 @@ Thumbs.db
 
 # Written by the release workflow (app version from the git tag)
 /version.txt
+nas/data/

@@ -51,6 +51,8 @@ include_directories(${C}/proto_cps/include)
 jr_test(cps ${C}/proto_cps/proto_cps.c)
 jr_test(route ${C}/route/route.c)
 jr_test(ghost ${C}/route/ghost.c)
+include_directories(${C}/wwwpack/include)
+jr_test(wwwpack ${C}/wwwpack/wwwpack.c)
 
 # tools/zwo_check: the firmware's .zwo parser as a CLI (used by tools/mcp_server.py)
 add_executable(zwo_check ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/zwo_check.c ${C}/workout/zwo.c ${C}/workout/workout.c)

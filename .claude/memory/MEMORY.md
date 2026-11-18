@@ -9,3 +9,5 @@ Don't duplicate what `CLAUDE.md`, `HANDOVER.md`, the code or git history already
 - [Operational safety](operational-safety.md) — review every change; hardware must not be damaged
 - [ESP-IDF on the Mac](no-local-idf.md) — local `idf.py build` works since 2026-10-27; cloud sessions use CI
 - [gitignore conventions](gitignore-conventions.md) — sdkconfig ignored, stats vendor/ generated (not committed)
+- [USB console resets the board](usb-console-resets.md) — opening the serial port reboots it; keep one session open, never mid-ride
+- [Finish the job](finish-the-job.md) — flash, verify, commit, push, PR and docs without asking

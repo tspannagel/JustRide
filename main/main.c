@@ -56,6 +56,7 @@ void app_main(void)
     drv_ftms_init();  // before app_start: the control task feeds its mailbox
     app_start();
     ui_start();
+    web_install_app();  // a new firmware brings its web app along
     web_init();
     static const web_users_t users = {app_get_settings, app_select_user, app_add_user, app_edit_user, app_delete_user};
     web_set_users(&users);

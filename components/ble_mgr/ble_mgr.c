@@ -65,8 +65,10 @@ static bool cooling(const ble_addr_t *a)
 }
 static int s_fails;
 static struct ble_npl_callout s_rescan;  // runs on the host task, like every other callback here
-static struct ble_npl_event s_user_ev, s_forget_ev;
+static struct ble_npl_event s_user_ev, s_forget_ev, s_hold_ev;
 static bool s_started;
+static volatile bool s_hold_req;  // ble_mgr_scan_hold(), any task
+static bool s_hold;               // host task
 static char s_user[8];           // host task only (after start)
 static char s_user_req[8];       // written by other tasks, guarded by s_mux
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -168,7 +170,7 @@ static void schedule_rescan(void);
 
 static void start_scan(void)
 {
-    if (s_connecting || all_roles_linked() || ble_gap_disc_active()) {
+    if (s_hold || s_connecting || all_roles_linked() || ble_gap_disc_active()) {
         return;
     }
     // 30 ms every 100 ms (units of 0.625 ms). The default (10 of 10 ms) keeps the shared
@@ -588,6 +590,32 @@ void ble_mgr_forget(void)
     }
 }
 
+// Host task: discovery off while held (Wi-Fi joining), back on after
+static void hold_cb(struct ble_npl_event *ev)
+{
+    bool hold = s_hold_req;
+    if (hold == s_hold) {
+        return;
+    }
+    s_hold = hold;
+    ESP_LOGI(TAG, "scan %s", hold ? "held (Wi-Fi joining)" : "resumed");
+    if (hold) {
+        if (ble_gap_disc_active()) {
+            ble_gap_disc_cancel();  // no DISC_COMPLETE event: nothing reschedules it
+        }
+    } else {
+        start_scan();
+    }
+}
+
+void ble_mgr_scan_hold(bool hold)
+{
+    if (s_started && hold != s_hold_req) {
+        s_hold_req = hold;
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &s_hold_ev);
+    }
+}
+
 void ble_mgr_set_user(const char *id)
 {
     portENTER_CRITICAL(&s_mux);
@@ -633,6 +661,7 @@ void ble_mgr_start(const ble_drv_t *const *drivers, int n, const ble_server_t *s
     ble_npl_callout_init(&s_rescan, nimble_port_get_dflt_eventq(), rescan_cb, NULL);
     ble_npl_event_init(&s_user_ev, user_cb, NULL);
     ble_npl_event_init(&s_forget_ev, forget_cb, NULL);
+    ble_npl_event_init(&s_hold_ev, hold_cb, NULL);
     s_started = true;
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.reset_cb = on_reset;

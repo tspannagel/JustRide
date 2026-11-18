@@ -54,6 +54,10 @@ bool ble_mgr_connected(uint8_t role);
 // disconnect; the next match is paired.
 void ble_mgr_forget(void);
 
+// Pause looking for devices (connected ones stay): scanning shares the radio and
+// Wi-Fi misses its access point while joining (reason 201). Any task.
+void ble_mgr_scan_hold(bool hold);
+
 // Diagnostics: log every advertisement and scan response as raw hex.
 void ble_mgr_dump(bool on);
 

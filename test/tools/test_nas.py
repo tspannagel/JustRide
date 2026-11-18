@@ -94,6 +94,13 @@ class NasTest(unittest.TestCase):
         c.close()
         return out
 
+    def dev_get(self, path):
+        c = http.client.HTTPConnection('127.0.0.1', self.dev.port, timeout=10)
+        c.request('GET', path, headers={'Host': '127.0.0.1'})
+        out = c.getresponse().read()
+        c.close()
+        return out
+
     def info(self):
         return json.loads(self.req('GET', '/api/info')[1])['nas']
 
@@ -201,10 +208,20 @@ class NasTest(unittest.TestCase):
         self.assertNotIn('endurance_60.zwo', names)
         self.assertEqual(self.info()['pending'], 3)
 
-        # Riders stay with the device; updates need it too
+        # Rider switch and edits are queued and shown at once; add/delete need the device
+        st, body, _ = self.req('POST', '/api/users', b'{"action":"select","id":"u2"}')
+        self.assertEqual(st, 200)
+        self.assertEqual([u['active'] for u in json.loads(body)], [False, True])
         st, body, _ = self.req('POST', '/api/users', b'{"action":"edit","id":"u1","ftp_w":250}')
+        self.assertEqual(st, 200)
+        users = json.loads(self.req('GET', '/api/users')[1])
+        self.assertEqual((users[0]['ftp_w'], users[0]['ftp_known'], users[1]['active']), (250, True, True))
+        self.assertEqual(self.req('POST', '/api/users', b'{"action":"edit","id":"u1","ftp_w":9999}')[0], 400)
+        self.assertEqual(self.req('POST', '/api/users', b'{"action":"select","id":"u9"}')[0], 400)
+        st, body, _ = self.req('POST', '/api/users', b'{"action":"add","name":"Kim"}')
         self.assertEqual(st, 503)
         self.assertIn(b'head unit is off', body)
+        self.assertEqual(self.info()['pending'], 5)
         self.assertEqual(self.req('POST', '/ota', b'x' * 10)[0], 409)
 
         self.dev.on()
@@ -215,6 +232,8 @@ class NasTest(unittest.TestCase):
         with open(self.dev.path('workouts', 'Queued.zwo'), 'rb') as f:
             self.assertEqual(f.read(), ZWO)
         self.assertFalse(os.path.exists(self.dev.path('workouts', 'endurance_60.zwo')))
+        users = json.loads(self.dev_get('/api/users'))
+        self.assertEqual((users[0]['ftp_w'], users[1]['active']), (250, True))
         # and nothing came back from the pull that undoes it
         names = {w['name'] for w in json.loads(self.req('GET', '/api/workouts')[1])}
         self.assertIn('Queued.zwo', names)

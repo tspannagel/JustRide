@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """JustRide on a NAS: the web app with the head unit's data, also while the head unit is off.
 
-  nas/justride_nas.py --device 192.168.1.50 --www ./www/stats --data ./data
+  nas/justride_nas.py                          (head unit trainer.local, web app from the repo, data in nas/data)
+  nas/justride_nas.py --device 192.168.1.50    (in Docker: mDNS names don't resolve there)
 
 Serves the web app (/stats/, the same files as on the SD card) and the device's HTTP API
 from a mirror of the device data. A sync job (every --interval seconds, and before a read
@@ -10,7 +11,9 @@ head unit answers, and pushes the writes made while it didn't. Python standard l
 
 Who owns what:
   rides, summary.csv, bests.csv   the device; the NAS copies them (and drops what the device dropped)
-  riders (FTP, weight, Max ERG)   the device; edits go straight to it and are refused while it's off
+  riders (FTP, weight, Max ERG)   the device; while it's off, switching the active rider and editing
+                                  a rider are queued here (checked with the device's limits) and sent
+                                  in order when it's back; adding or deleting a rider needs the device
   workouts and plans              written through to the device when it answers, else queued here;
                                   a queued write wins over a copy changed on the device meanwhile,
                                   which is kept under <data>/conflicts/
@@ -28,6 +31,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import tempfile
 import threading
 import time
@@ -61,6 +65,60 @@ def plan_name_ok(name):
     return bool(re.fullmatch(r'[A-Za-z0-9]{1,8}\.json', name))
 
 
+# The device's limits for a rider (app_edit_user, ride.h); riders.js has the same
+RIDER_LIMITS = {'ftp_w': (50, 600), 'max_erg_w': (100, 1500), 'weight_kg': (30, 200), 'max_hr': (100, 230)}
+
+
+def rider_name_ok(name):
+    """settings_valid_name: printable ASCII, 1..15 characters, not only spaces."""
+    return isinstance(name, str) and bool(re.fullmatch(r'[\x20-\x7e]{1,15}', name)) and name.strip() != ''
+
+
+def rider_action(body):
+    """A select or edit for the queue, reduced to the fields the device reads (ValueError: refused)."""
+    try:
+        a = json.loads(body)
+    except ValueError:
+        raise ValueError('bad request') from None
+    if not isinstance(a, dict):
+        raise ValueError('bad request')
+    if a.get('action') not in ('select', 'edit'):
+        raise ValueError('The head unit is off: adding or deleting a rider needs it. Try again when it is on.')
+    if not isinstance(a.get('id'), str):
+        raise ValueError('bad request')
+    out = {'action': a['action'], 'id': a['id']}
+    if a['action'] == 'edit':
+        for k in ('name',) + tuple(RIDER_LIMITS):
+            if k in a:
+                out[k] = a[k]
+    return out
+
+
+def apply_rider_action(users, a):
+    """The device's rules for a select or edit, applied to a copy of the rider list."""
+    users = [dict(u) for u in users]
+    u = next((x for x in users if x.get('id') == a['id']), None)
+    if u is None:
+        raise ValueError('no such rider')
+    if a['action'] == 'select':
+        for x in users:
+            x['active'] = x is u
+        return users
+    name = a.get('name', u.get('name'))
+    if not rider_name_ok(name):
+        raise ValueError('name invalid')
+    for k, (lo, hi) in RIDER_LIMITS.items():
+        v = a.get(k, u.get(k))
+        if type(v) is not int or not lo <= v <= hi:
+            raise ValueError('value out of range')
+    if a.get('ftp_w', u.get('ftp_w')) != u.get('ftp_w'):
+        u['ftp_known'] = True  # entered by hand, as on the device
+    u['name'] = name
+    for k in RIDER_LIMITS:
+        u[k] = a.get(k, u.get(k))
+    return users
+
+
 def ride_name_ok(name):
     """<user id>/<file> as /api/rides lists them."""
     return bool(re.fullmatch(r'[A-Za-z0-9]{1,8}/[A-Za-z0-9._-]{1,64}', name)) and '..' not in name
@@ -77,7 +135,17 @@ class Device:
     def request(self, method, path, body=None, timeout=None):
         """(status, body). Raises DeviceError if the device can't be reached."""
         p, q = (path.split('?', 1) + [''])[:2]
-        url = f'http://{self.addr}{urllib.parse.quote(p)}' + (f'?{q}' if q else '')
+        # A name (trainer.local): its IPv4 address each time (the device doesn't answer the IPv6
+        # lookup, which costs 5 s per request; a new DHCP address is picked up). Host stays the name.
+        host, _, port = self.addr.partition(':')
+        try:
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            try:
+                host = socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0]
+            except OSError as e:
+                raise DeviceError(f'{self.addr}: {e}') from e
+        url = f'http://{host}{":" + port if port else ""}{urllib.parse.quote(p)}' + (f'?{q}' if q else '')
         req = urllib.request.Request(url, data=body, method=method,
                                      headers={'Host': self.addr, 'X-JustRide': '1'})
         try:
@@ -105,6 +173,7 @@ class Store:
         self.state.setdefault('base', {})    # rel -> hash of the device's copy at the last sync
         self.state.setdefault('meta', {})    # rel -> [size, mtime] as the device listed it
         self.state.setdefault('errors', [])  # writes the device refused
+        self.state.setdefault('riders', [])  # rider selects/edits waiting for the device, in order
         self.outbox = self._load(os.path.join('outbox', 'index.json'), {})  # rel -> {op, base, body, time}
 
     def _load(self, rel, default):
@@ -167,6 +236,23 @@ class Store:
         self.outbox[rel] = {'op': op, 'base': old['base'] if old else self.state['base'].get(rel), 'body': body_file,
                             'time': int(time.time()), 'seq': self.state['seq']}
 
+    def users(self):
+        """The device's rider list as last synced, with the queued changes applied."""
+        data = self.read('users.json')
+        if data is None:
+            return None
+        users = json.loads(data)
+        for q in self.state['riders']:
+            try:
+                users = apply_rider_action(users, q['action'])
+            except ValueError:
+                pass  # e.g. that rider was deleted on the device; the push reports it
+        return users
+
+    def queue_rider(self, action):
+        self.state['seq'] = self.state.get('seq', 0) + 1
+        self.state['riders'].append({'action': action, 'time': int(time.time()), 'seq': self.state['seq']})
+
     def queued_body(self, rel):
         f = self.outbox[rel]['body']
         with open(os.path.join(self.outbox_dir, f), 'rb') as fh:
@@ -212,7 +298,8 @@ class Sync:
     def status(self):
         st = self.store.state
         return {'online': st['online'], 'device': self.dev.addr, 'last_sync': st['last_sync'],
-                'pending': len(self.store.outbox), 'errors': st['errors'], 'last_error': st.get('last_error')}
+                'pending': len(self.store.outbox) + len(st['riders']), 'errors': st['errors'],
+                'last_error': st.get('last_error')}
 
     # ---- one round: push the outbox, then pull --------------------------------------------
 
@@ -268,6 +355,7 @@ class Sync:
             self.wake.clear()
 
     def _push(self):
+        self._push_riders()
         s = self.store
         with self.lock:
             todo = sorted(s.outbox)
@@ -287,6 +375,25 @@ class Sync:
                 status = 200 if status == 404 else status
             with self.lock:
                 self._pushed(rel, op, body, cur, status, msg)
+
+    def _push_riders(self):
+        """Rider changes made while the device was off, oldest first (a select then an edit keeps its order)."""
+        s = self.store
+        while True:
+            with self.lock:
+                if not s.state['riders']:
+                    return
+                q = s.state['riders'][0]
+            status, out = self.dev.request('POST', '/api/users', json.dumps(q['action']).encode())
+            if status >= 500:
+                raise DeviceError(f'/api/users: {status}')  # try again next round
+            with self.lock:
+                if 200 <= status < 300:
+                    s.write('users.json', out)
+                else:  # refused (a rider deleted on the device meanwhile, a ride started): dropped, reported
+                    s.error('api/users', status, out.decode('utf-8', 'replace'))
+                s.state['riders'] = [x for x in s.state['riders'] if x['seq'] != q['seq']]
+                s.save()
 
     def _pushed(self, rel, op, body, cur, status, msg):
         s = self.store
@@ -518,12 +625,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == '/api/users':
             if get:
                 s.fresh(wait=s.store.read('users.json') is None)  # first start: wait for the first sync
-                data = s.store.read('users.json')
-                return self.send(200, data, 'application/json') if data else self.send(
+                with s.lock:
+                    users = s.store.users()
+                return self.send_json(users) if users is not None else self.send(
                     503, b'No data yet: the NAS has not reached the head unit')
             if self.command == 'POST':
                 with s.lock:
-                    if s.online:
+                    if s.online and not s.store.state['riders']:
                         try:
                             status, out = s.dev.request('POST', path, body)
                         except DeviceError as e:
@@ -533,8 +641,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 s.store.write('users.json', out)
                                 s.store.save()
                             return self.send(status, out, 'application/json' if status == 200 else 'text/plain')
-                return self.send(503, b'The head unit is off: rider changes need it (FTP, weight and limits live '
-                                      b'there). Try again when it is on.')
+                    # Off (or older changes still waiting): check like the device, queue, answer with the new list
+                    users = s.store.users()
+                    if users is None:
+                        return self.send(503, b'No data yet: the NAS has not reached the head unit')
+                    try:
+                        action = rider_action(body)
+                        users = apply_rider_action(users, action)
+                    except ValueError as e:
+                        return self.send(503 if 'head unit is off' in str(e) else 400, str(e).encode())
+                    s.store.queue_rider(action)
+                    s.store.save()
+                s.wake.set()
+                return self.send_json(users)
         if path == '/api/rides' and get:
             s.fresh()
             with s.lock:
@@ -618,29 +737,34 @@ def drop_root(data, uid, gid):
 
 def main():
     env = os.environ.get
+    here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--device', default=env('JR_DEVICE'), help='head unit IPv4 address (fixed via a DHCP reservation)')
+    ap.add_argument('--device', default=env('JR_DEVICE', 'trainer.local'),
+                    help='head unit: trainer.local (default) or its IPv4 address (fixed via a DHCP reservation)')
     ap.add_argument('--www', default=env('JR_WWW'),
-                    help='the web app folder (www/stats); default: the ./www mount if it has one, else the image\'s')
-    ap.add_argument('--data', default=env('JR_DATA', '/data'), help='mirror, outbox and state')
+                    help='the web app folder (www/stats); default: the ./www mount if it has one, else the '
+                         'image\'s, else the repo\'s')
+    ap.add_argument('--data', default=env('JR_DATA') or ('/data' if os.path.isdir('/data') else os.path.join(here, 'data')),
+                    help='mirror, outbox and state; default: /data in Docker, else nas/data')
     ap.add_argument('--port', type=int, default=int(env('JR_PORT', '8080')))
     ap.add_argument('--interval', type=int, default=int(env('JR_INTERVAL', '60')), help='seconds between syncs')
     ap.add_argument('--host', action='append', default=[h for h in env('JR_HOSTS', '').split(',') if h],
                     help='extra host name the browser may use (e.g. nas.local); IPv4 addresses always work')
     a = ap.parse_args()
-    if not a.device:
-        ap.error('--device (or JR_DEVICE) is required')
     def has_app(d):
         return any(os.path.isfile(os.path.join(d, n)) for n in ('index.html', 'index.html.gz'))
     if not a.www:
-        a.www = next((d for d in ('/app/www/stats', '/app/builtin/www/stats') if has_app(d)), '/app/www/stats')
+        a.www = next((d for d in ('/app/www/stats', '/app/builtin/www/stats', os.path.join(here, '..', 'www', 'stats'))
+                      if has_app(d)), '/app/www/stats')
+    a.www = os.path.abspath(a.www)
     if not has_app(a.www):
         ap.error(f'no web app in {a.www}: unzip the release\'s justride-www-*.zip in the folder with '
                  'compose.yaml (the zip has www/stats/, which compose mounts as /app/www)')
     if env('JR_UID'):
         drop_root(a.data, int(env('JR_UID')), int(env('JR_GID', env('JR_UID'))))
     httpd = serve(a.device, a.www, a.data, a.port, a.interval, a.host)
-    print(f'JustRide NAS on port {a.port}: device {a.device}, web app {a.www}, data {a.data}', flush=True)
+    print(f'JustRide NAS: open http://localhost:{a.port}/ (device {a.device}, web app {a.www}, data {a.data})',
+          flush=True)
     httpd.serve_forever()
 
 
