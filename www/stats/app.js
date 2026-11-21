@@ -307,6 +307,7 @@ async function showVersions() {
   $('#versions').innerHTML = `Installed: firmware <b>${esc(info?.version || 'unknown')}</b> · web app <b>${
     esc((www || '').trim() || 'development build')}</b>${info?.nas ? `<br>This page comes from the NAS. Firmware and
     web-app updates go to the head unit itself: <a class="link" href="http://${esc(info.nas.device)}/stats/#device">open it</a>.` : ''}`;
+  if (info?.version) $('#rail-version').textContent = `Firmware ${info.version}`;
   return info;
 }
 
@@ -517,6 +518,7 @@ async function main() {
   document.body.classList.add('ready');
   nasStatus();
   setInterval(nasStatus, 30000);
+  showVersions();  // firmware version in the side rail on every page
   await go(location.hash.slice(1) || 'today');
   // Keep the active rider's next week of plan workouts on the device
   const active = S.users.find((u) => u.active) || S.users[0];
