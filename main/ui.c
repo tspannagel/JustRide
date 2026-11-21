@@ -1769,13 +1769,14 @@ static void on_adapt_next(lv_event_t *e)
         metrics_hr_zone_pct(s_adapt.hr_zone - 1, &hr_lo, &hr_hi);
     }
     uint16_t easy = (uint16_t)LV_MIN(450, pm * 7 / 10);
-    w->seg[0] = (segment_t){.dur_s = 600, .p_start = easy, .p_end = pm, .kind = SEG_ERG};
-    w->seg[1] = (segment_t){.dur_s = (uint16_t)((s_adapt.min - 15) * 60), .p_start = pm, .p_end = pm, .kind = SEG_ERG};
+    // 5 min warm-up, the adaptive part, 5 min cool-down
+    w->seg[0] = (segment_t){.dur_s = 300, .p_start = easy, .p_end = pm, .kind = SEG_ERG};
+    w->seg[1] = (segment_t){.dur_s = (uint16_t)((s_adapt.min - 10) * 60), .p_start = pm, .p_end = pm, .kind = SEG_ERG};
     w->seg[1].goal = workout_add_goal(w, pm, (goal_t){.hr_lo = hr_lo, .hr_hi = hr_hi, .hr_pct = true,
                                                       .hold_avg = s_adapt.hold_avg});
     w->seg[2] = (segment_t){.dur_s = 300, .p_start = pm, .p_end = easy, .kind = SEG_ERG};
     w->n = 3;
-    w->total_s = 600 + w->seg[1].dur_s + 300;
+    w->total_s = 300 + w->seg[1].dur_s + 300;
     s_preview_path = NULL;
     s_preview_from = scr_adapt;
     show_preview();

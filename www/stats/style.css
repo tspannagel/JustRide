@@ -100,6 +100,8 @@ code { font: 13px var(--mono); background: var(--surface-3); padding: 1px 6px; b
   background: var(--surface); color: var(--text-3); border: 0; }
 .rider select { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; outline: none; }
 .rider option { background: var(--surface-solid); }
+.rail-version { padding: 2px 12px; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rail-version:hover { color: var(--text); }
 
 main { padding: 28px clamp(16px, 3vw, 40px) 80px; max-width: 1240px; width: 100%; min-width: 0; }
 .view { animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1); }
@@ -109,7 +111,7 @@ main { padding: 28px clamp(16px, 3vw, 40px) 80px; max-width: 1240px; width: 100%
   body { grid-template-columns: minmax(0, 1fr); }
   .rail { position: fixed; z-index: 20; top: auto; bottom: 0; left: 0; right: 0; height: auto; flex-direction: row; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
     border-right: 0; border-top: 1px solid var(--line); gap: 0; background: color-mix(in srgb, var(--bg) 82%, transparent); }
-  .brand, .rail-link { display: none; }
+  .brand, .rail-link, .rail-version { display: none; }
   .page-head > .actions, .page-head > .btn { width: 100%; }  /* below the title: the rider picker sits top right */
   .rail { background: var(--bg); }
   .rider { position: fixed; top: 14px; right: 16px; margin: 0; padding: 6px 10px; z-index: 21; background: var(--surface-solid); }
