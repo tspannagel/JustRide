@@ -44,6 +44,8 @@ void ride_start(ride_t *r, const workout_t *wo, uint32_t now_ms, uint32_t utc)
     r->hr_ms = hr_ms;
 
     r->wo = wo && wo->n > 0 ? wo : NULL;
+    r->free_w = (uint16_t)clamp_u16((r->cfg.ftp_w * RIDE_FREE_START_PCT / 100 + 2) / 5 * 5, RIDE_FREE_MIN_W,
+                                    RIDE_ERG_CAP_W);
     r->last_seg = -1;
     r->state = RIDE_RUNNING;
     r->now_ms = r->last_tick_ms = now_ms;
@@ -293,6 +295,16 @@ static bool gear_mode(const ride_t *r)
     return !in_erg(r, &pos);
 }
 
+// Free ride from the home screen: ERG at the rider's own target (routes and workouts keep gears)
+static bool free_erg(const ride_t *r) { return !r->wo && !r->route; }
+
+static void free_step(ride_t *r, int d)
+{
+    int hi = r->cfg.max_erg_w < RIDE_ERG_CAP_W ? r->cfg.max_erg_w : RIDE_ERG_CAP_W;
+    int w = (r->free_w > hi ? hi : r->free_w) + d;  // from what is sent, so a step down is felt at once
+    r->free_w = (uint16_t)clampi(w, RIDE_FREE_MIN_W < hi ? RIDE_FREE_MIN_W : hi, hi);
+}
+
 static void block_add(ride_block_t *b, const ride_sample_t *s)
 {
     b->s++;
@@ -384,7 +396,9 @@ void ride_action(ride_t *r, action_t a)
         if (r->wo && r->wo->ramp_test && !gear_mode(r)) {
             break;  // a test at 90 % would give a wrong FTP
         }
-        if (gear_mode(r)) {
+        if (free_erg(r)) {
+            free_step(r, d * RIDE_FREE_STEP_W);
+        } else if (gear_mode(r)) {
             r->gear = (uint8_t)clamp_u16(r->gear + d, 0, r->cfg.gears.n - 1);
         } else {
             r->intensity = (uint8_t)clamp_u16(r->intensity + d * INTENSITY_STEP, RIDE_INTENSITY_MIN, RIDE_INTENSITY_MAX);
@@ -395,6 +409,10 @@ void ride_action(ride_t *r, action_t a)
     case ACT_GRADE_MINUS: {
         if (r->route) {
             break;  // the route sets the grade
+        }
+        if (free_erg(r)) {
+            free_step(r, (a == ACT_GRADE_PLUS ? 1 : -1) * RIDE_FREE_BIG_STEP_W);
+            break;
         }
         int g = r->base_grade + (a == ACT_GRADE_PLUS ? GRADE_STEP : -GRADE_STEP);
         r->base_grade = (int16_t)(g < VSHIFT_GRADE_MIN ? VSHIFT_GRADE_MIN : g > VSHIFT_GRADE_MAX ? VSHIFT_GRADE_MAX : g);
@@ -436,6 +454,11 @@ void ride_command(const ride_t *r, control_cmd_t *cmd)
         }
         cmd->kind = CMD_ERG;
         cmd->target_w = (int16_t)(w > r->cfg.max_erg_w ? r->cfg.max_erg_w : w);
+        return;
+    }
+    if (free_erg(r)) {
+        cmd->kind = CMD_ERG;
+        cmd->target_w = (int16_t)(r->free_w > r->cfg.max_erg_w ? r->cfg.max_erg_w : r->free_w);
         return;
     }
     cmd->kind = CMD_SIM;
@@ -573,6 +596,7 @@ void ride_view(const ride_t *r, ride_view_t *v)
     }
     v->gear = r->gear + 1;
     v->gears = r->cfg.gears.n;
+    v->free_erg = free_erg(r);
     v->intensity = r->intensity;
     v->lap = r->lap;
     v->auto_paused = r->state == RIDE_PAUSED && r->auto_paused;

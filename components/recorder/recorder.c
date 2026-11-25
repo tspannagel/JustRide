@@ -17,7 +17,12 @@ static const char *TAG = "rec";
 #define FLUSH_EVERY_S 10
 #define PENDING_SIZE (FLUSH_EVERY_S * 2 * CSV_ROW_MAX)
 
+#define IO_BUF 4096
+
 static ride_sample_t *s_buf;  // PSRAM, RECORDER_MAX_S samples
+// stdio buffer (PSRAM) for the bulk files: newlib's default of 128 bytes turned every row
+// into its own FAT write. One file at a time uses it (control task, or start-up).
+static char *s_io;
 static size_t s_n;
 static FILE *s_csv;
 static char s_pending[PENDING_SIZE];
@@ -38,6 +43,16 @@ void recorder_init(void)
     if (!s_buf) {
         ESP_LOGE(TAG, "no PSRAM for the ride buffer");
     }
+    s_io = heap_caps_malloc(IO_BUF, MALLOC_CAP_SPIRAM);
+}
+
+static FILE *bopen(const char *p, const char *mode)
+{
+    FILE *f = fopen(p, mode);
+    if (f && s_io) {
+        setvbuf(f, s_io, _IOFBF, IO_BUF);
+    }
+    return f;
 }
 
 // <user dir>/<name>, e.g. /sdcard/rides/u1/summary.csv
@@ -164,7 +179,7 @@ static bool write_csv(void)
 {
     char p[64];
     path(p, sizeof(p), "csv");
-    FILE *f = fopen(p, "w");
+    FILE *f = bopen(p, "w");
     if (!f) {
         return false;
     }
@@ -182,7 +197,7 @@ static bool write_fit(void)
 {
     char p[64];
     path(p, sizeof(p), "fit");
-    FILE *f = fopen(p, "wb");
+    FILE *f = bopen(p, "wb");
     const rec_info_t *info = &s_meta.info;
     fit_meta_t meta = {.ftp_w = info->ftp_w, .sw_version = 100, .utc_offset_s = info->utc_offset_s};
     bool ok = f && fit_write_activity(fit_sink, f, s_buf, s_n, &meta);
@@ -274,7 +289,7 @@ static bool redate_rows(const char *name, const char *old_id, uint32_t new_start
     char p[64], tmp[72];
     user_path(p, sizeof(p), name);
     snprintf(tmp, sizeof(tmp), "%s.tmp", p);
-    FILE *in = fopen(p, "r"), *out = in ? fopen(tmp, "w") : NULL;
+    FILE *in = fopen(p, "r"), *out = in ? bopen(tmp, "w") : NULL;
     bool ok = out != NULL;
     char line[256], row[256];
     while (ok && fgets(line, sizeof(line), in)) {
@@ -355,7 +370,7 @@ void recorder_recover(void)
 
     char p[64];
     path(p, sizeof(p), "csv");
-    FILE *f = fopen(p, "r");
+    FILE *f = bopen(p, "r");
     s_n = 0;
     char row[CSV_ROW_MAX + 2];
     while (f && s_n < RECORDER_MAX_S && fgets(row, sizeof(row), f)) {
@@ -376,7 +391,7 @@ static bool load_ghost(const char *user_id, const char *ride_id, ghost_t *g)
 {
     char p[96], row[CSV_ROW_MAX + 8];
     snprintf(p, sizeof(p), RIDES_DIR "/%s/%s.csv", user_id, ride_id);
-    FILE *f = fopen(p, "r");
+    FILE *f = bopen(p, "r");
     if (!f) {
         return false;
     }

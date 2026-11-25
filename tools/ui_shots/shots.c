@@ -283,13 +283,13 @@ int main(int argc, char **argv)
     save("wifi");
 
     ride_common();
-    g_view.mode = MODE_FREE;
-    g_view.power_w = 231;
-    g_view.gear = 14;
-    g_view.base_grade = 350;
-    g_view.grade = 412;
+    g_view.mode = MODE_ERG;  // free ride: the rider's own target, set with the shift buttons
+    g_view.free_erg = true;
+    g_view.power_w = 172;
+    g_view.target_w = 170;
     refresh(NULL);
     save("ride-free");
+    g_view.free_erg = false;
 
     ride_common();
     g_view.mode = MODE_ERG;
@@ -406,6 +406,16 @@ int main(int argc, char **argv)
     g_view.race_gap_s = 23;
     refresh(NULL);
     save("summary-route");
+
+    // Start pressed while the NAS pulls a ride file: it finishes first
+    g_view = (ride_view_t){.state = RIDE_IDLE};
+    g_status.start_wait = true;
+    g_status.xfer_done = 1450 * 1024;
+    g_status.xfer_total = 2300 * 1024;
+    refresh(NULL);
+    save("start-wait");
+    g_status.start_wait = false;
+    refresh(NULL);
 
     for (int i = 0; i < 3; i++) {
         remove(plan[i]);

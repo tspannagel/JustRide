@@ -26,6 +26,9 @@ typedef struct {
     bool ftp_prev_known;
     // After a ride: its 10 s HR peak if above the user's max HR (HR zones). 0: nothing to offer.
     uint8_t max_hr_suggest;
+    // A ride waits for a file transfer over Wi-Fi to finish (then Wi-Fi goes off and it starts)
+    bool start_wait;
+    uint32_t xfer_done, xfer_total;  // bytes
 } app_status_t;
 
 void app_start(void);

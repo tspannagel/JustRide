@@ -77,3 +77,9 @@ CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 # progress count (about 500 B internal RAM each). 6 refused the third sensor with 0x07
 # (memory capacity exceeded) while a watch was linked to the re-broadcast.
 CONFIG_BT_CTRL_BLE_MAX_ACT=10
+
+# TCP: 5760 B (4 segments) in flight capped the web app at ~60-110 KB/s next to Bluetooth
+# (throughput = buffer / round trip). lwIP memory is in PSRAM (SPIRAM_TRY_ALLOCATE_WIFI_LWIP).
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=16384
+CONFIG_LWIP_TCP_WND_DEFAULT=11520
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=12

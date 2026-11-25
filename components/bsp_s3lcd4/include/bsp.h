@@ -49,3 +49,17 @@ uint16_t *bsp_framebuffer(void);
 bool bsp_sd_mounted(void);
 // Card size and free space in bytes. False if no card is mounted.
 bool bsp_sd_space(uint64_t *total, uint64_t *free);
+
+// One folder entry from bsp_sd_list. mtime is what stat() gives for the same file.
+typedef struct {
+    const char *name;
+    uint32_t size;
+    int64_t mtime;
+    bool dir;
+} bsp_dirent_t;
+
+// Every entry of a folder below BSP_SD_MOUNT (e.g. "rides/u1"), with size and time from
+// the folder itself: one pass over the folder instead of a stat() per file, which on FAT
+// searches the whole folder again each time. cb returns false to stop. False if the folder
+// can't be opened.
+bool bsp_sd_list(const char *rel_dir, bool (*cb)(const bsp_dirent_t *e, void *ctx), void *ctx);

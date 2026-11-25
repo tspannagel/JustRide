@@ -1,6 +1,7 @@
 #include "drv_zap.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "evbus.h"
 #include "proto_zap.h"
 
@@ -40,7 +41,9 @@ static void on_disconnect(uint16_t conn)
 
 static void post(int id, uint8_t kind)
 {
-    evt_t e = {.type = EVT_INPUT, .input = {.id = (uint8_t)id, .kind = kind, .device = SRC_CONTROLLER}};
+    uint32_t t = (uint32_t)(esp_timer_get_time() / 1000);
+    evt_t e = {.type = EVT_INPUT,
+               .input = {.id = (uint8_t)id, .kind = kind, .device = SRC_CONTROLLER, .t_ms = t ? t : 1}};
     evbus_post(&e);
 }
 

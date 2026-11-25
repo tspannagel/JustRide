@@ -7,6 +7,7 @@ int input_map(input_map_t *m, const input_evt_t *e, uint32_t now_ms, uint8_t sta
     if (e->id >= INPUT_IDS) {
         return -1;
     }
+    now_ms = e->t_ms ? e->t_ms : now_ms;
     bool riding = state == RIDE_RUNNING || state == RIDE_PAUSED;
 
     if (e->kind == IN_PRESS) {
@@ -55,6 +56,7 @@ int input_nav(const input_map_t *m, const input_evt_t *e, uint32_t now_ms, uint8
     if (state != RIDE_IDLE || e->id >= INPUT_IDS) {
         return -1;
     }
+    now_ms = e->t_ms ? e->t_ms : now_ms;
     if (e->kind == IN_PRESS) {
         switch (e->id) {
         case IN_LEFT:
