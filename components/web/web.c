@@ -1,7 +1,6 @@
 #include "web.h"
 
 #include <ctype.h>
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,6 +59,19 @@ static char s_ip[16];
 static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
 static SemaphoreHandle_t s_lock;  // web_start/web_stop come from the UI and the control task
+// A ride is waiting to start: web_closing() refuses new requests, the running transfer
+// finishes (its progress shows on the device) unless web_stop() comes first, which cuts it
+// at the next chunk (s_abort).
+static volatile bool s_closing, s_abort;
+static volatile bool s_xfer;  // a file transfer is running
+static volatile uint32_t s_xfer_done, s_xfer_total;
+
+static void xfer_begin(uint32_t total)
+{
+    s_xfer_done = 0;
+    s_xfer_total = total;
+    s_xfer = true;
+}
 static char s_buf[CHUNK];         // shared by all handlers: the server runs one handler at a time
 
 // ---- Request checks -------------------------------------------------------------
@@ -95,6 +107,12 @@ static bool allowed(httpd_req_t *req)
     char v[8];
     if (!host_ok(req)) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown host");
+        return false;
+    }
+    if (s_closing) {
+        httpd_resp_set_hdr(req, "Retry-After", "3600");
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_sendstr(req, "a ride is starting: Wi-Fi goes off");
         return false;
     }
     if (req->method != HTTP_GET && httpd_req_get_hdr_value_str(req, "X-JustRide", v, sizeof(v)) != ESP_OK) {
@@ -195,8 +213,14 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *cache
     }
     size_t n;
     esp_err_t err = ESP_OK;
-    while (err == ESP_OK && (n = fread(s_buf, 1, sizeof(s_buf), f)) > 0) {
+    xfer_begin((uint32_t)st.st_size);
+    while (err == ESP_OK && !s_abort && (n = fread(s_buf, 1, sizeof(s_buf), f)) > 0) {
         err = httpd_resp_send_chunk(req, s_buf, (ssize_t)n);
+        s_xfer_done += (uint32_t)n;
+    }
+    s_xfer = false;
+    if (s_abort) {
+        err = ESP_FAIL;  // closes the connection: the client sees a cut-off transfer, not a short file
     }
     fclose(f);
     return err == ESP_OK ? httpd_resp_send_chunk(req, NULL, 0) : err;
@@ -265,6 +289,73 @@ static esp_err_t h_rides_file(httpd_req_t *req)
     return send_file(req, path, "no-cache");
 }
 
+// JSON listings, collected in s_buf and sent in CHUNK-sized pieces (one HTTP chunk per
+// file was several tiny TCP packets each)
+typedef struct {
+    httpd_req_t *req;
+    size_t len;
+    bool first;
+    esp_err_t err;
+    const char *user;  // h_api_rides: the rider folder being listed
+} json_out_t;
+
+static void out_flush(json_out_t *o)
+{
+    if (o->len && o->err == ESP_OK) {
+        o->err = httpd_resp_send_chunk(o->req, s_buf, (ssize_t)o->len);
+    }
+    o->len = 0;
+}
+
+static void out_str(json_out_t *o, const char *str)
+{
+    size_t n = strlen(str);
+    if (o->len + n > sizeof(s_buf)) {
+        out_flush(o);
+    }
+    if (n <= sizeof(s_buf)) {
+        memcpy(s_buf + o->len, str, n);
+        o->len += n;
+    }
+}
+
+static void out_file(json_out_t *o, const char *user, const bsp_dirent_t *e)
+{
+    char item[200];
+    snprintf(item, sizeof(item), "%s{\"name\":\"%s%s%.64s\",\"size\":%lu,\"mtime\":%lld}", o->first ? "" : ",",
+             user ? user : "", user ? "/" : "", e->name, (unsigned long)e->size, (long long)e->mtime);
+    out_str(o, item);
+    o->first = false;
+}
+
+static esp_err_t out_end(json_out_t *o)
+{
+    out_str(o, "]");
+    out_flush(o);
+    return o->err == ESP_OK ? httpd_resp_send_chunk(o->req, NULL, 0) : o->err;
+}
+
+static bool ride_entry(const bsp_dirent_t *e, void *ctx)
+{
+    json_out_t *o = ctx;
+    if (!e->dir && e->name[0] != '.' && safe_name(e->name) && strlen(e->name) <= 64) {
+        out_file(o, o->user, e);
+    }
+    return o->err == ESP_OK && !s_abort;
+}
+
+static bool rider_dir(const bsp_dirent_t *e, void *ctx)
+{
+    json_out_t *o = ctx;
+    if (e->dir && e->name[0] != '.' && safe_name(e->name) && strlen(e->name) <= 8) {
+        char rel[24];
+        snprintf(rel, sizeof(rel), "rides/%s", e->name);
+        o->user = e->name;
+        bsp_sd_list(rel, ride_entry, o);
+    }
+    return o->err == ESP_OK && !s_abort;
+}
+
 // Every file in every rider's folder: [{"name":"u1/2026-10-26_1200.fit",...}]
 static esp_err_t h_api_rides(httpd_req_t *req)
 {
@@ -273,42 +364,10 @@ static esp_err_t h_api_rides(httpd_req_t *req)
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_sendstr_chunk(req, "[");
-    bool first = true;
-    DIR *top = opendir(BSP_SD_MOUNT "/rides");
-    struct dirent *u;
-    while (top && (u = readdir(top))) {
-        char dir[160];
-        if (u->d_name[0] == '.' || !safe_name(u->d_name) || strlen(u->d_name) > 8) {
-            continue;
-        }
-        snprintf(dir, sizeof(dir), BSP_SD_MOUNT "/rides/%s", u->d_name);
-        DIR *d = opendir(dir);  // NULL for plain files
-        struct dirent *e;
-        while (d && (e = readdir(d))) {
-            if (e->d_name[0] == '.' || !safe_name(e->d_name)) {
-                continue;
-            }
-            char path[300], item[200];
-            struct stat st;
-            snprintf(path, sizeof(path), "%s/%.64s", dir, e->d_name);  // safe_name: <= 64
-            if (stat(path, &st) != 0) {
-                continue;
-            }
-            snprintf(item, sizeof(item), "%s{\"name\":\"%.8s/%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",",
-                     u->d_name, e->d_name, (long)st.st_size, (long)st.st_mtime);
-            httpd_resp_sendstr_chunk(req, item);
-            first = false;
-        }
-        if (d) {
-            closedir(d);
-        }
-    }
-    if (top) {
-        closedir(top);
-    }
-    httpd_resp_sendstr_chunk(req, "]");
-    return httpd_resp_sendstr_chunk(req, NULL);
+    json_out_t o = {.req = req, .first = true};
+    out_str(&o, "[");
+    bsp_sd_list("rides", rider_dir, &o);
+    return out_end(&o);
 }
 
 // Riders from settings.json: [{"id":"u1","name":"Sam","active":true}] (nothing else from that file)
@@ -492,7 +551,8 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
     size_t left = req->content_len;
     bool ok = true;
     int timeouts = 0;
-    while (ok && left > 0) {
+    xfer_begin((uint32_t)req->content_len);
+    while (ok && left > 0 && !s_abort) {
         int n = httpd_req_recv(req, s_buf, left < sizeof(s_buf) ? left : sizeof(s_buf));
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
             continue;  // timeouts in a row; any data resets the count
@@ -500,8 +560,10 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
         timeouts = 0;
         ok = n > 0 && fwrite(s_buf, 1, (size_t)n, f) == (size_t)n;
         left -= ok ? (size_t)n : 0;
+        s_xfer_done = (uint32_t)(req->content_len - left);
     }
-    ok = fclose(f) == 0 && ok;
+    s_xfer = false;
+    ok = fclose(f) == 0 && ok && left == 0;
     if (ok) {
         remove(path);
         ok = rename(tmp, path) == 0;
@@ -669,6 +731,15 @@ static esp_err_t h_workout_ics(httpd_req_t *req)
     return err;
 }
 
+static bool workout_entry(const bsp_dirent_t *e, void *ctx)
+{
+    json_out_t *o = ctx;
+    if (!e->dir && e->name[0] != '.' && safe_name(e->name) && strlen(e->name) <= 64 && ride_file(e->name)) {
+        out_file(o, NULL, e);
+    }
+    return o->err == ESP_OK && !s_abort;
+}
+
 // [{"name":"Sweet Spot 3x10.zwo","size":512,"mtime":...}], .route files too
 static esp_err_t h_api_workouts(httpd_req_t *req)
 {
@@ -677,31 +748,10 @@ static esp_err_t h_api_workouts(httpd_req_t *req)
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_sendstr_chunk(req, "[");
-    bool first = true;
-    DIR *d = opendir(BSP_SD_MOUNT "/workouts");
-    struct dirent *e;
-    while (d && (e = readdir(d))) {
-        size_t len = strlen(e->d_name);
-        if (e->d_name[0] == '.' || !safe_name(e->d_name) || len > 64 || !ride_file(e->d_name)) {
-            continue;
-        }
-        char path[160], item[160];
-        struct stat st;
-        snprintf(path, sizeof(path), BSP_SD_MOUNT "/workouts/%.64s", e->d_name);
-        if (stat(path, &st) != 0) {
-            continue;
-        }
-        snprintf(item, sizeof(item), "%s{\"name\":\"%.64s\",\"size\":%ld,\"mtime\":%ld}", first ? "" : ",", e->d_name,
-                 (long)st.st_size, (long)st.st_mtime);
-        httpd_resp_sendstr_chunk(req, item);
-        first = false;
-    }
-    if (d) {
-        closedir(d);
-    }
-    httpd_resp_sendstr_chunk(req, "]");
-    return httpd_resp_sendstr_chunk(req, NULL);
+    json_out_t o = {.req = req, .first = true};
+    out_str(&o, "[");
+    bsp_sd_list("workouts", workout_entry, &o);
+    return out_end(&o);
 }
 
 // /plans/<user id>.json: the training plan the web app made for a rider (the app owns its format)
@@ -799,7 +849,13 @@ static esp_err_t h_ota(httpd_req_t *req)
     size_t left = req->content_len, done = 0, have = 0;
     const char *err = NULL;
     int timeouts = 0;
+    xfer_begin((uint32_t)req->content_len);
     while (!err && left > 0) {
+        s_xfer_done = (uint32_t)(req->content_len - left);
+        if (s_abort) {
+            err = "Wi-Fi switched off (ride started)";
+            break;
+        }
         int n = httpd_req_recv(req, buf + have, left < CHUNK - have ? left : CHUNK - have);
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
             continue;  // timeouts in a row; any data resets the count
@@ -829,6 +885,7 @@ static esp_err_t h_ota(httpd_req_t *req)
         done += have;
         have = 0;
     }
+    s_xfer = false;
     if (err) {
         esp_ota_abort(ota);
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
@@ -1027,6 +1084,7 @@ void web_start(const settings_t *s)
         return;
     }
     s_running = true;
+    s_closing = s_abort = s_xfer = false;
     s_is_ap = s_got_ip = false;
     s_has_sta = s->wifi_ssid[0] != 0;
     s_ip[0] = 0;
@@ -1063,6 +1121,7 @@ void web_start(const settings_t *s)
 
 void web_stop(void)
 {
+    s_closing = s_abort = true;  // before the lock: a running transfer ends while we wait
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (!s_running) {
         xSemaphoreGive(s_lock);
@@ -1128,6 +1187,20 @@ void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
 bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
+
+void web_closing(void)
+{
+    if (s_running) {
+        s_closing = true;
+    }
+}
+
+bool web_transfer(uint32_t *done, uint32_t *total)
+{
+    *done = s_xfer_done;
+    *total = s_xfer_total;
+    return s_running && s_xfer;
+}
 
 bool web_joining(void) { return s_running && !s_got_ip && !s_is_ap; }
 

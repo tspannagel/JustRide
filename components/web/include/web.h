@@ -3,12 +3,18 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "settings.h"
 
 void web_init(void);
 // Join the configured network; falls back to an own access point after 15 s.
 void web_start(const settings_t *s);
+// Switches Wi-Fi off; cuts a running transfer at its next chunk.
 void web_stop(void);
+// A ride wants to start: new requests are refused (503), a running transfer may finish.
+void web_closing(void);
+// A file transfer (download, upload, OTA) is running: bytes so far and in all.
+bool web_transfer(uint32_t *done, uint32_t *total);
 bool web_running(void);
 // Diagnostics: print nearby networks (name, signal, channel, security). Only while Wi-Fi is off.
 void web_scan_print(void);

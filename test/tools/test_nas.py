@@ -162,6 +162,44 @@ class NasTest(unittest.TestCase):
         names = {w['name'] for w in json.loads(self.req('GET', '/api/workouts')[1])}
         self.assertEqual(names, set(os.listdir(self.dev.path('workouts'))))
 
+    def test_ride_pull_order_and_one_slow_file(self):
+        """summary/bests first, FIT files last; one timed-out file doesn't stop the others."""
+        shutil.rmtree(os.path.join(self.tmp, 'data', 'mirror', 'rides'))
+        self.sync.store.state['meta'].clear()
+        orig, asked, lost = self.sync.dev.request, [], []
+
+        def slow_once(method, path, *a, **kw):
+            if path.startswith('/rides/'):
+                asked.append(path)
+                if path.endswith('.csv') and not path.endswith(('summary.csv', 'bests.csv')) and not lost:
+                    lost.append(path)
+                    raise nas.DeviceError('timed out')
+            return orig(method, path, *a, **kw)
+        self.sync.dev.request = slow_once
+        self.sync.run_once()
+        kinds = [0 if p.endswith(('summary.csv', 'bests.csv')) else 2 if p.endswith('.fit') else 1 for p in asked]
+        self.assertEqual(kinds, sorted(kinds))
+        self.assertTrue(lost)
+        self.assertTrue(self.info()['online'])
+        mirrored = {p for p in asked if p != lost[0]}
+        for p in mirrored:
+            self.assertIsNotNone(self.sync.store.read(p[1:]), p)
+        self.sync.run_once()  # the lost one comes next round
+        self.assertIsNotNone(self.sync.store.read(lost[0][1:]))
+
+    def test_two_failures_in_a_row_end_the_round(self):
+        orig = self.sync.dev.request
+        shutil.rmtree(os.path.join(self.tmp, 'data', 'mirror', 'rides'))
+        self.sync.store.state['meta'].clear()
+
+        def gone(method, path, *a, **kw):
+            if path.startswith('/rides/'):
+                raise nas.DeviceError('timed out')
+            return orig(method, path, *a, **kw)
+        self.sync.dev.request = gone
+        self.sync.run_once()
+        self.assertFalse(self.info()['online'])
+
     def test_one_lost_answer_is_not_off(self):
         """A head unit busy with BLE can lose one /api/info answer: that's not "off"."""
         orig, lost = self.sync.dev.request, []

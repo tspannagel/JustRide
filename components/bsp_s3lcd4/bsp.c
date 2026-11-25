@@ -7,6 +7,9 @@
 
 #include "bsp.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/sdmmc_host.h"
@@ -19,6 +22,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
+#include "diskio_sdmmc.h"
+#include "ff.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -408,6 +413,36 @@ static esp_err_t sd_init(void)
 }
 
 bool bsp_sd_mounted(void) { return s_card != NULL; }
+
+bool bsp_sd_list(const char *rel_dir, bool (*cb)(const bsp_dirent_t *e, void *ctx), void *ctx)
+{
+    if (!s_card) {
+        return false;
+    }
+    // FatFs directly (it has its own lock, FF_FS_REENTRANT): drive "<pdrv>:" + path
+    char path[96];
+    snprintf(path, sizeof(path), "%u:/%s", (unsigned)ff_diskio_get_pdrv_card(s_card), rel_dir);
+    FF_DIR *d = malloc(sizeof(*d));
+    FILINFO *fi = malloc(sizeof(*fi));
+    bool ok = d && fi && f_opendir(d, path) == FR_OK;
+    if (ok) {
+        while (f_readdir(d, fi) == FR_OK && fi->fname[0]) {
+            // As vfs_fat_stat() converts it, so listings keep the times clients already saw
+            struct tm tm = {.tm_mday = fi->fdate & 0x1f, .tm_mon = ((fi->fdate >> 5) & 0xf) - 1,
+                            .tm_year = (fi->fdate >> 9) + 80, .tm_sec = (fi->ftime & 0x1f) * 2,
+                            .tm_min = (fi->ftime >> 5) & 0x3f, .tm_hour = fi->ftime >> 11, .tm_isdst = -1};
+            bsp_dirent_t e = {.name = fi->fname, .size = (uint32_t)fi->fsize, .mtime = mktime(&tm),
+                              .dir = (fi->fattrib & AM_DIR) != 0};
+            if (!cb(&e, ctx)) {
+                break;
+            }
+        }
+        f_closedir(d);
+    }
+    free(d);
+    free(fi);
+    return ok;
+}
 
 bool bsp_sd_space(uint64_t *total, uint64_t *free)
 {
