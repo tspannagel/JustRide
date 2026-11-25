@@ -73,3 +73,7 @@ CONFIG_LWIP_SNTP_MAX_SERVERS=2
 
 # Large static buffers (workouts) may live in PSRAM via EXT_RAM_BSS_ATTR
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# Bluetooth controller activities: every link, advertising, scanning and a connect in
+# progress count (about 500 B internal RAM each). 6 refused the third sensor with 0x07
+# (memory capacity exceeded) while a watch was linked to the re-broadcast.
+CONFIG_BT_CTRL_BLE_MAX_ACT=10

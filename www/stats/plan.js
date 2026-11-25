@@ -252,6 +252,20 @@ export function nextSession(plan, rides, today) {
 const planFile = (s, rider) => fileName(`Plan ${s.date} ${rider ? `${rider} - ` : ''}${GEN_TYPES[s.type].label}`);
 const hash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619); return (h >>> 0).toString(36); };
 
+// A plan file carries its own hash in a comment on the second line, so whether it is ours and
+// unedited doesn't depend on plan.synced (that map got lost when a sync stopped half-way or two
+// browsers synced at once, and the stale file then stayed forever as "the rider's").
+// Files from before the marker: still ours while plan.synced has their hash.
+const MARK = /^(<\?xml[^\n]*\n)<!-- JustRide plan ([0-9a-z]+) -->\n/;
+const mark = (xml) => xml.replace(/^(<\?xml[^\n]*\n)/, `$1<!-- JustRide plan ${hash(xml)} -->\n`);
+// 'ours' (unedited, ours to replace or remove), 'edited' (the rider's now) or null (not a plan file of ours)
+const owner = (cur, legacy) => {
+  if (cur == null) return null;
+  const m = cur.match(MARK);
+  if (m) return hash(cur.replace(MARK, '$1')) === m[2] ? 'ours' : 'edited';
+  return legacy ? (hash(cur) === legacy ? 'ours' : 'edited') : null;
+};
+
 // Writes the next days, removes this plan's older files. Returns {written, removed, kept}.
 export async function syncPlan(user, plan, ctx, riderLabel) {
   const today = todayKey(), until = addDays(today, SYNC_DAYS - 1);
@@ -261,34 +275,40 @@ export async function syncPlan(user, plan, ctx, riderLabel) {
   }
   const res = { written: 0, removed: 0, kept: 0, same: 0, moved: [...want.values()].filter((s) => s.date !== s.base) };
   const synced = plan.synced || {};
-  // Remove our files that are no longer wanted (past days, moved or changed plan); a coming
-  // day's file the rider edited stays (it's theirs now)
-  for (const name of Object.keys(synced)) {
-    if (want.has(name)) continue;
-    const day = name.match(/^Plan (\d{4}-\d{2}-\d{2})/)?.[1];
-    const cur = day >= today ? await api.workout(name).catch(() => null) : null;
-    if (!cur || hash(cur) === synced[name]) {
-      try { await api.deleteWorkout(name); res.removed++; } catch { /* already gone */ }
-    }
-    delete synced[name];
-  }
+  const prefix = riderLabel ? ` ${fileName(riderLabel).slice(0, -4)} - ` : ' ';
+  const mine = (name) => PLAN_FILE.test(name) && name.slice(15).startsWith(prefix) &&
+    (riderLabel || !name.slice(16).includes(' - '));
   const onDevice = new Set((await api.workouts()).map((f) => f.name));
-  for (const [name, s] of want) {
-    if (onDevice.has(name) && synced[name]) {
-      const cur = await api.workout(name);
-      if (cur && hash(cur) !== synced[name]) { res.kept++; continue; }   // the rider edited it
-    } else if (onDevice.has(name)) { res.kept++; continue; }            // not ours
-    const w = generate(s.type, s.minutes, s.difficulty, ctx, true);
-    w.name = name.replace(/\.zwo$/, '');
-    const xml = toZwo(w);
-    if (onDevice.has(name) && synced[name] === hash(xml)) { res.same++; continue; }  // no SD write needed
-    await api.saveWorkout(name, xml);
-    synced[name] = hash(xml);
-    res.written++;
+  try {
+    // Remove our files that are no longer wanted (past days, moved or changed plan); a file the
+    // rider edited stays (it's theirs now)
+    for (const name of new Set([...Object.keys(synced), ...[...onDevice].filter(mine)])) {
+      if (want.has(name)) continue;
+      if (onDevice.has(name)) {
+        const cur = await api.workout(name).catch(() => null);
+        if (owner(cur, synced[name]) === 'ours') {
+          await api.deleteWorkout(name);
+          res.removed++;
+        }
+      }
+      delete synced[name];
+    }
+    for (const [name, s] of want) {
+      const cur = onDevice.has(name) ? await api.workout(name) : null;
+      if (cur != null && owner(cur, synced[name]) !== 'ours') { res.kept++; continue; }   // edited, or not ours
+      const w = generate(s.type, s.minutes, s.difficulty, ctx, true);
+      w.name = name.replace(/\.zwo$/, '');
+      const xml = mark(toZwo(w));
+      synced[name] = hash(xml);
+      if (cur === xml) { res.same++; continue; }                          // no SD write needed
+      await api.saveWorkout(name, xml);
+      res.written++;
+    }
+  } finally {
+    plan.synced = synced;
+    plan.lastSync = new Date().toISOString();
+    await api.savePlan(user.id, plan);
   }
-  plan.synced = synced;
-  plan.lastSync = new Date().toISOString();
-  await api.savePlan(user.id, plan);
   return res;
 }
 
