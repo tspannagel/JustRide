@@ -23,7 +23,7 @@ export const MAX_ADAPTIVE = 16;  // WORKOUT_MAX_GOALS on the device
 export const adaptMin = (b) => b.min || Math.max(0.3, b.p * 0.7);
 export const adaptMax = (b) => Math.max(adaptMin(b), b.max || b.p * 1.15);
 const NEW_BLOCK = {
-  warmup: { dur: 600, lo: 0.45, hi: 0.75 }, steady: { dur: 600, p: 0.75 },
+  warmup: { dur: 300, lo: 0.45, hi: 0.75 }, steady: { dur: 600, p: 0.75 },
   intervals: { reps: 4, on: 240, onP: 1.1, off: 240, offP: 0.5 }, ramp: { dur: 300, lo: 0.6, hi: 0.9 },
   free: { dur: 600 }, cooldown: { dur: 300, hi: 0.65, lo: 0.4 },
   adaptive: { dur: 1800, p: 0.65, avg: false, hrLo: HR_ZONES[1].lo, hrHi: HR_ZONES[1].hi },
@@ -265,7 +265,7 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
   const blocks = [];
   let name;
   if (type === 'ramptest') return rampTest(ctx);
-  const wu = type === 'recovery' ? 300 : 600, cd = type === 'recovery' ? 0 : 300;
+  const wu = 300, cd = 300;  // 5 min warm-up and cool-down for every type
   const main = Math.max(300, total - wu - cd);
   blocks.push({ type: 'warmup', dur: wu, lo: 0.45, hi: type === 'recovery' ? 0.5 : 0.72 });
 
@@ -304,7 +304,7 @@ export function generate(type, minutes, difficulty, ctx, adapt = true) {
       name = `Steady average ${minutes}min`; break;
     default: throw new Error(`unknown type ${type}`);
   }
-  if (cd) blocks.push({ type: 'cooldown', dur: cd, hi: 0.6, lo: 0.4 });
+  blocks.push({ type: 'cooldown', dur: cd, hi: type === 'recovery' ? 0.5 : 0.6, lo: 0.4 });
   const notes = a.notes.filter((n) => type === 'vo2' || !n.startsWith('VO2max'));
   const about = GEN_TYPES[type].about + (notes.length ? ` Adapted: ${notes.join('; ')}.` : '');
   return { name, description: about, blocks, generated: { type, minutes, difficulty: d } };

@@ -954,6 +954,11 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && (id == WIFI_EVENT_STA_CONNECTED || id == WIFI_EVENT_AP_START)) {
+        // An IPv6 link-local address, so mDNS answers the AAAA query for trainer.local too.
+        // Without one the query goes unanswered and every lookup on a Mac (browser, curl)
+        // waits 5 s for it. The HTTP server listens on IPv6 as well; the Host check is the same.
+        esp_netif_create_ip6_linklocal(id == WIFI_EVENT_AP_START ? s_ap : s_sta);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED && s_running) {
         // 201 no AP found (wrong name, 5 GHz only), 15/204/210 wrong password
         wifi_event_sta_disconnected_t *e = data;
