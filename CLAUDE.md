@@ -52,7 +52,7 @@ Use a plain 5 V USB-A supply and a USB-A to USB-C cable. Waveshare reports fast-
 ## Firmware stack
 
 - **ESP-IDF ≥ 5.3**, C (C11). Arduino is not used (confirmed by the user).
-- NimBLE host as BLE central (sensors, up to 4 links, `MAX_LINKS` in `ble_mgr.c`) and peripheral (re-broadcast as "JustRide": Cycling Power 0x1818 + CSC 0x1816, up to 2 receivers, read-only)
+- NimBLE host as BLE central (sensors, up to 4 links, `MAX_LINKS` in `ble_mgr.c`) and peripheral (re-broadcast as "JustRide": Cycling Power 0x1818 + CSC 0x1816, up to 2 receivers, read-only); controller activities `CONFIG_BT_CTRL_BLE_MAX_ACT=10` (6 refused the third sensor with HCI 0x07 when a watch had linked first)
 - LVGL 9 via `esp_lvgl_port`, partial rendering into one RGB frame buffer, allocator in PSRAM (`main/lv_mem_psram.c`, `CONFIG_LV_USE_CUSTOM_MALLOC`; the system malloc put LVGL's ~88 KB of small blocks in internal RAM and starved the SD card of DMA memory)
 - mbedTLS (ECDH P-256, HKDF-SHA256, AES-CCM) for encrypted Zwift controllers
 - nanopb for Zwift protobuf messages (when ZAP is implemented)

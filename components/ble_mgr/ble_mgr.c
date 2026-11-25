@@ -252,7 +252,9 @@ static void on_disc(const struct ble_gap_disc_desc *d)
         ble_gap_disc_cancel();
         s_connecting = true;
         s_connect_gen = s_user_gen;
-        if (ble_gap_connect(s_own_addr_type, &d->addr, CONNECT_TIMEOUT_MS, NULL, gap_event, (void *)drv) != 0) {
+        int rc = ble_gap_connect(s_own_addr_type, &d->addr, CONNECT_TIMEOUT_MS, NULL, gap_event, (void *)drv);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "connect %s: start failed (%d)", drv->name, rc);
             s_connecting = false;
             schedule_rescan();
         }
