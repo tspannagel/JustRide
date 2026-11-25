@@ -2366,11 +2366,67 @@ void ui_nav(int key)
     }
 }
 
+// ---- Ride start waiting for a Wi-Fi transfer ------------------------------------
+
+static lv_obj_t *wait_panel, *wait_bar, *wait_text;
+
+// On the top layer: shown over whatever screen started the ride
+static void build_wait(void)
+{
+    wait_panel = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(wait_panel);
+    lv_obj_set_size(wait_panel, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(wait_panel, rgb(C_BG), 0);
+    lv_obj_set_style_bg_opa(wait_panel, LV_OPA_COVER, 0);
+    lv_obj_add_flag(wait_panel, LV_OBJ_FLAG_CLICKABLE);  // swallows taps meanwhile
+    lv_obj_t *c = card(wait_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(c, BSP_LCD_W - 2 * PAD);
+    lv_obj_center(c);
+    lv_obj_set_style_pad_row(c, GAP, 0);
+    lv_obj_t *t = label(c, &lv_font_montserrat_20, "Finishing a transfer");
+    lv_obj_set_style_text_color(t, rgb(C_TEXT), 0);
+    lv_obj_t *m = label(c, &lv_font_montserrat_16,
+                        "A file is still going over Wi-Fi. Your ride starts as soon as it's done.");
+    lv_obj_set_style_text_color(m, rgb(C_MUTED), 0);
+    lv_label_set_long_mode(m, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(m, LV_PCT(100));
+    wait_bar = lv_bar_create(c);
+    lv_obj_set_size(wait_bar, LV_PCT(100), 12);
+    lv_bar_set_range(wait_bar, 0, 1000);
+    lv_obj_set_style_bg_color(wait_bar, rgb(C_RAISED), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(wait_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(wait_bar, rgb(C_TEXT), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(wait_bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_radius(wait_bar, 6, LV_PART_INDICATOR);
+    wait_text = label(c, &lv_font_montserrat_16, "");
+    lv_obj_set_style_text_color(wait_text, rgb(C_MUTED), 0);
+    show(wait_panel, false);
+}
+
+static void update_wait(const app_status_t *st)
+{
+    show(wait_panel, st->start_wait);
+    if (!st->start_wait) {
+        return;
+    }
+    uint32_t total = st->xfer_total, done = st->xfer_done < total ? st->xfer_done : total;
+    lv_bar_set_value(wait_bar, total ? (int32_t)((uint64_t)done * 1000 / total) : 0, LV_ANIM_OFF);
+    if (total >= 1024 * 1024) {
+        lv_label_set_text_fmt(wait_text, "%lu.%lu of %lu.%lu MB", (unsigned long)(done >> 20),
+                              (unsigned long)((done & 0xFFFFF) * 10 >> 20), (unsigned long)(total >> 20),
+                              (unsigned long)((total & 0xFFFFF) * 10 >> 20));
+    } else {
+        lv_label_set_text_fmt(wait_text, "%lu of %lu KB", (unsigned long)(done >> 10),
+                              (unsigned long)((total + 1023) >> 10));
+    }
+}
+
 static void refresh(lv_timer_t *t)
 {
     ride_view_t v;
     app_status_t st;
     app_get_view(&v, &st);
+    update_wait(&st);
     lv_obj_t *active = lv_screen_active();
 
     lv_obj_t *want = active;
@@ -2410,6 +2466,7 @@ static void build_all(lv_display_t *disp)
     build_wifi();
     build_ride();
     build_summary();
+    build_wait();
 }
 
 void ui_start(void)

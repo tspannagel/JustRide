@@ -407,6 +407,16 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("summary-route");
 
+    // Start pressed while the NAS pulls a ride file: it finishes first
+    g_view = (ride_view_t){.state = RIDE_IDLE};
+    g_status.start_wait = true;
+    g_status.xfer_done = 1450 * 1024;
+    g_status.xfer_total = 2300 * 1024;
+    refresh(NULL);
+    save("start-wait");
+    g_status.start_wait = false;
+    refresh(NULL);
+
     for (int i = 0; i < 3; i++) {
         remove(plan[i]);
     }

@@ -118,7 +118,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
   <li>Simulated gradients are limited to −10 … +20 %.</li>
   <li>Your FTP is never changed automatically; the device only <i>offers</i> a new value after a ride or an FTP test.</li>
   <li>During an FTP test the trainer drops to the cool-down by itself when you can't keep up (see <a href="#ftptest">FTP test</a>).</li>
-  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on once the ride is saved (while the summary shows).</li>
+  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on once the ride is saved (while the summary shows). If a file is still going over Wi-Fi when you start (the NAS copying a ride, a download in the web app, an upload), the device shows <i>Finishing a transfer</i> with a progress bar and starts the ride as soon as it's done; new requests are turned away meanwhile. After 2 minutes it stops waiting and starts anyway.</li>
   <li>The firmware never runs a trainer spin-down. It drives the board's power, reset and buzzer lines only the way Waveshare's own examples do.</li>
 </ul>
 <p>Before a hard session, make sure the trainer and bike are set up as usual: the head unit only sends targets, it can't make the trainer itself safer.</p>

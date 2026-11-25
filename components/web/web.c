@@ -59,9 +59,19 @@ static char s_ip[16];
 static char s_ap_pass[64];  // WPA2: up to 63 characters
 static int64_t s_ota_until;
 static SemaphoreHandle_t s_lock;  // web_start/web_stop come from the UI and the control task
-// Set by web_stop() before it waits for the running request: transfers end at the next
-// chunk, so a big download (DuckDB is 7.5 MB) can't hold up the start of a ride.
-static volatile bool s_stopping;
+// A ride is waiting to start: web_closing() refuses new requests, the running transfer
+// finishes (its progress shows on the device) unless web_stop() comes first, which cuts it
+// at the next chunk (s_abort).
+static volatile bool s_closing, s_abort;
+static volatile bool s_xfer;  // a file transfer is running
+static volatile uint32_t s_xfer_done, s_xfer_total;
+
+static void xfer_begin(uint32_t total)
+{
+    s_xfer_done = 0;
+    s_xfer_total = total;
+    s_xfer = true;
+}
 static char s_buf[CHUNK];         // shared by all handlers: the server runs one handler at a time
 
 // ---- Request checks -------------------------------------------------------------
@@ -97,6 +107,12 @@ static bool allowed(httpd_req_t *req)
     char v[8];
     if (!host_ok(req)) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown host");
+        return false;
+    }
+    if (s_closing) {
+        httpd_resp_set_hdr(req, "Retry-After", "3600");
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_sendstr(req, "a ride is starting: Wi-Fi goes off");
         return false;
     }
     if (req->method != HTTP_GET && httpd_req_get_hdr_value_str(req, "X-JustRide", v, sizeof(v)) != ESP_OK) {
@@ -197,10 +213,13 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *cache
     }
     size_t n;
     esp_err_t err = ESP_OK;
-    while (err == ESP_OK && !s_stopping && (n = fread(s_buf, 1, sizeof(s_buf), f)) > 0) {
+    xfer_begin((uint32_t)st.st_size);
+    while (err == ESP_OK && !s_abort && (n = fread(s_buf, 1, sizeof(s_buf), f)) > 0) {
         err = httpd_resp_send_chunk(req, s_buf, (ssize_t)n);
+        s_xfer_done += (uint32_t)n;
     }
-    if (s_stopping) {
+    s_xfer = false;
+    if (s_abort) {
         err = ESP_FAIL;  // closes the connection: the client sees a cut-off transfer, not a short file
     }
     fclose(f);
@@ -322,7 +341,7 @@ static bool ride_entry(const bsp_dirent_t *e, void *ctx)
     if (!e->dir && e->name[0] != '.' && safe_name(e->name) && strlen(e->name) <= 64) {
         out_file(o, o->user, e);
     }
-    return o->err == ESP_OK && !s_stopping;
+    return o->err == ESP_OK && !s_abort;
 }
 
 static bool rider_dir(const bsp_dirent_t *e, void *ctx)
@@ -334,7 +353,7 @@ static bool rider_dir(const bsp_dirent_t *e, void *ctx)
         o->user = e->name;
         bsp_sd_list(rel, ride_entry, o);
     }
-    return o->err == ESP_OK && !s_stopping;
+    return o->err == ESP_OK && !s_abort;
 }
 
 // Every file in every rider's folder: [{"name":"u1/2026-10-26_1200.fit",...}]
@@ -532,7 +551,8 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
     size_t left = req->content_len;
     bool ok = true;
     int timeouts = 0;
-    while (ok && left > 0 && !s_stopping) {
+    xfer_begin((uint32_t)req->content_len);
+    while (ok && left > 0 && !s_abort) {
         int n = httpd_req_recv(req, s_buf, left < sizeof(s_buf) ? left : sizeof(s_buf));
         if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < MAX_RECV_TIMEOUTS) {
             continue;  // timeouts in a row; any data resets the count
@@ -540,7 +560,9 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
         timeouts = 0;
         ok = n > 0 && fwrite(s_buf, 1, (size_t)n, f) == (size_t)n;
         left -= ok ? (size_t)n : 0;
+        s_xfer_done = (uint32_t)(req->content_len - left);
     }
+    s_xfer = false;
     ok = fclose(f) == 0 && ok && left == 0;
     if (ok) {
         remove(path);
@@ -715,7 +737,7 @@ static bool workout_entry(const bsp_dirent_t *e, void *ctx)
     if (!e->dir && e->name[0] != '.' && safe_name(e->name) && strlen(e->name) <= 64 && ride_file(e->name)) {
         out_file(o, NULL, e);
     }
-    return o->err == ESP_OK && !s_stopping;
+    return o->err == ESP_OK && !s_abort;
 }
 
 // [{"name":"Sweet Spot 3x10.zwo","size":512,"mtime":...}], .route files too
@@ -827,8 +849,10 @@ static esp_err_t h_ota(httpd_req_t *req)
     size_t left = req->content_len, done = 0, have = 0;
     const char *err = NULL;
     int timeouts = 0;
+    xfer_begin((uint32_t)req->content_len);
     while (!err && left > 0) {
-        if (s_stopping) {
+        s_xfer_done = (uint32_t)(req->content_len - left);
+        if (s_abort) {
             err = "Wi-Fi switched off (ride started)";
             break;
         }
@@ -861,6 +885,7 @@ static esp_err_t h_ota(httpd_req_t *req)
         done += have;
         have = 0;
     }
+    s_xfer = false;
     if (err) {
         esp_ota_abort(ota);
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
@@ -1059,7 +1084,7 @@ void web_start(const settings_t *s)
         return;
     }
     s_running = true;
-    s_stopping = false;
+    s_closing = s_abort = s_xfer = false;
     s_is_ap = s_got_ip = false;
     s_has_sta = s->wifi_ssid[0] != 0;
     s_ip[0] = 0;
@@ -1096,7 +1121,7 @@ void web_start(const settings_t *s)
 
 void web_stop(void)
 {
-    s_stopping = true;  // before the lock: a running transfer ends while we wait
+    s_closing = s_abort = true;  // before the lock: a running transfer ends while we wait
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (!s_running) {
         xSemaphoreGive(s_lock);
@@ -1162,6 +1187,20 @@ void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
 bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
+
+void web_closing(void)
+{
+    if (s_running) {
+        s_closing = true;
+    }
+}
+
+bool web_transfer(uint32_t *done, uint32_t *total)
+{
+    *done = s_xfer_done;
+    *total = s_xfer_total;
+    return s_running && s_xfer;
+}
 
 bool web_joining(void) { return s_running && !s_got_ip && !s_is_ap; }
 

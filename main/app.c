@@ -29,6 +29,9 @@ static const char *TAG = "app";
 #define BEEP_GAP_MS 350
 #define CLOCK_VALID_AFTER 1735689600  // 2025-01-01
 #define REBROADCAST_MS 1000
+// A ride waits this long for a running download/upload, then cuts it (a phone that walked
+// out of Wi-Fi range mid-transfer can stall it for a while)
+#define START_WAIT_MAX_MS 120000
 
 static SemaphoreHandle_t s_lock;
 static ride_t s_ride;
@@ -47,6 +50,7 @@ static uint8_t s_last_state = RIDE_IDLE;
 // running web requests, and those may be waiting for the lock (deadlock).
 static bool s_web_request;               // app_web_start() was called
 static bool s_start_pending;             // a ride starts once Wi-Fi is off
+static uint32_t s_start_wait_ms;         // when the start began waiting for a transfer, 0: not yet
 static const workout_t *s_start_wo;      // NULL: free ride (or route)
 static const route_t *s_start_route;     // NULL: no route
 static settings_t s_web_cfg;             // copy for web_start(), task only
@@ -228,7 +232,24 @@ static void task(void *arg)
         // -75 dBm the join kept failing with "no AP found"). Bounded: the access point
         // starts after 15 s, a ride stops Wi-Fi. Connected devices are not affected.
         ble_mgr_scan_hold(web_joining());
+        // A transfer running (NAS sync, web app, upload): let it finish, its progress on the
+        // screen, no new requests meanwhile; the control loop keeps running
+        uint32_t xdone = 0, xtotal = 0;
+        bool wait = false;
         if (start) {
+            web_closing();
+            if (!s_start_wait_ms) {
+                s_start_wait_ms = now ? now : 1;
+            }
+            wait = web_transfer(&xdone, &xtotal) && now - s_start_wait_ms < START_WAIT_MAX_MS;
+            lock();
+            s_status.start_wait = wait;
+            s_status.xfer_done = xdone;
+            s_status.xfer_total = xtotal;
+            unlock();
+        }
+        if (start && !wait) {
+            s_start_wait_ms = 0;
             web_stop();  // waits for running web requests, which may need the lock
             // A route: race the best earlier ride on it. Read from the SD card without
             // the lock (a few CSV files), so the UI keeps running.
@@ -243,6 +264,7 @@ static void task(void *arg)
             unlock();
             bool race = len_m && recorder_find_ghost(user, route, len_m, &s_ghost);
             lock();
+            s_status.start_wait = false;
             if (s_start_pending) {
                 s_start_pending = false;
                 start_ride(s_start_wo, s_start_route);
