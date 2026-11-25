@@ -2010,6 +2010,8 @@ static void update_ride(const ride_view_t *v)
                               (unsigned long)(left % 1000 / 100));
     } else if (v->route) {
         lv_label_set_text_fmt(r_info, "Gear %u/%u  -  route done", v->gear, v->gears);
+    } else if (v->free_erg) {
+        lv_label_set_text(r_info, "Free ride  -  shift: +/- 10 W");
     } else {
         lv_label_set_text_fmt(r_info, "Gear %u/%u", v->gear, v->gears);
     }
@@ -2059,6 +2061,8 @@ static void update_ride(const ride_view_t *v)
             snprintf(goals + n, sizeof(goals) - n, "  -  HR %u-%u", v->hr_lo, v->hr_hi);
         }
         lv_label_set_text_fmt(r_target, "Target %d W%s", v->target_w, goals);
+    } else if (erg && v->free_erg) {
+        lv_label_set_text_fmt(r_target, "Target %d W", v->target_w);
     } else if (erg && v->ramp_step) {
         lv_label_set_text_fmt(r_target, "Target %d W  -  hold it as long as you can", v->target_w);
     } else if (erg) {

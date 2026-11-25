@@ -283,13 +283,13 @@ int main(int argc, char **argv)
     save("wifi");
 
     ride_common();
-    g_view.mode = MODE_FREE;
-    g_view.power_w = 231;
-    g_view.gear = 14;
-    g_view.base_grade = 350;
-    g_view.grade = 412;
+    g_view.mode = MODE_ERG;  // free ride: the rider's own target, set with the shift buttons
+    g_view.free_erg = true;
+    g_view.power_w = 172;
+    g_view.target_w = 170;
     refresh(NULL);
     save("ride-free");
+    g_view.free_erg = false;
 
     ride_common();
     g_view.mode = MODE_ERG;

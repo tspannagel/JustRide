@@ -89,7 +89,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
 
 <main>
 <h1>JustRide manual</h1>
-<p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a web app in your browser for statistics, a workout builder and training plans. No cloud, no account.</p>
+<p class="lead">JustRide turns a Waveshare ESP32-S3-Touch-LCD-4 into a head unit for a Wahoo KICKR Core: free rides at your own power target, routes with virtual gears, structured workouts in ERG mode, ride files on a microSD card, and a web app in your browser for statistics, a workout builder and training plans. No cloud, no account.</p>
 
 <p class="note"><b>Status:</b> on a V4 board the screen, touch and SD card work. The trainer, heart-rate strap, Zwift Ride and Wi-Fi still have to be checked on real hardware. Expect to fix things during the first bring-up (see <a href="#check">3.5</a> and <a href="#trouble">Troubleshooting</a>) and send logs back. The screenshots are rendered from the firmware's own screen code on a computer; on the device they should look the same.</p>
 
@@ -118,7 +118,7 @@ figcaption { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 2
   <li>Simulated gradients are limited to −10 … +20 %.</li>
   <li>Your FTP is never changed automatically; the device only <i>offers</i> a new value after a ride or an FTP test.</li>
   <li>During an FTP test the trainer drops to the cool-down by itself when you can't keep up (see <a href="#ftptest">FTP test</a>).</li>
-  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on when you leave the ride summary.</li>
+  <li>Wi-Fi is switched <b>off</b> as soon as a ride starts and comes back on once the ride is saved (while the summary shows).</li>
   <li>The firmware never runs a trainer spin-down. It drives the board's power, reset and buzzer lines only the way Waveshare's own examples do.</li>
 </ul>
 <p>Before a hard session, make sure the trainer and bike are set up as usual: the head unit only sends targets, it can't make the trainer itself safer.</p>
@@ -282,11 +282,11 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 
 <h3>Free ride</h3>
 <div class="shots">
-  <figure class="device"><img src="img/ride-free.png" alt="Free ride screen: time, gear 14 of 24, 231 W, road gradient, cadence, heart rate, speed, buttons"><figcaption>Free ride: virtual gear 14 of 24 on a 3.5 % road.</figcaption></figure>
+  <figure class="device"><img src="img/ride-free.png" alt="Free ride screen: time, Free ride - shift +/- 10 W, 172 W in green, target 170 W, cadence, heart rate, speed, buttons"><figcaption>Free ride: your own target, 170 W.</figcaption></figure>
 </div>
-<p>Tap <span class="btn">Free ride</span>. The trainer simulates a road; you change <b>virtual gears</b> with <span class="btn">−</span> and <span class="btn">+</span> and the road's gradient with <span class="btn">⌄ Grade</span> / <span class="btn">⌃ Grade</span> (0.5 % steps). <i>Road</i> is the gradient you chose, <i>sent</i> is what the trainer gets after the virtual gear is applied.</p>
+<p>Tap <span class="btn">Free ride</span>. The trainer holds a <b>power target</b> (ERG), whatever your cadence or gear: it starts at 55 % of your FTP, and <span class="btn">−</span> / <span class="btn">+</span> (or the Zwift Ride's shift buttons) change it by 10 W, the D-pad up / down by 50 W. It never goes above your Max ERG. The power number turns green while you're on target.</p>
 <p>The large number is your power (3-second average). Below it: cadence, heart rate and speed, then distance, average power, NP, energy and lap.</p>
-<p>Leave the bike's real chain in one gear, by default <b>34 × 17</b> (front × rear). Virtual gears make the trainer harder or easier as if you shifted. If your real gear is different, set <code>real_ratio</code> in <code>gears.json</code> (see <a href="#settings">Settings reference</a>).</p>
+<p><b>Virtual gears</b> are for routes and a workout's free segments, where the trainer simulates a road. Leave the bike's real chain in one gear, by default <b>34 × 17</b> (front × rear); virtual gears make the trainer harder or easier as if you shifted. If your real gear is different, set <code>real_ratio</code> in <code>gears.json</code> (see <a href="#settings">Settings reference</a>). On a flat road gears change little (the trainer can only change the gradient, not the wind), which is why free ride uses a power target.</p>
 
 <h3>Ride screen controls</h3>
 <div class="shots">
@@ -297,20 +297,20 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 <p><b>Zones and laps:</b> next to <i>POWER</i> you see your power zone (Z1–Z7 by % of FTP, the same zones as in the web app) and how long you've been in that zone this ride. The heart-rate card shows your heart-rate zone (Z1–Z5 by % of max HR). When a lap or a workout interval ends, the line under the cards shows it for 10 seconds: <i>Interval 3 done: 0:10:00 251 W avg 156 bpm</i>. Laps and intervals shorter than 5 seconds (a quick skip) aren't shown.</p>
 <p><b>Auto-pause:</b> stop pedalling and let the flywheel slow down below 5 km/h, and after 3 seconds the ride pauses by itself (<i>PAUSED - PEDAL TO RESUME</i>, lowest resistance, timer stops). Pedal at 30 rpm or more for 2 seconds and it carries on. Coasting downhill with the flywheel still turning doesn't pause. A pause you tapped yourself only ends with <span class="btn">Resume</span>, so the trainer never picks up just because a pedal turns while you're off the bike. There's no auto-pause in the ramp of an FTP test.</p>
 <div class="scroll"><table>
-  <tr><th>Control</th><th>Free ride / free segment</th><th>ERG workout segment</th></tr>
-  <tr><td class="btn">− / +</td><td>virtual gear down / up</td><td>intensity −5 % / +5 % (50–150 %)</td></tr>
-  <tr><td class="btn">⌄ Grade / ⌃ Grade</td><td>road gradient</td><td>hidden</td></tr>
-  <tr><td class="btn">Skip</td><td>–</td><td>jump to the next interval</td></tr>
-  <tr><td class="btn">Pause</td><td>timer stops, lowest resistance</td><td>same</td></tr>
-  <tr><td class="btn">Lap</td><td>starts a new lap in the ride file</td><td>same</td></tr>
-  <tr><td class="btn">Hold to stop</td><td>press and hold to end the ride</td><td>same</td></tr>
+  <tr><th>Control</th><th>Free ride</th><th>Route / free segment</th><th>ERG workout segment</th></tr>
+  <tr><td class="btn">− / +</td><td>target −10 W / +10 W</td><td>virtual gear down / up</td><td>intensity −5 % / +5 % (50–150 %)</td></tr>
+  <tr><td class="btn">⌄ Grade / ⌃ Grade</td><td>hidden (D-pad: target −50 W / +50 W)</td><td>road gradient (free segment; a route sets it)</td><td>hidden</td></tr>
+  <tr><td class="btn">Skip</td><td>–</td><td>–</td><td>jump to the next interval</td></tr>
+  <tr><td class="btn">Pause</td><td>timer stops, lowest resistance</td><td>same</td><td>same</td></tr>
+  <tr><td class="btn">Lap</td><td>starts a new lap in the ride file</td><td>same</td><td>same</td></tr>
+  <tr><td class="btn">Hold to stop</td><td>press and hold to end the ride</td><td>same</td><td>same</td></tr>
 </table></div>
 
 <h3>Zwift Ride buttons</h3>
 <div class="scroll"><table>
   <tr><th>Button</th><th>Action</th></tr>
-  <tr><td>Shift up / down (either side)</td><td>same as <span class="btn">+</span> / <span class="btn">−</span> on screen: virtual gear, or ERG intensity ±5 %</td></tr>
-  <tr><td>D-pad up / down</td><td>road gradient +/− 0.5 % (free ride)</td></tr>
+  <tr><td>Shift up / down (either side)</td><td>same as <span class="btn">+</span> / <span class="btn">−</span> on screen: free ride target ±10 W, virtual gear, or ERG intensity ±5 %</td></tr>
+  <tr><td>D-pad up / down</td><td>free ride: target +/− 50 W; free segment: road gradient +/− 0.5 %</td></tr>
   <tr><td><b>A</b> (short)</td><td>pause / resume; on the summary screen: done</td></tr>
   <tr><td><b>Y</b> (short)</td><td>lap</td></tr>
   <tr><td>D-pad right (hold 1 s)</td><td>skip to the next interval</td></tr>
@@ -440,7 +440,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
 </div>
 <p>A route is a free ride where the trainer follows the gradient of a real road by distance. Import a <b>GPX file</b> in the web app under <span class="btn">Routes</span> (<a href="#webapp-routes">7.5</a>); it appears under <span class="btn">Workouts</span> with a map pin. An SD card prepared with <code>tools/sd_deploy.sh</code> also has a made-up <i>Sample climb</i> to try it.</p>
 <ul>
-  <li>Your <b>virtual gears</b> work as in free ride; the grade buttons are hidden because the route sets the road. The ride screen shows the profile with your position, the gear and the kilometres to go; the line under the power shows the road gradient and what was sent to the trainer.</li>
+  <li>Your <b>virtual gears</b> work here (<span class="btn">−</span> / <span class="btn">+</span>); the grade buttons are hidden because the route sets the road. The ride screen shows the profile with your position, the gear and the kilometres to go; the line under the power shows the road gradient and what was sent to the trainer.</li>
   <li>The gradient is taken over 100 m and limited to <b>−10 … +20 %</b>, like everywhere else. A single bad GPS point can't turn into a wall.</li>
   <li>Distance comes from the trainer's speed, so on a steep climb you cover it as slowly as on the real road.</li>
   <li>At the end the device beeps three times and you carry on along a flat road until you stop the ride. The ride is saved under the route's name.</li>
@@ -464,7 +464,7 @@ tools/sd_deploy.sh /Volumes/JUSTRIDE      <span class="c"># copies the web app a
   <tr><td><code>SteadyState</code></td><td><code>Duration</code>, <code>Power</code></td><td>constant target</td></tr>
   <tr><td><code>Warmup</code>, <code>Cooldown</code>, <code>Ramp</code></td><td><code>Duration</code>, <code>PowerLow</code> (start), <code>PowerHigh</code> (end)</td><td>target changes evenly from start to end</td></tr>
   <tr><td><code>IntervalsT</code></td><td><code>Repeat</code>, <code>OnDuration</code>, <code>OffDuration</code>, <code>OnPower</code>, <code>OffPower</code></td><td>repeated on/off pairs</td></tr>
-  <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: free ride with virtual gears for that time</td></tr>
+  <tr><td><code>FreeRide</code>, <code>MaxEffort</code></td><td><code>Duration</code></td><td>no target: simulated road with virtual gears for that time</td></tr>
   <tr><td><code>workout</code> (JustRide only)</td><td><code>JrRampTest="1"</code></td><td>marks an FTP ramp test: the device replaces the segments with its own ramp for the active rider (see <a href="#ftptest">FTP test</a>). The generator writes it for <i>FTP ramp test</i></td></tr>
   <tr><td><code>SteadyState</code> (adaptive, JustRide only)</td><td><code>JrHrLow</code>, <code>JrHrHigh</code> (bpm, or fractions of max HR when both are 1 or less, e.g. <code>0.6</code>–<code>0.7</code> for HR zone 2), <code>JrAvg="1"</code> (hold the average), <code>JrCadLow</code>, <code>JrCadHigh</code> (rpm), <code>JrMin</code>, <code>JrMax</code> (bounds, fraction of FTP)</td><td>adaptive part (see <a href="#adaptive">Adaptive rides</a>); Zwift ignores these attributes and rides it as a steady part. At most 16 per workout</td></tr>
   <tr><td>any of the above</td><td><code>Cadence</code> (rpm), <code>CadenceResting</code> (rpm, for <code>IntervalsT</code> off parts)</td><td>cadence shown as a target on the ride screen</td></tr>

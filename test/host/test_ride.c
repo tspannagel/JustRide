@@ -42,7 +42,7 @@ static void test_idle_and_pause_are_low_resistance(void)
     uint32_t now = 1000;
     ride_start(&r, NULL, now, 0);
     ride_command(&r, &c);
-    CHECK_EQ(c.kind, CMD_SIM);
+    CHECK_EQ(c.kind, CMD_ERG);  // free ride: the rider's own target
     ride_action(&r, ACT_PAUSE_TOGGLE);
     ride_command(&r, &c);
     CHECK_EQ(c.kind, CMD_RESISTANCE);
@@ -55,13 +55,70 @@ static void test_idle_and_pause_are_low_resistance(void)
     CHECK_EQ(r.state, RIDE_DONE);
 }
 
-static void test_free_ride_gears_and_grade(void)
+static void test_free_ride_erg(void)
 {
     control_cmd_t c;
-    ride_init(&r, &cfg);
+    ride_view_t v;
+    ride_init(&r, &cfg);  // FTP 200, Max ERG 400
     uint32_t now = 1000;
     ride_start(&r, NULL, now, 0);
     ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_ERG);
+    CHECK_EQ(c.target_w, 110);  // 55 % of 200
+    ride_view(&r, &v);
+    CHECK(v.free_erg);
+    CHECK_EQ(v.mode, MODE_ERG);
+    CHECK_EQ(v.target_w, 110);
+
+    ride_action(&r, ACT_PLUS);
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 120);
+    ride_action(&r, ACT_GRADE_PLUS);  // Up: big step
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 170);
+    for (int i = 0; i < 100; i++) {
+        ride_action(&r, ACT_PLUS);
+    }
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 400);  // never above Max ERG
+    ride_action(&r, ACT_MINUS);  // felt at once, not after unwinding steps above the cap
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 390);
+    for (int i = 0; i < 100; i++) {
+        ride_action(&r, ACT_GRADE_MINUS);
+    }
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, RIDE_FREE_MIN_W);
+
+    ride_action(&r, ACT_PAUSE_TOGGLE);  // paused: lowest resistance, target kept
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_RESISTANCE);
+    ride_action(&r, ACT_PAUSE_TOGGLE);
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, RIDE_FREE_MIN_W);
+
+    // A low Max ERG wins over the start value and the minimum
+    ride_config_t low = cfg;
+    low.max_erg_w = 40;
+    ride_init(&r, &low);
+    ride_start(&r, NULL, now, 0);
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 40);
+    ride_action(&r, ACT_MINUS);
+    ride_command(&r, &c);
+    CHECK_EQ(c.target_w, 40);
+}
+
+// Gears and the rider's grade still work in a workout's free segment
+static void test_free_segment_gears_and_grade(void)
+{
+    static workout_t w = {.n = 1, .total_s = 600, .seg = {{.dur_s = 600, .kind = SEG_FREE}}};
+    control_cmd_t c;
+    ride_init(&r, &cfg);
+    uint32_t now = 1000;
+    ride_start(&r, &w, now, 0);
+    ride_command(&r, &c);
+    CHECK_EQ(c.kind, CMD_SIM);
     int16_t neutral = c.grade;
     CHECK(neutral >= -5 && neutral <= 5); // neutral gear ~ real ratio: ~0 %
 
@@ -688,7 +745,8 @@ static void test_ramp_test_power_stale_and_skip(void)
 int main(void)
 {
     test_idle_and_pause_are_low_resistance();
-    test_free_ride_gears_and_grade();
+    test_free_ride_erg();
+    test_free_segment_gears_and_grade();
     test_workout_erg_targets_and_caps();
     test_settings_are_clamped();
     test_skip_and_stale_data();

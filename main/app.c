@@ -170,8 +170,10 @@ static void task(void *arg)
         if (got) {
             handle(&e);
         }
-        // Wi-Fi back on after a ride, or when asked; never while a ride is about to start
-        bool web_on = s_ride.state == RIDE_IDLE && !s_start_pending && (s_last_state != RIDE_IDLE || s_web_request);
+        // Wi-Fi back on once a ride is saved (the summary may stay up for hours: the NAS and the
+        // web app must reach the device meanwhile), or when asked; never while a ride is about to start
+        bool off_bike = s_ride.state == RIDE_IDLE || (s_ride.state == RIDE_DONE && !s_status.saving);
+        bool web_on = off_bike && !s_start_pending && (s_last_state != s_ride.state || s_web_request);
         s_web_request = false;
         if (web_on) {
             s_web_cfg = s_settings;
@@ -260,6 +262,7 @@ static void task(void *arg)
             lock();
             s_status.saving = false;
             s_status.saved = saved;
+            s_web_request = true;  // Wi-Fi on while the summary shows (A1, docs/review-2026-11-25.md)
             // Only suggested, never applied: one bad power reading must not raise every ERG target
             uint16_t ftp = settings_user(&s_settings)->ftp_w, est = metrics_ftp_estimate(bests);
             s_status.ftp_suggest_w = est > ftp && est <= RIDE_FTP_MAX ? est : 0;

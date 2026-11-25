@@ -33,6 +33,8 @@ typedef struct {
     uint8_t kind;   // input_kind_t
     int16_t value;  // analog value, otherwise 0
     uint8_t device;
+    uint32_t t_ms;  // when the driver saw it (0 = unknown: the time it's handled). Hold times come
+                    // from these, so a busy control loop can't turn a tap into a long press.
 } input_evt_t;
 
 typedef enum {

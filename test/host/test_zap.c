@@ -163,6 +163,25 @@ static void test_input_map(void)
     CHECK_EQ(input_map(&m, &rel, 20000, RIDE_RUNNING), -1);
     input_evt_t bad = {.id = 200, .kind = IN_PRESS};
     CHECK_EQ(input_map(&m, &bad, 20000, RIDE_RUNNING), -1);
+
+    // A short tap handled late (control loop busy with the SD card): the driver's
+    // timestamps count, not when the release is handled. Must not stop or skip.
+    input_evt_t tap = {.id = IN_B, .kind = IN_PRESS, .t_ms = 30000};
+    CHECK_EQ(input_map(&m, &tap, 30000, RIDE_RUNNING), -1);
+    tap.kind = IN_RELEASE;
+    tap.t_ms = 30150;
+    CHECK_EQ(input_map(&m, &tap, 32500, RIDE_RUNNING), -1);
+    input_evt_t skip = {.id = IN_RIGHT, .kind = IN_PRESS, .t_ms = 33000};
+    CHECK_EQ(input_map(&m, &skip, 33000, RIDE_RUNNING), -1);
+    skip.kind = IN_RELEASE;
+    skip.t_ms = 33100;
+    CHECK_EQ(input_map(&m, &skip, 35000, RIDE_RUNNING), -1);
+    // A real hold still stops, even when handled promptly
+    input_evt_t hold = {.id = IN_B, .kind = IN_PRESS, .t_ms = 40000};
+    input_map(&m, &hold, 40000, RIDE_RUNNING);
+    hold.kind = IN_RELEASE;
+    hold.t_ms = 41200;
+    CHECK_EQ(input_map(&m, &hold, 41200, RIDE_RUNNING), ACT_STOP);
 }
 
 // input_nav, then input_map, as app.c calls them
