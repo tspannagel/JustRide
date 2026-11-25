@@ -3,7 +3,10 @@
 # to the NAS's registry (plain HTTP). Usage: sh nas_build_image.sh [version]  (default: newest tag)
 set -e
 cd "$(dirname "$0")"
-VERSION=${1:-$(git describe --tags --abbrev=0 | sed 's/^v//')}
+# Newest release tag overall (not the newest one in the checked-out branch's history);
+# versionsort.suffix sorts 1.0.0-beta.3 before 1.0.0
+git fetch --tags --quiet 2>/dev/null || true
+VERSION=${1:-$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname | head -n 1 | sed 's/^v//')}
 echo "web app: v$VERSION"
 
 podman build \
