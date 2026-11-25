@@ -252,22 +252,8 @@ static void on_disc(const struct ble_gap_disc_desc *d)
         ble_gap_disc_cancel();
         s_connecting = true;
         s_connect_gen = s_user_gen;
-        // Listen 30 ms of every 100 ms while connecting, like the scan. NimBLE's default
-        // (10 of 10 ms, up to CONNECT_TIMEOUT_MS) kept the shared radio away from Wi-Fi.
-        // Link parameters as NimBLE's defaults: 30..50 ms interval, 2.56 s timeout.
-        // A heart-rate strap sends once a second: 100..150 ms leaves the radio to Wi-Fi
-        // (at 30 ms next to the trainer and controller, Wi-Fi lost the router's beacons).
-        static const struct ble_gap_conn_params cp = {.scan_itvl = 160, .scan_window = 48, .itvl_min = 24,
-                                                      .itvl_max = 40, .supervision_timeout = 256};
-        static const struct ble_gap_conn_params cp_slow = {.scan_itvl = 160, .scan_window = 48, .itvl_min = 80,
-                                                           .itvl_max = 120, .supervision_timeout = 400};
-        int rc = ble_gap_connect(s_own_addr_type, &d->addr, CONNECT_TIMEOUT_MS, drv->role == SRC_HR ? &cp_slow : &cp,
-                                 gap_event, (void *)drv);
-        if (rc != 0) {
-            // Counts as a failure, so the back-off applies (was a retry every second)
-            ESP_LOGW(TAG, "connect %s: start failed (%d)", drv->name, rc);
+        if (ble_gap_connect(s_own_addr_type, &d->addr, CONNECT_TIMEOUT_MS, NULL, gap_event, (void *)drv) != 0) {
             s_connecting = false;
-            s_fails++;
             schedule_rescan();
         }
         return;
