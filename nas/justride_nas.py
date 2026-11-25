@@ -119,6 +119,12 @@ def apply_rider_action(users, a):
     return users
 
 
+def pull_order(rel):
+    """Sort key for a pull: summary/bests first, then the other files (ride CSVs), FIT files last."""
+    base = rel.rsplit('/', 1)[-1]
+    return 0 if base in ('summary.csv', 'bests.csv') else 2 if base.endswith('.fit') else 1
+
+
 def ride_name_ok(name):
     """<user id>/<file> as /api/rides lists them."""
     return bool(re.fullmatch(r'[A-Za-z0-9]{1,8}/[A-Za-z0-9._-]{1,64}', name)) and '..' not in name
@@ -463,11 +469,24 @@ class Sync:
 
     def _mirror_listing(self, sub, listed, track_base=False):
         s = self.store
-        for rel, meta in listed.items():
+        failed = 0
+        # The device serves one request at a time: what the web app reads first (summary, bests,
+        # ride CSVs), FIT files (downloads only) last, so a fresh ride doesn't hold up the page
+        for rel in sorted(listed, key=pull_order):
+            meta = listed[rel]
             with self.lock:
                 if rel in s.outbox or (s.state['meta'].get(rel) == meta and s.read(rel) is not None):
                     continue
-            status, body = self.dev.request('GET', '/' + rel)
+            try:
+                status, body = self.dev.request('GET', '/' + rel)
+                failed = 0
+            except DeviceError:
+                # One slow file (weak Wi-Fi next to Bluetooth) mustn't stop the files after it;
+                # two in a row: the device is gone, end the round
+                failed += 1
+                if failed >= 2:
+                    raise
+                continue
             with self.lock:
                 if status == 200 and rel not in s.outbox:
                     s.write(rel, body)

@@ -101,7 +101,7 @@ Not built yet: encrypted ZAP (Play, Click v1; the user owns a Zwift Ride only), 
 - Drivers publish normalized events to the single evbus queue; the control task (`main/app.c`) consumes them. **Nothing above `evbus` touches a BLE characteristic.**
 - Event types (keep these stable):
   - `metrics_evt_t`: t_ms, power_w (−1 unknown), cadence_rpm10, speed_kmh100, hr_bpm, source
-  - `input_evt_t`: id (SHIFT_UP/DOWN, LEFT, RIGHT, UP, DOWN, A, B, Y, Z, STEER, BRAKE), kind (PRESS, RELEASE, LONG_PRESS, REPEAT, ANALOG), value, device
+  - `input_evt_t`: id (SHIFT_UP/DOWN, LEFT, RIGHT, UP, DOWN, A, B, Y, Z, STEER, BRAKE), kind (PRESS, RELEASE, LONG_PRESS, REPEAT, ANALOG), value, device, t_ms (stamped by the driver; hold times come from it, so a busy control loop can't turn a tap into a long press)
   - `control_cmd_t`: kind (ERG, SIM, RESISTANCE, START, PAUSE, STOP, SPINDOWN), target_w, grade (0.01 %), crr, cw, level
   - `device_evt_t`: connected / lost / battery / role
 - Device drivers are a `ble_drv_t`: advertised service (= `matches(adv)`), wanted characteristics, `on_ready`, `on_notify`, `on_disconnect`; trainers add a `set(cmd)` mailbox (`drv_ftms_set`). ble_mgr does all GATT work.
@@ -155,7 +155,7 @@ Heart rate 0x180D/0x2A37, external power 0x1818/0x2A63, cadence 0x1816/0x2A5B, B
 
 ## Virtual shifting
 
-Rider leaves the real chain in one gear (default 34×17, ratio 2.0). 24-gear virtual table, ratio 0.75–5.5 (`/config/gears.json`).
+Rider leaves the real chain in one gear (default 34×17, ratio 2.0). 24-gear virtual table, ratio 0.75–5.5 (`/config/gears.json`). Gears apply to routes and a workout's free segments only. **Free ride (no workout, no route) is ERG** at the rider's own target (user's decision, 2026-11-25: on the flat, strategy A moves the grade only −0.25…+0.7 % across all gears): starts at 55 % FTP, shift ±10 W, Up/Down ±50 W, ≥ 50 W and ≤ Max ERG (`RIDE_FREE_*` in `ride.h`).
 - v1, strategy A: SIM mode, `grade_cmd ≈ (grade + Crr) × k − Crr` with `k = virt_ratio / real_ratio`; small-angle, ignores aero, tune by feel; clamp −10…+20 %, max 2 writes/s.
 - v2, strategy B: virtual speed from cadence × ratio × 2.105 m, road power `P = v·m·g·(sinθ + Crr·cosθ) + ½ρ·CdA·v³`, sent as ERG target at 2–4 Hz.
 - Defaults: rider + bike 80 + 9 kg, CdA 0.32, Crr 0.004.

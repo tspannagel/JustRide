@@ -17,6 +17,12 @@ typedef enum { RIDE_IDLE, RIDE_RUNNING, RIDE_PAUSED, RIDE_DONE } ride_state_t;
 #define RIDE_FTP_MIN 50
 #define RIDE_FTP_MAX 600
 #define RIDE_ERG_CAP_W 1500       // absolute ERG ceiling
+// Free ride (no workout, no route) is ERG: on a flat road virtual gears only scale rolling
+// resistance (about -0.3 ... +0.7 % across all 24), so shifting sets a power target instead
+#define RIDE_FREE_START_PCT 55    // of FTP, rounded to 5 W
+#define RIDE_FREE_STEP_W 10       // shift up / down
+#define RIDE_FREE_BIG_STEP_W 50   // Up / Down buttons
+#define RIDE_FREE_MIN_W 50
 #define RIDE_INTENSITY_MIN 50     // %
 #define RIDE_INTENSITY_MAX 150
 #define RIDE_TRAINER_STALE_MS 3000
@@ -98,6 +104,7 @@ typedef struct {
     bool wo_done;
     uint8_t gear;
     int16_t base_grade;      // 0.01 %
+    uint16_t free_w;         // free ride ERG target (before the Max ERG cap)
     uint8_t intensity;       // %
     uint8_t lap;
 
@@ -162,6 +169,7 @@ typedef struct {
     uint8_t gear;            // 1-based
     uint8_t gears;
     uint8_t intensity;
+    bool free_erg;           // free ride: target_w is the rider's own (shift buttons)
     uint8_t lap;
     bool auto_paused;
     bool route;              // riding a route
