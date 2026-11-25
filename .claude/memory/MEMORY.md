@@ -12,3 +12,4 @@ Don't duplicate what `CLAUDE.md`, `HANDOVER.md`, the code or git history already
 - [USB console resets the board](usb-console-resets.md) — opening the serial port reboots it; keep one session open, never mid-ride
 - [Finish the job](finish-the-job.md) — flash, verify, commit, push, PR and docs without asking
 - [Bluetooth works (baseline)](bluetooth-working-config.md) — 3 sensors + watch connect since MAX_ACT=10; timing changes need a log
+- [Stacked PRs](stacked-prs.md) — retarget to main before merging; #13 once landed off main
