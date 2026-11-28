@@ -358,6 +358,9 @@ async function flashFirmware(f) {
   const [fw, info] = await Promise.all([readFirmware(f), deviceInfo()]);
   if (fw.err) return otaStatus(fw.err, 'bad');
   if (info && fw.project !== info.project) return otaStatus(`${f.name} is firmware for "${fw.project}", not for this device.`, 'bad');
+  if (info?.nas) {  // the NAS always reports upload_s 0: the tap on the device can't open it
+    return otaStatus(`This page comes from the NAS, which can't install firmware. Open http://${info.nas.device}/stats/#device (the head unit itself) and choose the file there.`, 'bad');
+  }
   if (info && info.upload_s <= 0) {
     return otaStatus('The device refuses updates right now: tap Wi-Fi → Allow firmware update on it, then choose the file again.', 'bad');
   }
