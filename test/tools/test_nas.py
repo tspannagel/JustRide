@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
@@ -120,8 +121,24 @@ class NasTest(unittest.TestCase):
         self.assertEqual(names, {f for f in os.listdir(self.dev.path('workouts'))})
         info = json.loads(self.req('GET', '/api/info')[1])
         self.assertEqual(info['project'], 'justride')
-        self.assertEqual(info['upload_s'], 0)  # uploads only on the device itself
-        self.assertEqual((info['nas']['online'], info['nas']['pending']), (True, 0))
+        self.assertEqual(info['upload_s'], 300)  # the device's own window, asked live
+        self.assertEqual((info['nas']['online'], info['nas']['live'], info['nas']['pending']), (True, True, 0))
+
+    def test_uploads_go_through_to_the_device(self):
+        fw = bytearray(0x100)
+        fw[0] = 0xE9
+        fw[0x30:0x36] = b'v9.9.9'
+        fw[0x50:0x58] = b'justride'
+        st, body, _ = self.req('POST', '/ota', bytes(fw))
+        self.assertEqual((st, body), (200, b'OK, restarting'))
+        self.assertEqual(json.loads(self.req('GET', '/api/info')[1])['version'], 'v9.9.9')
+        fw[0x50:0x58] = b'other\0\0\0'
+        self.assertEqual(self.req('POST', '/ota', bytes(fw)), (400, b'not a JustRide firmware', unittest.mock.ANY))
+        page = b'x' * 100000  # more than one chunk
+        self.assertEqual(self.req('POST', '/www/stats/app.js.gz', page)[:2], (200, b'saved'))
+        with open(self.dev.path('www', 'stats', 'app.js.gz'), 'rb') as f:
+            self.assertEqual(f.read(), page)
+        self.assertEqual(self.req('POST', '/ota', b'')[0], 400)
 
     def test_online_writes_go_straight_to_the_device(self):
         st, body, _ = self.req('POST', '/plans/u1.json', PLAN)
@@ -260,7 +277,10 @@ class NasTest(unittest.TestCase):
         self.assertEqual(st, 503)
         self.assertIn(b'head unit is off', body)
         self.assertEqual(self.info()['pending'], 5)
-        self.assertEqual(self.req('POST', '/ota', b'x' * 10)[0], 409)
+        st, body, _ = self.req('POST', '/ota', b'x' * 10)
+        self.assertEqual(st, 503)  # an update needs the head unit (and someone at it)
+        info = json.loads(self.req('GET', '/api/info')[1])
+        self.assertEqual((info['upload_s'], info['nas']['live']), (0, False))
 
         self.dev.on()
         self.sync.run_once()

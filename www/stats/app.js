@@ -305,8 +305,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function showVersions() {
   const [info, www] = await Promise.all([deviceInfo(), api.text('version.txt').catch(() => null)]);
   $('#versions').innerHTML = `Installed: firmware <b>${esc(info?.version || 'unknown')}</b> · web app <b>${
-    esc((www || '').trim() || 'development build')}</b>${info?.nas ? `<br>This page comes from the NAS. Firmware and
-    web-app updates go to the head unit itself: <a class="link" href="http://${esc(info.nas.device)}/stats/#device">open it</a>.` : ''}`;
+    esc((www || '').trim() || 'development build')}</b>${info?.nas ? `<br>This page comes from the NAS, which passes a
+    firmware update on to the head unit while it is on.` : ''}`;
   if (info?.version) $('#rail-version').textContent = `Firmware ${info.version}`;
   return info;
 }
@@ -358,32 +358,40 @@ async function flashFirmware(f) {
   const [fw, info] = await Promise.all([readFirmware(f), deviceInfo()]);
   if (fw.err) return otaStatus(fw.err, 'bad');
   if (info && fw.project !== info.project) return otaStatus(`${f.name} is firmware for "${fw.project}", not for this device.`, 'bad');
+  if (info?.nas && !info.nas.live) return otaStatus('The head unit is off or not answering. Switch it on, then try again.', 'bad');
   if (info && info.upload_s <= 0) {
     return otaStatus('The device refuses updates right now: tap Wi-Fi → Allow firmware update on it, then choose the file again.', 'bad');
   }
   const old = info?.version;
   const same = old === fw.version ? ' (the same version that is installed)' : '';
   if (!confirm(`Install firmware ${fw.version}${same}?${old ? ` Installed: ${old}.` : ''}\nKeep the device powered until it restarts.`)) return;
-  otaStatus(`Uploading ${fw.version}… do not unplug the device`);
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), 180000);
+  const bar = $('#ota-progress');
+  const mb = (n) => (n / 1048576).toFixed(1);
+  const progress = (sent, total) => {
+    bar.style.setProperty('--p', `${Math.round((100 * sent) / total)}%`);
+    otaStatus(sent < total ? `Uploading ${fw.version}: ${mb(sent)} of ${mb(total)} MB. Keep the device powered.`
+      : 'Uploaded. The device checks the firmware…');
+  };
+  bar.hidden = false;
+  progress(0, f.size);
   try {
-    const r = await fetch('/ota', { method: 'POST', headers: { 'X-JustRide': '1' }, body: f, signal: abort.signal });
-    const t = await r.text();
-    if (!r.ok) return otaStatus(t || `Upload failed (${r.status})`, 'bad');
+    const r = await api.upload('/ota', f, progress);
+    if (r.status < 200 || r.status >= 300) { bar.hidden = true; return otaStatus(r.text || `Upload failed (${r.status})`, 'bad'); }
   } catch (err) {
     // The device answers a refused upload at once and closes the connection; browsers
     // then often report a network error instead of its message.
-    return otaStatus(abort.signal.aborted ? 'No answer from the device within 3 minutes. Check that it is on Wi-Fi and try again.'
-      : 'The device closed the connection. Tap Allow firmware update on it again and retry; if it keeps failing, check the file.', 'bad');
-  } finally { clearTimeout(timer); }
+    bar.hidden = true;
+    return otaStatus(err.message === 'timeout' ? 'The upload stopped moving for a minute. Check that the device is on Wi-Fi, then tap Allow firmware update and try again.'
+      : 'The device closed the connection. Its screen says why; tap Allow firmware update on it again and retry.', 'bad');
+  }
+  bar.hidden = true;
   // Restart: the old firmware answers for about a second, then the device is away
   // for a few seconds. If the new firmware doesn't start, the boot loader goes back.
   otaStatus(`Uploaded. Restarting with ${fw.version}…`);
   await sleep(6000);
   for (const until = Date.now() + 90000; Date.now() < until; await sleep(3000)) {
     const now = await deviceInfo();
-    if (!now) continue;
+    if (!now || (now.nas && !now.nas.live)) continue;  // the NAS's stored copy still has the old version
     showVersions();
     if (now.version === fw.version) return otaStatus(`Done: firmware ${fw.version} is running.`, 'good');
     return otaStatus(`The device restarted with ${now.version}, not ${fw.version}: the new firmware didn't start and the device went back. A USB log helps to find out why.`, 'bad');

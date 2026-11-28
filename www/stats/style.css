@@ -352,6 +352,7 @@ dialog[open] { animation: rise 0.25s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .day-pill.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .day-pill.on.long { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
 .progress { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin: -8px 0 18px; }
+.progress.upload { margin: 12px 0 0; }
 .progress span { display: block; height: 100%; width: var(--p, 0); background: var(--accent); border-radius: inherit; }
 .cal { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
 .cal-head, .cal-week { display: grid; grid-template-columns: 44px repeat(7, minmax(92px, 1fr)) 110px; gap: 6px; min-width: 860px; }

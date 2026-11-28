@@ -47,3 +47,18 @@ bool web_joining(void);
 // within the last 5 minutes (physical presence instead of a password).
 void web_allow_ota(void);
 bool web_ota_allowed(void);
+
+// A firmware or web-app upload, for a panel on the device (the browser may be on the
+// NAS or a phone: the rider sees here that something is happening). After it ends,
+// the result stays for a few seconds; a firmware that was received restarts the device.
+typedef enum { WEB_UPD_FIRMWARE, WEB_UPD_WEBAPP } web_upd_kind_t;
+typedef enum { WEB_UPD_RUNNING, WEB_UPD_DONE, WEB_UPD_FAILED } web_upd_state_t;
+typedef struct {
+    web_upd_kind_t kind;
+    web_upd_state_t state;
+    uint32_t done, total;  // bytes of the current file
+    uint16_t files;        // web app: files saved since the panel opened
+    char err[48];          // WEB_UPD_FAILED: why
+} web_update_t;
+// False: nothing to show (no upload lately, or Wi-Fi off).
+bool web_update(web_update_t *u);

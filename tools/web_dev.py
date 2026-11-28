@@ -136,6 +136,7 @@ def users_action(users, req):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     data = device = None
+    version = 'dev'  # an uploaded firmware's version, as after a restart
 
     def log_message(self, fmt, *args):
         if os.environ.get('WEB_DEV_LOG'):
@@ -198,8 +199,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     json.dump(users, f)
             return self.send(200, json.dumps(users).encode(), 'application/json')
         if path == '/api/info':  # firmware version + upload window (sample: always open)
-            return self.send(200, json.dumps({'project': 'justride', 'version': 'dev', 'idf': 'v5.3.2', 'upload_s': 300}).encode(),
-                             'application/json')
+            return self.send(200, json.dumps({'project': 'justride', 'version': Handler.version, 'idf': 'v5.3.2',
+                                              'upload_s': 300}).encode(), 'application/json')
+        if path == '/ota' and self.command == 'POST':  # the device's check: esp_app_desc_t at 0x20
+            if len(body) < 0x70 or body[0] != 0xE9 or body[0x50:0x58] != b'justride':
+                return self.send(400, b'not a JustRide firmware')
+            Handler.version = body[0x30:0x50].split(b'\0')[0].decode(errors='replace')
+            return self.send(200, b'OK, restarting')
+        if path.startswith('/www/stats/') and self.command == 'POST':
+            target = os.path.join(d, path[1:])
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, 'wb') as f:
+                f.write(body)
+            return self.send(200, b'saved')
         if path == '/api/time':
             return self.send(200, b'kept')
         if path == '/api/rides':

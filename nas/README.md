@@ -60,8 +60,10 @@ volumes as in `compose.yaml`.
 - Keep it on your home network. Don't forward the port on your router; use your NAS's or
   router's VPN to reach it from outside. HTTPS is optional through the NAS's reverse proxy.
 - The NAS talks to the head unit like the web app does and can't do anything the web app
-  couldn't: no firmware uploads, no adding or deleting riders while the head unit is off (switching the
-  active rider and editing FTP, weight and limits are queued like plans).
+  couldn't: firmware and web-app uploads are passed straight on to the head unit while it is on,
+  which still refuses them unless someone tapped *Allow firmware update* on it; no adding or
+  deleting riders while the head unit is off (switching the active rider and editing FTP, weight
+  and limits are queued like plans).
 
 ## Without Docker
 

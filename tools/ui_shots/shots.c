@@ -80,6 +80,13 @@ void web_stop(void) {}
 bool web_running(void) { return g_web_on; }
 bool web_ota_allowed(void) { return false; }
 void web_allow_ota(void) {}
+static bool g_upd_on;
+static web_update_t g_upd;
+bool web_update(web_update_t *u)
+{
+    *u = g_upd;
+    return g_upd_on;
+}
 static web_link_t g_link = WEB_LINK_JOINED;
 static int g_bars = 3;
 web_link_t web_link(int *bars)
@@ -415,6 +422,25 @@ int main(int argc, char **argv)
     refresh(NULL);
     save("start-wait");
     g_status.start_wait = false;
+    refresh(NULL);
+
+    // A firmware upload from the web app: progress, then how it ended
+    g_upd_on = true;
+    g_upd = (web_update_t){.kind = WEB_UPD_FIRMWARE, .state = WEB_UPD_RUNNING, .done = 1300 * 1024, .total = 2100 * 1024};
+    refresh(NULL);
+    save("update-firmware");
+    g_upd.state = WEB_UPD_DONE;
+    g_upd.done = g_upd.total;
+    refresh(NULL);
+    save("update-firmware-done");
+    g_upd = (web_update_t){.kind = WEB_UPD_FIRMWARE, .state = WEB_UPD_FAILED, .done = 0, .total = 2100 * 1024};
+    snprintf(g_upd.err, sizeof(g_upd.err), "not a JustRide firmware");
+    refresh(NULL);
+    save("update-firmware-failed");
+    g_upd = (web_update_t){.kind = WEB_UPD_WEBAPP, .state = WEB_UPD_RUNNING, .done = 40 * 1024, .total = 96 * 1024, .files = 6};
+    refresh(NULL);
+    save("update-webapp");
+    g_upd_on = false;
     refresh(NULL);
 
     for (int i = 0; i < 3; i++) {

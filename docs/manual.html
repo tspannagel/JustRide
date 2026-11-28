@@ -569,7 +569,7 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
   <li>While the head unit is off, a bar at the top of the web app says so and how old the data is. Plan and workout changes are kept on the NAS and sent when the head unit is back on.</li>
   <li>Switching the active rider and changing a rider's FTP, weight, Max ERG or max HR also work while the head unit is off: the web app shows the change at once and the NAS sends it when the head unit is back on. Adding or deleting a rider needs the head unit on.</li>
   <li>If a plan was changed in both places, the NAS version wins; the head unit's version is kept in the NAS's <code>data/conflicts/</code> folder.</li>
-  <li>Firmware and web-app updates are done from the head unit's own page (they need the tap on the head unit). The Device page on the NAS links to it.</li>
+  <li>Firmware updates work from the NAS's Device page too: it passes the file on to the head unit, which must be on, and you still tap <span class="btn">Allow firmware update</span> on the head unit first.</li>
   <li>Keep it on your home network: don't forward the port on your router; use a VPN to reach it from outside.</li>
 </ul>
 
@@ -590,9 +590,11 @@ claude mcp add justride -- uv run ~/JustRide/tools/mcp_server.py --device 192.16
 <ol>
   <li>Download <code>justride-&lt;version&gt;.bin</code> from the release (<b>not</b> the <code>-full.bin</code>: that one is only for USB, and the web app refuses it), or build it yourself: <code>idf.py build</code> → <code>build/justride.bin</code>.</li>
   <li>On the device: <span class="btn">Wi-Fi icon → Allow firmware update</span>. After this tap the device accepts one update within 5 minutes; without it the device refuses them, so nobody else on your network can flash it. Tap again for another try.</li>
-  <li>In the web app open <span class="btn">Device → Choose firmware</span> and pick the <code>.bin</code>. Don't unplug the board while it says “Uploading”.</li>
+  <li>In the web app open <span class="btn">Device → Choose firmware</span> and pick the <code>.bin</code>. This works from the head unit's own page and from the NAS (<a href="#nas">NAS</a>), which passes the file on while the head unit is on.</li>
   <li>The web app shows the version in the file and the installed one before it uploads, and refuses if you haven't tapped <span class="btn">Allow firmware update</span>.</li>
-  <li>The device restarts. If the new firmware fails to start, the device automatically goes back to the previous one. The web app waits for the restart and says which version is running then: “Done: firmware … is running”, or that the device went back.</li>
+  <li>While it uploads, a bar shows how far it is, in the web app and on the device's screen. Don't unplug the board meanwhile.
+    <figure class="device"><img src="img/update-firmware.png" alt="Device screen: Receiving firmware, keep the device powered, it restarts when the update is in; progress bar at 1.2 of 2.0 MB"><figcaption>The device while a firmware arrives.</figcaption></figure></li>
+  <li>The device says <b>Firmware installed</b> and restarts. If the upload fails it says why (for example “Not a JustRide firmware”) and keeps its firmware. If the new firmware fails to start, the device automatically goes back to the previous one. The web app waits for the restart and says which version is running then: “Done: firmware … is running”, or that the device went back.</li>
 </ol>
 <p>Your riders, settings, rides and workouts are on the SD card and stay as they are; paired devices are kept too. The matching web app is copied to the card on the first start, so reload the web app afterwards.</p>
 
