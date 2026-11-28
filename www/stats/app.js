@@ -381,7 +381,7 @@ async function flashFirmware(f) {
     // The device answers a refused upload at once and closes the connection; browsers
     // then often report a network error instead of its message.
     bar.hidden = true;
-    return otaStatus(err.message === 'timeout' ? 'No answer from the device within 5 minutes. Check that it is on Wi-Fi and try again.'
+    return otaStatus(err.message === 'timeout' ? 'The upload stopped moving for a minute. Check that the device is on Wi-Fi, then tap Allow firmware update and try again.'
       : 'The device closed the connection. Its screen says why; tap Allow firmware update on it again and retry.', 'bad');
   }
   bar.hidden = true;

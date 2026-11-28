@@ -27,17 +27,21 @@ export const api = {
     return t;
   },
   // A big upload with progress (fetch has none): onProgress(sent, total). Resolves
-  // {status, text}; rejects on a network error (the device closed the connection).
-  upload(url, body, onProgress) {
+  // {status, text}; rejects on a network error (the device closed the connection) or
+  // 'timeout' after stallMs without progress. No limit on the whole upload: over weak
+  // Wi-Fi next to Bluetooth a firmware can take minutes.
+  upload(url, body, onProgress, stallMs = 60000) {
     return new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
+      let timer;
+      const watch = () => { clearTimeout(timer); timer = setTimeout(() => { x.abort(); reject(new Error('timeout')); }, stallMs); };
       x.open('POST', url);
       x.setRequestHeader('X-JustRide', '1');
-      x.timeout = 300000;
-      x.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : body.size);
-      x.onload = () => resolve({ status: x.status, text: x.responseText });
-      x.onerror = () => reject(new Error('network'));
-      x.ontimeout = () => reject(new Error('timeout'));
+      x.upload.onprogress = (e) => { watch(); onProgress(e.loaded, e.lengthComputable ? e.total : body.size); };
+      x.upload.onload = watch;  // all sent: the device checks the image, then answers
+      x.onload = () => { clearTimeout(timer); resolve({ status: x.status, text: x.responseText }); };
+      x.onerror = () => { clearTimeout(timer); reject(new Error('network')); };
+      watch();
       x.send(body);
     });
   },
