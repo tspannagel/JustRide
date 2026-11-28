@@ -26,6 +26,21 @@ export const api = {
     if (!r.ok) throw new Error(t || `${r.status}`);
     return t;
   },
+  // A big upload with progress (fetch has none): onProgress(sent, total). Resolves
+  // {status, text}; rejects on a network error (the device closed the connection).
+  upload(url, body, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open('POST', url);
+      x.setRequestHeader('X-JustRide', '1');
+      x.timeout = 300000;
+      x.upload.onprogress = (e) => onProgress(e.loaded, e.lengthComputable ? e.total : body.size);
+      x.onload = () => resolve({ status: x.status, text: x.responseText });
+      x.onerror = () => reject(new Error('network'));
+      x.ontimeout = () => reject(new Error('timeout'));
+      x.send(body);
+    });
+  },
   users: () => api.json('/api/users'),
   rideFiles: () => api.json('/api/rides'),
   workouts: () => api.json('/api/workouts'),

@@ -216,6 +216,7 @@
       <div class="card"><h2>Firmware update</h2><p class="small" id="versions"></p>
         <p class="small muted">First tap <b>Wi-Fi → Allow firmware update</b> on the device, then choose the firmware file within 5 minutes: <code>justride-&lt;version&gt;.bin</code> from a release (not the <code>-full.bin</code>, that one is for USB), or <code>build/justride.bin</code>.</p>
         <label class="btn ghost file-btn" data-icon="cpu">Choose firmware<input type="file" id="up-ota" accept=".bin" hidden></label>
+        <div class="progress upload" id="ota-progress" hidden><span></span></div>
         <p class="small" id="ota-status"></p></div>
     </div>
     <div class="card"><h2>Ride files</h2><div id="files" class="scroll"></div></div>

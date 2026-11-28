@@ -17,7 +17,8 @@ Who owns what:
   workouts and plans              written through to the device when it answers, else queued here;
                                   a queued write wins over a copy changed on the device meanwhile,
                                   which is kept under <data>/conflicts/
-  firmware and web-app uploads    only on the device itself (they need the tap there)
+  firmware and web-app uploads    streamed through to the device while it answers; the device
+                                  still refuses them unless someone tapped "Allow firmware update"
 
 The device's own rules stay in force: the NAS sends Host = the device address and
 X-JustRide on every write, and the browser only ever talks to the NAS (same origin).
@@ -26,6 +27,7 @@ one of --host, and every POST/DELETE needs X-JustRide.
 """
 import argparse
 import hashlib
+import http.client
 import http.server
 import ipaddress
 import json
@@ -46,6 +48,9 @@ MIME = {'.html': 'text/html', '.js': 'application/javascript', '.mjs': 'applicat
         '.webmanifest': 'application/manifest+json', '.fit': 'application/octet-stream'}
 # The device's limits (components/web/web.c)
 ZWO_MAX, ROUTE_MAX, PLAN_MAX = 64 * 1024, 256 * 1024, 32 * 1024
+UPLOAD_MAX = 16 * 1024 * 1024  # firmware and web-app files (WWW_MAX_BYTES; a firmware is smaller)
+UPLOAD_S = 180  # the device answers an upload after the last byte (firmware: after checking it)
+LIVE_S = 5  # /api/info asked live (the upload window, the version after a restart)
 FRESH_S = 15  # a read syncs first when the last try is older than this
 PROBE_S = 10  # /api/info timeout per try
 ERRORS_KEPT = 10
@@ -134,15 +139,17 @@ class DeviceError(Exception):
     """The head unit didn't answer (network), as opposed to answering with an error status."""
 
 
+class ClientGone(Exception):
+    """The browser stopped sending an upload before its end."""
+
+
 class Device:
     def __init__(self, addr, timeout=30):
         self.addr, self.timeout = addr, timeout
 
-    def request(self, method, path, body=None, timeout=None):
-        """(status, body). Raises DeviceError if the device can't be reached."""
-        p, q = (path.split('?', 1) + [''])[:2]
-        # A name (trainer.local): its IPv4 address each time (the device doesn't answer the IPv6
-        # lookup, which costs 5 s per request; a new DHCP address is picked up). Host stays the name.
+    def resolve(self):
+        """(IPv4 address, port). A name (trainer.local): its IPv4 address each time (the device doesn't
+        answer the IPv6 lookup, which costs 5 s per request; a new DHCP address is picked up)."""
         host, _, port = self.addr.partition(':')
         try:
             ipaddress.IPv4Address(host)
@@ -151,6 +158,12 @@ class Device:
                 host = socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0]
             except OSError as e:
                 raise DeviceError(f'{self.addr}: {e}') from e
+        return host, port
+
+    def request(self, method, path, body=None, timeout=None):
+        """(status, body). Raises DeviceError if the device can't be reached. Host stays the name."""
+        p, q = (path.split('?', 1) + [''])[:2]
+        host, port = self.resolve()
         url = f'http://{host}{":" + port if port else ""}{urllib.parse.quote(p)}' + (f'?{q}' if q else '')
         req = urllib.request.Request(url, data=body, method=method,
                                      headers={'Host': self.addr, 'X-JustRide': '1'})
@@ -162,6 +175,35 @@ class Device:
                 return e.code, e.read()
         except (OSError, ValueError) as e:  # URLError, timeouts, refused, reset
             raise DeviceError(str(e)) from e
+
+    def upload(self, path, read, length, timeout=UPLOAD_S):
+        """POST length bytes to the device while read(n) delivers them, so the browser's progress
+        follows the device's. (status, body). DeviceError: no answer; ClientGone: the browser
+        stopped first (the device then sees a cut-off upload and discards it)."""
+        host, port = self.resolve()
+        c = http.client.HTTPConnection(host, int(port or 80), timeout=timeout)
+        try:
+            c.putrequest('POST', urllib.parse.quote(path), skip_host=True, skip_accept_encoding=True)
+            for k, v in (('Host', self.addr), ('X-JustRide', '1'), ('Content-Type', 'application/octet-stream'),
+                         ('Content-Length', str(length))):
+                c.putheader(k, v)
+            c.endheaders()
+            left = length
+            try:
+                while left:
+                    chunk = read(min(left, 16384))
+                    if not chunk:
+                        raise ClientGone()
+                    c.send(chunk)
+                    left -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the device refused early (no tap) and closed: its answer is already here
+            r = c.getresponse()
+            return r.status, r.read()
+        except (OSError, http.client.HTTPException) as e:
+            raise DeviceError(str(e)) from e
+        finally:
+            c.close()
 
 
 class Store:
@@ -570,6 +612,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send(status, out, 'application/json' if out[:1] in (b'[', b'{') else 'text/plain')
         return True
 
+    def upload(self, path):
+        """/ota and /www/stats/*: streamed to the device, which applies its own checks (the
+        tap, the project name, the image). Not queued: an update needs someone at the device."""
+        s = self.sync
+        if not 0 < self.unread <= UPLOAD_MAX:
+            return self.send(400 if not self.unread else 413, b'empty or too large')
+        if not s.online:
+            return self.send(503, b'The head unit is off. Switch it on, tap Allow firmware update on it and try again.')
+        # No sync round meanwhile: the device serves one request at a time, and a round's
+        # requests would time out behind a firmware upload
+        if not s.sync_lock.acquire(timeout=30):
+            return self.send(503, b'The NAS is copying files from the head unit. Try again in a minute.')
+
+        def read(n):
+            try:
+                chunk = self.rfile.read(n)
+            except OSError as e:
+                raise ClientGone() from e
+            self.unread -= len(chunk)
+            return chunk
+        try:
+            status, out = s.dev.upload(path, read, self.unread)
+        except ClientGone:
+            self.close_connection = True
+            return None
+        except DeviceError as e:
+            return self.send(502, f'The head unit stopped answering during the upload ({e}). Check it and try again.'.encode())
+        finally:
+            s.sync_lock.release()
+        self.send(status, out, 'application/json' if out[:1] in (b'[', b'{') else 'text/plain')
+
     def write_through(self, rel, body):
         """A workout or plan write: to the device if it answers (its checks and errors apply),
         else into the mirror and the outbox."""
@@ -614,10 +687,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.command in ('POST', 'DELETE'):
             if self.headers.get('X-JustRide') is None:
                 return self.send(403, b'missing X-JustRide header')
-            if self.unread > ROUTE_MAX + 1024 or path == '/ota' or path.startswith('/www/'):
-                if path == '/ota' or path.startswith('/www/'):
-                    return self.send(409, f'Firmware and web-app updates go to the head unit itself (they need the '
-                                          f'tap there): open http://{self.sync.dev.addr}/stats/#device'.encode())
+            if self.command == 'POST' and (path == '/ota' or path.startswith('/www/stats/')):
+                return self.upload(path)
+            if self.unread > ROUTE_MAX + 1024:
                 return self.send(413, b'too large')
             body = self.rfile.read(self.unread)
             self.unread = 0
@@ -634,10 +706,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.static(path[len('/stats/'):])
         if path == '/api/info' and get:
             s.fresh()
+            # Live while the device answers: the upload window opens with a tap there, and after a
+            # firmware update the web app watches for the new version. nas.live tells it apart
+            # from the stored copy (no window then), which a device that's restarting can't send.
+            live = None
+            if s.online:
+                try:
+                    status, body = s.dev.request('GET', '/api/info', timeout=LIVE_S)
+                    live = json.loads(body) if status == 200 else None
+                except (DeviceError, ValueError):
+                    pass  # restarting, or busy: the sync decides whether it's off
             with s.lock:
-                info = json.loads(s.store.read('info.json') or b'{}')
-                info['upload_s'] = 0  # uploads only on the device itself
-                info['nas'] = s.status()
+                info = live or json.loads(s.store.read('info.json') or b'{}')
+                if live is None:
+                    info['upload_s'] = 0
+                info['nas'] = {**s.status(), 'live': live is not None}
             return self.send_json(info)
         if path == '/api/time' and self.command == 'POST':
             return None if s.online and self.proxy(path, body) else self.send(200, b'kept')

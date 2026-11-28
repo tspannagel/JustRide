@@ -2403,21 +2403,98 @@ static void build_wait(void)
     show(wait_panel, false);
 }
 
-static void update_wait(const app_status_t *st)
+// "1.2 of 2.0 MB" / "12 of 30 KB" on a label, and the bar (0..1000)
+static void show_bytes(lv_obj_t *bar, lv_obj_t *text, uint32_t done, uint32_t total)
 {
-    show(wait_panel, st->start_wait);
-    if (!st->start_wait) {
-        return;
-    }
-    uint32_t total = st->xfer_total, done = st->xfer_done < total ? st->xfer_done : total;
-    lv_bar_set_value(wait_bar, total ? (int32_t)((uint64_t)done * 1000 / total) : 0, LV_ANIM_OFF);
+    done = done < total ? done : total;
+    lv_bar_set_value(bar, total ? (int32_t)((uint64_t)done * 1000 / total) : 0, LV_ANIM_OFF);
     if (total >= 1024 * 1024) {
-        lv_label_set_text_fmt(wait_text, "%lu.%lu of %lu.%lu MB", (unsigned long)(done >> 20),
+        lv_label_set_text_fmt(text, "%lu.%lu of %lu.%lu MB", (unsigned long)(done >> 20),
                               (unsigned long)((done & 0xFFFFF) * 10 >> 20), (unsigned long)(total >> 20),
                               (unsigned long)((total & 0xFFFFF) * 10 >> 20));
     } else {
-        lv_label_set_text_fmt(wait_text, "%lu of %lu KB", (unsigned long)(done >> 10),
-                              (unsigned long)((total + 1023) >> 10));
+        lv_label_set_text_fmt(text, "%lu of %lu KB", (unsigned long)(done >> 10), (unsigned long)((total + 1023) >> 10));
+    }
+}
+
+static void update_wait(const app_status_t *st)
+{
+    show(wait_panel, st->start_wait);
+    if (st->start_wait) {
+        show_bytes(wait_bar, wait_text, st->xfer_done, st->xfer_total);
+    }
+}
+
+// Firmware or web-app upload from the web app, the NAS or web_deploy.sh: what is
+// arriving, that the device must stay on, and how it ended. Over every screen; taps
+// are swallowed meanwhile (Wi-Fi is on, so no ride runs).
+static lv_obj_t *upd_panel, *upd_title, *upd_msg, *upd_bar, *upd_text;
+
+static void build_update(void)
+{
+    upd_panel = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(upd_panel);
+    lv_obj_set_size(upd_panel, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(upd_panel, rgb(C_BG), 0);
+    lv_obj_set_style_bg_opa(upd_panel, LV_OPA_COVER, 0);
+    lv_obj_add_flag(upd_panel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *c = card(upd_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_width(c, BSP_LCD_W - 2 * PAD);
+    lv_obj_center(c);
+    lv_obj_set_style_pad_row(c, GAP, 0);
+    upd_title = label(c, &lv_font_montserrat_20, "");
+    lv_obj_set_style_text_color(upd_title, rgb(C_TEXT), 0);
+    upd_msg = label(c, &lv_font_montserrat_16, "");
+    lv_obj_set_style_text_color(upd_msg, rgb(C_MUTED), 0);
+    lv_label_set_long_mode(upd_msg, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(upd_msg, LV_PCT(100));
+    upd_bar = lv_bar_create(c);
+    lv_obj_set_size(upd_bar, LV_PCT(100), 12);
+    lv_bar_set_range(upd_bar, 0, 1000);
+    lv_obj_set_style_bg_color(upd_bar, rgb(C_RAISED), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(upd_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(upd_bar, rgb(C_TEXT), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(upd_bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_radius(upd_bar, 6, LV_PART_INDICATOR);
+    upd_text = label(c, &lv_font_montserrat_16, "");
+    lv_obj_set_style_text_color(upd_text, rgb(C_MUTED), 0);
+    show(upd_panel, false);
+}
+
+static void update_update(const app_status_t *st)
+{
+    web_update_t u;
+    bool on = !st->start_wait && web_update(&u);  // a ride waiting to start has its own panel
+    show(upd_panel, on);
+    if (!on) {
+        return;
+    }
+    bool fw = u.kind == WEB_UPD_FIRMWARE;
+    show_bytes(upd_bar, upd_text, u.done, u.total);
+    lv_obj_set_style_bg_color(upd_bar, rgb(u.state == WEB_UPD_FAILED ? C_DANGER : u.state == WEB_UPD_DONE ? C_OK : C_TEXT),
+                              LV_PART_INDICATOR);
+    if (u.state == WEB_UPD_RUNNING) {
+        lv_label_set_text(upd_title, fw ? "Receiving firmware" : "Updating the web app");
+        if (fw) {
+            lv_label_set_text(upd_msg, "Keep the device powered. It restarts when the update is in.");
+        } else {
+            lv_label_set_text_fmt(upd_msg, "Receiving file %u.", (unsigned)u.files + 1);
+        }
+    } else if (u.state == WEB_UPD_DONE) {
+        lv_label_set_text(upd_title, fw ? LV_SYMBOL_OK " Firmware installed" : LV_SYMBOL_OK " Web app updated");
+        if (fw) {
+            lv_label_set_text(upd_msg, "Restarting now. If the new firmware doesn't start, the old one comes back.");
+        } else {
+            lv_label_set_text_fmt(upd_msg, "%u file%s saved.", (unsigned)u.files, u.files == 1 ? "" : "s");
+        }
+    } else {
+        if (u.err[0] >= 'a' && u.err[0] <= 'z') {
+            u.err[0] = (char)(u.err[0] - 'a' + 'A');
+        }
+        lv_label_set_text(upd_title, fw ? LV_SYMBOL_WARNING " Firmware not installed" : LV_SYMBOL_WARNING " Upload failed");
+        lv_label_set_text_fmt(upd_msg, "%s. %s", u.err,
+                              fw ? "The device keeps its firmware. Tap Allow firmware update and try again."
+                                 : "Try again.");
     }
 }
 
@@ -2427,6 +2504,7 @@ static void refresh(lv_timer_t *t)
     app_status_t st;
     app_get_view(&v, &st);
     update_wait(&st);
+    update_update(&st);
     lv_obj_t *active = lv_screen_active();
 
     lv_obj_t *want = active;
@@ -2467,6 +2545,7 @@ static void build_all(lv_display_t *disp)
     build_ride();
     build_summary();
     build_wait();
+    build_update();
 }
 
 void ui_start(void)

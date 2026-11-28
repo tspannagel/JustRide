@@ -72,6 +72,42 @@ static void xfer_begin(uint32_t total)
     s_xfer_total = total;
     s_xfer = true;
 }
+// Firmware and web-app uploads for the device's panel (web_update). Written by the
+// HTTP task, read by the UI task.
+#define UPD_SHOW_US (4 * 1000000LL)  // the result stays this long after an upload
+static portMUX_TYPE s_upd_mux = portMUX_INITIALIZER_UNLOCKED;
+static web_update_t s_upd;
+static bool s_upd_any;       // an upload since Wi-Fi came on
+static int64_t s_upd_until;  // ended: shown until then
+
+static void upd_begin(web_upd_kind_t kind, uint32_t total)
+{
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&s_upd_mux);
+    if (!s_upd_any || s_upd.kind != kind || now >= s_upd_until) {
+        s_upd.files = 0;  // a new panel; web_deploy.sh's files in a row count up on one
+    }
+    s_upd_any = true;
+    s_upd.kind = kind;
+    s_upd.state = WEB_UPD_RUNNING;
+    s_upd.total = total;
+    s_upd.err[0] = 0;
+    portEXIT_CRITICAL(&s_upd_mux);
+}
+
+static void upd_end(const char *err)
+{
+    portENTER_CRITICAL(&s_upd_mux);
+    s_upd.state = err ? WEB_UPD_FAILED : WEB_UPD_DONE;
+    if (err) {
+        snprintf(s_upd.err, sizeof(s_upd.err), "%s", err);
+    } else {
+        s_upd.files++;
+    }
+    s_upd_until = esp_timer_get_time() + UPD_SHOW_US;
+    portEXIT_CRITICAL(&s_upd_mux);
+}
+
 static char s_buf[CHUNK];         // shared by all handlers: the server runs one handler at a time
 
 // ---- Request checks -------------------------------------------------------------
@@ -537,8 +573,9 @@ static esp_err_t h_api_info(httpd_req_t *req)
 }
 
 // Request body -> path, via a temp file so a broken upload never replaces a good file
-static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
+static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max, bool *saved)
 {
+    *saved = false;
     if (req->content_len == 0 || req->content_len > max) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "file empty or too large");
     }
@@ -570,6 +607,7 @@ static esp_err_t receive_file(httpd_req_t *req, const char *path, size_t max)
     } else {
         remove(tmp);
     }
+    *saved = ok;
     return ok ? httpd_resp_sendstr(req, "saved") : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "failed");
 }
 
@@ -603,7 +641,8 @@ static esp_err_t h_workout_upload(httpd_req_t *req)
         return ESP_OK;
     }
     mkdir(BSP_SD_MOUNT "/workouts", 0775);
-    return receive_file(req, path, ends_with(path, ".route") ? ROUTE_MAX_BYTES : ZWO_MAX_BYTES);
+    bool saved;
+    return receive_file(req, path, ends_with(path, ".route") ? ROUTE_MAX_BYTES : ZWO_MAX_BYTES, &saved);
 }
 
 static esp_err_t h_workout_get(httpd_req_t *req)
@@ -788,7 +827,8 @@ static esp_err_t h_plan_upload(httpd_req_t *req)
         return ESP_OK;
     }
     mkdir(BSP_SD_MOUNT "/plans", 0775);
-    return receive_file(req, path, PLAN_MAX_BYTES);
+    bool saved;
+    return receive_file(req, path, PLAN_MAX_BYTES, &saved);
 }
 
 // Web app update over Wi-Fi (tools/web_deploy.sh): only inside the window opened by
@@ -813,12 +853,16 @@ static esp_err_t h_www_upload(httpd_req_t *req)
         mkdir(path, 0775);
         *p = '/';
     }
-    return receive_file(req, path, WWW_MAX_BYTES);
+    bool saved;
+    upd_begin(WEB_UPD_WEBAPP, (uint32_t)req->content_len);
+    esp_err_t r = receive_file(req, path, WWW_MAX_BYTES, &saved);
+    upd_end(saved ? NULL : s_abort ? "Wi-Fi switched off" : "file not saved");
+    return r;
 }
 
 static void restart_task(void *arg)
 {
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(2000));  // the answer gets out, the device shows "Restarting"
     esp_restart();
 }
 
@@ -835,12 +879,15 @@ static esp_err_t h_ota(httpd_req_t *req)
                                    "Tap 'Allow firmware update' on the device first (valid 5 minutes)");
     }
     s_ota_until = 0;  // one upload per tap
+    upd_begin(WEB_UPD_FIRMWARE, (uint32_t)req->content_len);
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (!part || req->content_len == 0 || req->content_len > part->size) {
+        upd_end("bad image size");
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad image size");
     }
     esp_ota_handle_t ota;
     if (esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &ota) != ESP_OK) {
+        upd_end("could not start the update");
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ota begin failed");
     }
     char *buf = s_buf;
@@ -888,11 +935,14 @@ static esp_err_t h_ota(httpd_req_t *req)
     s_xfer = false;
     if (err) {
         esp_ota_abort(ota);
+        upd_end(err);
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, err);
     }
     if (esp_ota_end(ota) != ESP_OK || esp_ota_set_boot_partition(part) != ESP_OK) {
+        upd_end("image invalid");
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "image invalid");
     }
+    upd_end(NULL);
     ESP_LOGI(TAG, "OTA ok (%u bytes), restarting", (unsigned)done);
     httpd_resp_sendstr(req, "OK, restarting");
     xTaskCreate(restart_task, "restart", 2048, NULL, 5, NULL);
@@ -1129,6 +1179,9 @@ void web_stop(void)
     }
     s_running = false;
     s_ota_until = 0;
+    portENTER_CRITICAL(&s_upd_mux);
+    s_upd_any = false;
+    portEXIT_CRITICAL(&s_upd_mux);
     esp_timer_stop(s_fallback);
     esp_timer_stop(s_retry);
     if (s_http) {
@@ -1187,6 +1240,18 @@ void web_allow_ota(void) { s_ota_until = esp_timer_get_time() + OTA_WINDOW_US; }
 bool web_ota_allowed(void) { return s_running && esp_timer_get_time() < s_ota_until; }
 
 bool web_running(void) { return s_running; }
+
+bool web_update(web_update_t *u)
+{
+    int64_t now = esp_timer_get_time();
+    portENTER_CRITICAL(&s_upd_mux);
+    *u = s_upd;
+    bool show = s_upd_any && (s_upd.state == WEB_UPD_RUNNING || now < s_upd_until);
+    portEXIT_CRITICAL(&s_upd_mux);
+    u->done = u->state == WEB_UPD_DONE ? u->total : s_xfer_done;  // failed: as far as it got
+    // A received firmware stays on screen until the restart; anything else goes with Wi-Fi
+    return show && (s_running || (u->kind == WEB_UPD_FIRMWARE && u->state == WEB_UPD_DONE));
+}
 
 void web_closing(void)
 {
